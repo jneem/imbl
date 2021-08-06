@@ -1,13 +1,13 @@
 [package]
-name = "im"
-version = "15.0.0"
-authors = ["Bodil Stokke <bodil@bodil.org>"]
+name = "imbl"
+version = "0.1.0"
+authors = ["Bodil Stokke <bodil@bodil.org>", "Joe Neeman <joeneeman@gmail.com>"]
 edition = "2018"
 license = "MPL-2.0+"
 description = "Immutable collection datatypes"
-repository = "https://github.com/bodil/im-rs"
-documentation = "http://immutable.rs/"
-homepage = "http://immutable.rs/"
+repository = "https://github.com/jneem/imbl"
+documentation = "https://docs.rs/imbl"
+homepage = "https://github.com/jneem/imbl"
 readme = "./README.md"
 categories = ["data-structures"]
 keywords = ["immutable", "persistent", "hamt", "b-tree", "rrb-tree"]
@@ -25,9 +25,6 @@ all-features = true
 
 [lib]
 path = "./src/lib.rs"
-
-[badges]
-travis-ci = { repository = "bodil/im-rs" }
 
 [build-dependencies]
 version_check = "0.9"
