@@ -1,4 +1,4 @@
-# im-rs
+# imbl
 
 Blazing fast immutable collection datatypes for Rust.
 
