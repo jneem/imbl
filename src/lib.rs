@@ -304,7 +304,7 @@
 //! | Feature | Description |
 //! | ------- | ----------- |
 //! | [`pool`](https://crates.io/crates/refpool) | Constructors and pool types for [`refpool`](https://crates.io/crates/refpool) memory pools (only available in `im-rc`) |
-//! | [`proptest`](https://crates.io/crates/proptest) | Strategies for all `im` datatypes under a `proptest` namespace, eg. `im::vector::proptest::vector()` |
+//! | [`proptest`](https://crates.io/crates/proptest) | Strategies for all `im` datatypes under a `proptest` namespace, eg. `imbl::vector::proptest::vector()` |
 //! | [`quickcheck`](https://crates.io/crates/quickcheck) | [`quickcheck::Arbitrary`](https://docs.rs/quickcheck/latest/quickcheck/trait.Arbitrary.html) implementations for all `im` datatypes (not available in `im-rc`) |
 //! | [`rayon`](https://crates.io/crates/rayon) | parallel iterator implementations for [`Vector`][vector::Vector] (not available in `im-rc`) |
 //! | [`serde`](https://crates.io/crates/serde) | [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) and [`Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) implementations for all `im` datatypes |
@@ -414,7 +414,7 @@ mod tests;
 /// # Examples
 ///
 /// ```
-/// # #[macro_use] extern crate im;
+/// # #[macro_use] extern crate imbl;
 /// # use std::sync::Arc;
 /// # fn main() {
 /// let vec_inside_vec = vector![vector![1, 2, 3], vector![4, 5, 6]];
@@ -450,7 +450,7 @@ macro_rules! update_in {
 /// # Examples
 ///
 /// ```
-/// # #[macro_use] extern crate im;
+/// # #[macro_use] extern crate imbl;
 /// # use std::sync::Arc;
 /// # fn main() {
 /// let vec_inside_vec = vector![vector![1, 2, 3], vector![4, 5, 6]];

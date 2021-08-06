@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 
-use im::OrdSet;
+use imbl::OrdSet;
 
 #[derive(Arbitrary, Debug)]
 enum Action<A> {

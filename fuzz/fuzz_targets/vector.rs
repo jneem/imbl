@@ -6,7 +6,7 @@ use std::iter::FromIterator;
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 
-use im::Vector;
+use imbl::Vector;
 
 #[derive(Arbitrary, Debug)]
 enum Action<A> {

@@ -4,7 +4,7 @@
 
 #![feature(test)]
 
-extern crate im;
+extern crate imbl;
 extern crate rand;
 extern crate test;
 
@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use std::iter::FromIterator;
 use test::Bencher;
 
-use im::ordmap::OrdMap;
+use imbl::ordmap::OrdMap;
 
 fn random_keys(size: usize) -> Vec<i64> {
     let mut gen = SmallRng::from_entropy();
@@ -121,7 +121,7 @@ fn ordmap_insert_mut_10000(b: &mut Bencher) {
 #[cfg(feature = "pool")]
 fn ordmap_insert_mut_pooled_n(size: usize, b: &mut Bencher) {
     let keys = random_keys(size);
-    let pool = im::ordmap::OrdMapPool::new(16384);
+    let pool = imbl::ordmap::OrdMapPool::new(16384);
     pool.fill();
     b.iter(|| {
         let mut m = OrdMap::with_pool(&pool);

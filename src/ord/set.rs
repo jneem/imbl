@@ -41,8 +41,8 @@ pub use crate::nodes::btree::DiffItem;
 /// # Examples
 ///
 /// ```
-/// # #[macro_use] extern crate im;
-/// # use im::ordset::OrdSet;
+/// # #[macro_use] extern crate imbl;
+/// # use imbl::ordset::OrdSet;
 /// # fn main() {
 /// assert_eq!(
 ///   ordset![1, 2, 3],
@@ -208,8 +208,8 @@ impl<A> OrdSet<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// let set = OrdSet::unit(123);
     /// assert!(set.contains(&123));
     /// ```
@@ -232,8 +232,8 @@ impl<A> OrdSet<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// assert!(
     ///   !ordset![1, 2, 3].is_empty()
     /// );
@@ -254,8 +254,8 @@ impl<A> OrdSet<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// assert_eq!(3, ordset![1, 2, 3].len());
     /// ```
     #[inline]
@@ -296,8 +296,8 @@ impl<A> OrdSet<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::OrdSet;
     /// let mut set = ordset![1, 2, 3];
     /// set.clear();
     /// assert!(set.is_empty());
@@ -380,8 +380,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// let mut set = ordset!{1, 2, 3};
     /// assert!(set.contains(&1));
     /// assert!(!set.contains(&4));
@@ -406,8 +406,8 @@ where
     /// # Examples
     ///
     /// ```rust
-    /// # #[macro_use] extern crate im;
-    /// # use im::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::OrdSet;
     /// let set = ordset![1, 3, 5, 7, 9];
     /// assert_eq!(Some(&5), set.get_prev(&6));
     /// ```
@@ -426,8 +426,8 @@ where
     /// # Examples
     ///
     /// ```rust
-    /// # #[macro_use] extern crate im;
-    /// # use im::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::OrdSet;
     /// let set = ordset![1, 3, 5, 7, 9];
     /// assert_eq!(Some(&5), set.get_next(&4));
     /// ```
@@ -477,8 +477,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// let mut set = ordset!{};
     /// set.insert(123);
     /// set.insert(456);
@@ -567,8 +567,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// let set = ordset![456];
     /// assert_eq!(
     ///   set.update(123),
@@ -628,8 +628,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// let set1 = ordset!{1, 2};
     /// let set2 = ordset!{2, 3};
     /// let expected = ordset!{1, 2, 3};
@@ -664,8 +664,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// let set1 = ordset!{1, 2};
     /// let set2 = ordset!{2, 3};
     /// let expected = ordset!{1, 3};
@@ -685,8 +685,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// let set1 = ordset!{1, 2};
     /// let set2 = ordset!{2, 3};
     /// let expected = ordset!{1, 3};
@@ -710,8 +710,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// let set1 = ordset!{1, 2};
     /// let set2 = ordset!{2, 3};
     /// let expected = ordset!{1};
@@ -732,8 +732,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// let set1 = ordset!{1, 2};
     /// let set2 = ordset!{2, 3};
     /// let expected = ordset!{2};
@@ -1169,7 +1169,7 @@ impl<'a, A: Hash + Eq + Ord + Clone, S: BuildHasher> From<&'a HashSet<A, S>> for
 pub mod proptest {
     #[deprecated(
         since = "14.3.0",
-        note = "proptest strategies have moved to im::proptest"
+        note = "proptest strategies have moved to imbl::proptest"
     )]
     pub use crate::proptest::ord_set;
 }

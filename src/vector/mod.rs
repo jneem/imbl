@@ -76,8 +76,8 @@ pub mod rayon;
 /// # Examples
 ///
 /// ```
-/// # #[macro_use] extern crate im;
-/// # use im::vector::Vector;
+/// # #[macro_use] extern crate imbl;
+/// # use imbl::vector::Vector;
 /// # fn main() {
 /// assert_eq!(
 ///   vector![1, 2, 3],
@@ -284,7 +284,7 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
+    /// # #[macro_use] extern crate imbl;
     /// assert_eq!(5, vector![1, 2, 3, 4, 5].len());
     /// ```
     #[inline]
@@ -304,8 +304,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
     /// let vec = vector!["Joe", "Mike", "Robert"];
     /// assert_eq!(false, vec.is_empty());
     /// assert_eq!(true, Vector::<i32>::new().is_empty());
@@ -458,8 +458,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
     /// let vec = vector!["Joe", "Mike", "Robert"];
     /// assert_eq!(Some(&"Robert"), vec.get(2));
     /// assert_eq!(None, vec.get(5));
@@ -511,8 +511,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
     /// let mut vec = vector!["Joe", "Mike", "Robert"];
     /// {
     ///     let robert = vec.get_mut(2).unwrap();
@@ -655,8 +655,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
     /// let mut vec = vector![1, 2, 3, 4, 5];
     /// assert_eq!(Some(2), vec.index_of(&3));
     /// assert_eq!(None, vec.index_of(&31337));
@@ -685,8 +685,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
     /// let mut vec = vector![1, 2, 3, 4, 5];
     /// assert_eq!(true, vec.contains(&3));
     /// assert_eq!(false, vec.contains(&31337));
@@ -795,8 +795,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::vector::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::vector::Vector;
     /// let vec = Vector::unit(1337);
     /// assert_eq!(1, vec.len());
     /// assert_eq!(
@@ -831,8 +831,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
     /// let mut vec = vector![1, 2, 3];
     /// assert_eq!(vector![1, 5, 3], vec.update(1, 5));
     /// ```
@@ -869,8 +869,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
     /// let mut vec = vector![5, 6, 7];
     /// vec.push_front(4);
     /// assert_eq!(vector![4, 5, 6, 7], vec);
@@ -895,8 +895,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
     /// let mut vec = vector![1, 2, 3];
     /// vec.push_back(4);
     /// assert_eq!(vector![1, 2, 3, 4], vec);
@@ -921,8 +921,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
     /// let mut vec = vector![1, 2, 3];
     /// assert_eq!(Some(1), vec.pop_front());
     /// assert_eq!(vector![2, 3], vec);
@@ -946,8 +946,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
     /// let mut vec = vector![1, 2, 3];
     /// assert_eq!(Some(3), vec.pop_back());
     /// assert_eq!(vector![1, 2], vec);
@@ -971,8 +971,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::vector::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::vector::Vector;
     /// let mut vec = vector![1, 2, 3];
     /// vec.append(vector![7, 8, 9]);
     /// assert_eq!(vector![1, 2, 3, 7, 8, 9], vec);
@@ -1125,8 +1125,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::vector::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::vector::Vector;
     /// let mut vec = vector![1, 2, 3, 7, 8, 9];
     /// let (left, right) = vec.split_at(3);
     /// assert_eq!(vector![1, 2, 3], left);
@@ -1148,8 +1148,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::vector::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::vector::Vector;
     /// let mut left = vector![1, 2, 3, 7, 8, 9];
     /// let right = left.split_off(3);
     /// assert_eq!(vector![1, 2, 3], left);
@@ -1445,8 +1445,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::vector::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::vector::Vector;
     /// let mut vec = vector![1, 2, 3, 7, 8, 9];
     /// vec.insert_ord(5);
     /// assert_eq!(vector![1, 2, 3, 5, 7, 8, 9], vec);
@@ -1468,8 +1468,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::vector::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::vector::Vector;
     /// let mut vec = vector![3, 2, 5, 4, 1];
     /// vec.sort();
     /// assert_eq!(vector![1, 2, 3, 4, 5], vec);
@@ -1488,8 +1488,8 @@ impl<A: Clone> Vector<A> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::vector::Vector;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::vector::Vector;
     /// let mut vec = vector![3, 2, 5, 4, 1];
     /// vec.sort_by(|left, right| left.cmp(right));
     /// assert_eq!(vector![1, 2, 3, 4, 5], vec);
@@ -2259,7 +2259,7 @@ impl<'a, A: Clone> FusedIterator for ChunksMut<'a, A> {}
 pub mod proptest {
     #[deprecated(
         since = "14.3.0",
-        note = "proptest strategies have moved to im::proptest"
+        note = "proptest strategies have moved to imbl::proptest"
     )]
     pub use crate::proptest::vector;
 }

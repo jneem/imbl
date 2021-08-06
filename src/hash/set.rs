@@ -33,16 +33,16 @@ use std::ops::{Add, Deref, Mul};
 
 use crate::nodes::hamt::{hash_key, Drain as NodeDrain, HashValue, Iter as NodeIter, Node};
 use crate::ordset::OrdSet;
-use crate::Vector;
 use crate::util::{Pool, PoolRef, Ref};
+use crate::Vector;
 
 /// Construct a set from a sequence of values.
 ///
 /// # Examples
 ///
 /// ```
-/// # #[macro_use] extern crate im;
-/// # use im::hashset::HashSet;
+/// # #[macro_use] extern crate imbl;
+/// # use imbl::hashset::HashSet;
 /// # fn main() {
 /// assert_eq!(
 ///   hashset![1, 2, 3],
@@ -154,8 +154,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::hashset::HashSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::hashset::HashSet;
     /// # use std::sync::Arc;
     /// let set = HashSet::unit(123);
     /// assert!(set.contains(&123));
@@ -175,8 +175,8 @@ impl<A, S> HashSet<A, S> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::hashset::HashSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::hashset::HashSet;
     /// assert!(
     ///   !hashset![1, 2, 3].is_empty()
     /// );
@@ -197,8 +197,8 @@ impl<A, S> HashSet<A, S> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::hashset::HashSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::hashset::HashSet;
     /// assert_eq!(3, hashset![1, 2, 3].len());
     /// ```
     #[inline]
@@ -298,8 +298,8 @@ impl<A, S> HashSet<A, S> {
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::HashSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::HashSet;
     /// let mut set = hashset![1, 2, 3];
     /// set.clear();
     /// assert!(set.is_empty());
@@ -434,8 +434,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::hashset::HashSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::hashset::HashSet;
     /// # use std::sync::Arc;
     /// let set = hashset![123];
     /// assert_eq!(
@@ -477,8 +477,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::HashSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::HashSet;
     /// let mut set = hashset![1, 2, 3];
     /// set.retain(|v| *v > 1);
     /// let expected = hashset![2, 3];
@@ -504,8 +504,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::hashset::HashSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::hashset::HashSet;
     /// let set1 = hashset!{1, 2};
     /// let set2 = hashset!{2, 3};
     /// let expected = hashset!{1, 2, 3};
@@ -541,8 +541,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::hashset::HashSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::hashset::HashSet;
     /// let set1 = hashset!{1, 2};
     /// let set2 = hashset!{2, 3};
     /// let expected = hashset!{1, 3};
@@ -562,8 +562,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::hashset::HashSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::hashset::HashSet;
     /// let set1 = hashset!{1, 2};
     /// let set2 = hashset!{2, 3};
     /// let expected = hashset!{1, 3};
@@ -587,8 +587,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::ordset::OrdSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordset::OrdSet;
     /// let set1 = ordset!{1, 2};
     /// let set2 = ordset!{2, 3};
     /// let expected = ordset!{1};
@@ -609,8 +609,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # #[macro_use] extern crate im;
-    /// # use im::hashset::HashSet;
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::hashset::HashSet;
     /// let set1 = hashset!{1, 2};
     /// let set2 = hashset!{2, 3};
     /// let expected = hashset!{2};
@@ -1051,7 +1051,7 @@ where
 pub mod proptest {
     #[deprecated(
         since = "14.3.0",
-        note = "proptest strategies have moved to im::proptest"
+        note = "proptest strategies have moved to imbl::proptest"
     )]
     pub use crate::proptest::hash_set;
 }

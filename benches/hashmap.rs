@@ -4,7 +4,7 @@
 
 #![feature(test)]
 
-extern crate im;
+extern crate imbl;
 extern crate rand;
 extern crate test;
 
@@ -12,7 +12,7 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 use std::iter::FromIterator;
 use test::Bencher;
 
-use im::hashmap::HashMap;
+use imbl::hashmap::HashMap;
 
 fn random_keys(size: usize) -> Vec<i64> {
     let mut gen = SmallRng::from_entropy();

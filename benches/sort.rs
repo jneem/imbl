@@ -2,7 +2,7 @@
 
 extern crate test;
 
-use im::Vector;
+use imbl::Vector;
 use rand::seq::SliceRandom;
 use test::Bencher;
 

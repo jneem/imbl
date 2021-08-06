@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 
-use im::HashSet;
+use imbl::HashSet;
 
 #[derive(Arbitrary, Debug)]
 enum Action<A> {

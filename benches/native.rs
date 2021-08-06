@@ -4,11 +4,11 @@
 
 #![feature(test)]
 
-extern crate im;
+extern crate imbl;
 extern crate rand;
 extern crate test;
 
-use rand::{rngs::SmallRng, SeedableRng, Rng};
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::iter::FromIterator;
 use test::Bencher;
