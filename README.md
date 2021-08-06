@@ -1,15 +1,14 @@
 # im-rs
 
-[![Crate Status](https://img.shields.io/crates/v/im.svg)](https://crates.io/crates/im)
-
 Blazing fast immutable collection datatypes for Rust.
 
-Comes in two versions: [`im`](https://crates.io/crates/im) (thread safe) and
-[`im-rc`](https://crates.io/crates/im-rc) (fast but not thread safe).
+This is a fork of the [`im`](https://github.com/bodil/im-rs) crate,
+which appears to be unmaintained. (This fork is not currently any better,
+but hope springs eternal.)
 
 ## Documentation
 
-* [API docs](https://docs.rs/im/)
+* [API docs](https://docs.rs/imbl/)
 
 ## Licence
 
@@ -25,4 +24,4 @@ Please note that this project is released with a [Contributor Code of
 Conduct][coc]. By participating in this project you agree to abide by its
 terms.
 
-[coc]: https://github.com/bodil/im-rs/blob/master/CODE_OF_CONDUCT.md
+[coc]: https://github.com/jneem/imbl/blob/master/CODE_OF_CONDUCT.md
