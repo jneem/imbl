@@ -376,7 +376,7 @@ where
         }
         let mut seen = collections::HashSet::new();
         for (key, value) in self.iter() {
-            if Some(value) != other.get(&key) {
+            if Some(value) != other.get(key) {
                 return false;
             }
             seen.insert(key);

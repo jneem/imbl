@@ -449,7 +449,7 @@ where
         if other.len() < self.len() {
             return false;
         }
-        self.iter().all(|a| other.contains(&a))
+        self.iter().all(|a| other.contains(a))
     }
 
     /// Test whether a set is a proper subset of another set, meaning
@@ -604,7 +604,7 @@ where
     #[must_use]
     pub fn without_min(&self) -> (Option<A>, Self) {
         match self.get_min() {
-            Some(v) => (Some(v.clone()), self.without(&v)),
+            Some(v) => (Some(v.clone()), self.without(v)),
             None => (None, self.clone()),
         }
     }
@@ -616,7 +616,7 @@ where
     #[must_use]
     pub fn without_max(&self) -> (Option<A>, Self) {
         match self.get_max() {
-            Some(v) => (Some(v.clone()), self.without(&v)),
+            Some(v) => (Some(v.clone()), self.without(v)),
             None => (None, self.clone()),
         }
     }

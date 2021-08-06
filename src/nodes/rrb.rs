@@ -235,10 +235,7 @@ impl<A: Clone> Entry<A> {
     }
 
     fn is_empty_node(&self) -> bool {
-        match self {
-            Empty => true,
-            _ => false,
-        }
+        matches!(self, Empty)
     }
 }
 
@@ -384,10 +381,7 @@ impl<A: Clone> Node<A> {
 
     /// True if the node is dense and so doesn't have a size table
     fn is_dense(&self) -> bool {
-        match self.children {
-            Entry::Nodes(Size::Table(_), _) => false,
-            _ => true,
-        }
+        !matches!(self.children, Entry::Nodes(Size::Table(_), _))
     }
 
     /// True if the node and its children are dense and at capacity

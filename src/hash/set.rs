@@ -337,7 +337,7 @@ where
         }
         let mut seen = collections::HashSet::new();
         for value in self.iter() {
-            if !other.contains(&value) {
+            if !other.contains(value) {
                 return false;
             }
             seen.insert(value);
@@ -372,7 +372,7 @@ where
         RS: Borrow<Self>,
     {
         let o = other.borrow();
-        self.iter().all(|a| o.contains(&a))
+        self.iter().all(|a| o.contains(a))
     }
 
     /// Test whether a set is a proper subset of another set, meaning
