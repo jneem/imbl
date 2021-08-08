@@ -193,6 +193,78 @@ impl<A> Node<A> {
 }
 
 impl<A: BTreeValue> Node<A> {
+    // Checks that this tree is balanced, and returns its depth.
+    #[cfg(test)]
+    pub(crate) fn check_depth(&self) -> usize {
+        if self.children.is_empty() {
+            // This is an empty tree.
+            0
+        } else if self.children[0].is_none() {
+            // This is a leaf node.
+            1
+        } else {
+            let mut depth = None;
+            for c in self.children.iter() {
+                let d = c.as_ref().unwrap().check_depth();
+                assert!(depth.is_none() || depth == Some(d));
+                depth = Some(d);
+            }
+            depth.unwrap()
+        }
+    }
+
+    // Checks that the keys are in the right order.
+    #[cfg(test)]
+    pub(crate) fn check_order(&self) {
+        fn recurse<A: BTreeValue>(node: &Node<A>) -> (&A, &A) {
+            for window in node.keys.windows(2) {
+                assert!(window[0].cmp_values(&window[1]) == Ordering::Less);
+            }
+            if node.is_leaf() {
+                (node.keys.first().unwrap(), node.keys.last().unwrap())
+            } else {
+                for i in 0..node.keys.len() {
+                    let left_max = recurse(node.children[i].as_ref().unwrap()).1;
+                    let right_min = recurse(node.children[i + 1].as_ref().unwrap()).0;
+                    assert!(node.keys[i].cmp_values(left_max) == Ordering::Greater);
+                    assert!(node.keys[i].cmp_values(right_min) == Ordering::Less);
+                }
+                (
+                    recurse(node.children.first().unwrap().as_ref().unwrap()).0,
+                    recurse(node.children.last().unwrap().as_ref().unwrap()).1,
+                )
+            }
+        }
+        if !self.keys.is_empty() {
+            recurse(self);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn check_size(&self) {
+        fn recurse<A: BTreeValue>(node: &Node<A>) {
+            assert!(node.keys.len() + 1 == node.children.len());
+            assert!(node.keys.len() + 1 >= MEDIAN);
+            if !node.is_leaf() {
+                for c in &node.children {
+                    recurse(c.as_ref().unwrap());
+                }
+            }
+        }
+        if !self.is_leaf() {
+            for c in &self.children {
+                recurse(c.as_ref().unwrap());
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn check_sane(&self) {
+        self.check_depth();
+        self.check_order();
+        self.check_size();
+    }
+
     fn child_contains<BK>(&self, index: usize, key: &BK) -> bool
     where
         BK: Ord + ?Sized,
@@ -259,14 +331,13 @@ impl<A: BTreeValue> Node<A> {
         }
         match A::search_key(&self.keys, key) {
             Ok(index) => Some(&self.keys[index]),
-            Err(index) => match self.children[index] {
-                None if index == 0 => None,
-                None => match self.keys.get(index - 1) {
-                    Some(_) => Some(&self.keys[index - 1]),
-                    None => None,
-                },
-                Some(ref node) => node.lookup_prev(key),
-            },
+            Err(index) => self.children[index]
+                .as_ref()
+                .and_then(|node| node.lookup_prev(key))
+                // If we haven't found our search key yet, it isn't in any child subtree of ours.
+                // That means that if index == 0 then we have no predecessor for the search key,
+                // and if index > 0 then the predecessor is our key at index - 1.
+                .or_else(|| index.checked_sub(1).and_then(|i| self.keys.get(i))),
         }
     }
 
@@ -280,13 +351,12 @@ impl<A: BTreeValue> Node<A> {
         }
         match A::search_key(&self.keys, key) {
             Ok(index) => Some(&self.keys[index]),
-            Err(index) => match self.children[index] {
-                None => match self.keys.get(index) {
-                    Some(_) => Some(&self.keys[index]),
-                    None => None,
-                },
-                Some(ref node) => node.lookup_next(key),
-            },
+            Err(index) => self.children[index]
+                .as_ref()
+                .and_then(|node| node.lookup_next(key))
+                // If we don't find the search key in the child subtree, then either our next key
+                // is the search key's successor, or else we don't have a successor in our subtree.
+                .or_else(|| self.keys.get(index)),
         }
     }
 
@@ -303,16 +373,13 @@ impl<A: BTreeValue> Node<A> {
         if self.keys.is_empty() {
             return None;
         }
-        match A::search_key(&self.keys, key) {
-            Ok(index) => Some(&mut self.keys[index]),
-            Err(index) => match self.children[index] {
-                None if index == 0 => None,
-                None => match self.keys.get(index - 1) {
-                    Some(_) => Some(&mut self.keys[index - 1]),
-                    None => None,
-                },
-                Some(ref mut node) => PoolRef::make_mut(pool, node).lookup_prev_mut(pool, key),
-            },
+        let keys = &mut self.keys;
+        match A::search_key(keys, key) {
+            Ok(index) => Some(&mut keys[index]),
+            Err(index) => self.children[index]
+                .as_mut()
+                .and_then(|node| PoolRef::make_mut(pool, node).lookup_prev_mut(pool, key))
+                .or_else(|| index.checked_sub(1).and_then(move |i| keys.get_mut(i))),
         }
     }
 
@@ -329,15 +396,13 @@ impl<A: BTreeValue> Node<A> {
         if self.keys.is_empty() {
             return None;
         }
-        match A::search_key(&self.keys, key) {
-            Ok(index) => Some(&mut self.keys[index]),
-            Err(index) => match self.children[index] {
-                None => match self.keys.get(index) {
-                    Some(_) => Some(&mut self.keys[index]),
-                    None => None,
-                },
-                Some(ref mut node) => PoolRef::make_mut(pool, node).lookup_next_mut(pool, key),
-            },
+        let keys = &mut self.keys;
+        match A::search_key(keys, key) {
+            Ok(index) => Some(&mut keys[index]),
+            Err(index) => self.children[index]
+                .as_mut()
+                .and_then(|node| PoolRef::make_mut(pool, node).lookup_next_mut(pool, key))
+                .or_else(move || keys.get_mut(index)),
         }
     }
 
@@ -585,6 +650,11 @@ impl<A: BTreeValue> Node<A> {
     fn push_max(&mut self, child: Option<PoolRef<Node<A>>>, value: A) {
         self.keys.push_back(value);
         self.children.push_back(child);
+    }
+
+    fn is_leaf(&self) -> bool {
+        // `children` is never empty, so we can index it.
+        self.children[0].is_none()
     }
 
     pub(crate) fn insert(&mut self, pool: &Pool<Node<A>>, value: A) -> Insert<A>
@@ -951,7 +1021,13 @@ impl<A: BTreeValue> Node<A> {
 
 /// An iterator over an ordered set.
 pub struct Iter<'a, A> {
+    /// Path to the next element that we'll yield if we take a forward step.  Each element here is
+    /// of the form `(node, index)`. For the last path element, `index` points to the next key to
+    /// yield. For every other path element, `index` is the child index of the next node in the
+    /// path.
     fwd_path: Vec<(&'a Node<A>, usize)>,
+    /// Path to the next element that we'll yield if we take a backward step. This has the same
+    /// format as `fwd_path`.
     back_path: Vec<(&'a Node<A>, usize)>,
     pub(crate) remaining: usize,
 }
@@ -1047,15 +1123,24 @@ impl<'a, A: BTreeValue> Iter<'a, A> {
     }
 
     fn step_back(path: &mut Vec<(&'a Node<A>, usize)>) -> Option<&'a A> {
+        // TODO: we're doing some repetitive leaf-vs-internal checking.
         match path.pop() {
             Some((node, index)) => match node.children[index] {
                 Some(ref child) => {
                     path.push((node, index));
-                    let mut end = child.keys.len() - 1;
+                    let mut end = if child.is_leaf() {
+                        child.keys.len() - 1
+                    } else {
+                        child.children.len() - 1
+                    };
                     path.push((child, end));
                     let mut node = child;
-                    while let Some(ref right_child) = node.children[end + 1] {
-                        end = right_child.keys.len() - 1;
+                    while let Some(ref right_child) = node.children[end] {
+                        end = if right_child.is_leaf() {
+                            right_child.keys.len() - 1
+                        } else {
+                            right_child.children.len() - 1
+                        };
                         path.push((right_child, end));
                         node = right_child;
                     }

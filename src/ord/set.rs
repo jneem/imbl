@@ -1219,6 +1219,7 @@ mod test {
         fn proptest_a_set(ref s in ord_set(".*", 10..100)) {
             assert!(s.len() < 100);
             assert!(s.len() >= 10);
+            s.root.check_sane();
         }
 
         #[test]
@@ -1226,11 +1227,13 @@ mod test {
             let range = 0..max;
             let expected: Vec<i32> = range.clone().collect();
             let set: OrdSet<i32> = OrdSet::from_iter(range.clone());
+            set.root.check_sane();
             let result: Vec<i32> = set.range(..).cloned().collect();
             assert_eq!(expected, result);
 
             let expected: Vec<i32> = range.clone().rev().collect();
             let set: OrdSet<i32> = OrdSet::from_iter(range);
+            set.root.check_sane();
             let result: Vec<i32> = set.range(..).rev().cloned().collect();
             assert_eq!(expected, result);
         }
