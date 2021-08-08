@@ -37,6 +37,13 @@ pub trait BTreeValue {
     fn cmp_values(&self, other: &Self) -> Ordering;
 }
 
+/// A node in a `BTree`.
+///
+/// A node is either internal, or a leaf. Leaf nodes have `None` for every child, and internal
+/// nodes have `Some(_)` for every child. There will never be a mixture of `None`s and `Some`s.
+///
+/// The `children` array is never empty, and always has exactly one more element than `keys`. The
+/// empty tree has no keys, and a single `None` child.
 pub(crate) struct Node<A> {
     keys: Chunk<A, NodeSize>,
     children: Chunk<Option<PoolRef<Node<A>>>, Add1<NodeSize>>,
@@ -86,9 +93,14 @@ enum InsertAction<A> {
     InsertSplit(Node<A>, A, Node<A>),
 }
 
+/// The result of a remove operation.
 pub(crate) enum Remove<A> {
+    /// The key to remove was not found in the tree; nothing changed.
     NoChange,
+    /// The key was found and removed: here it is.
     Removed(A),
+    /// The key was found, and the root node of the tree was modified: here is the found key, and
+    /// the new root node.
     Update(A, Node<A>),
 }
 
@@ -134,6 +146,8 @@ impl<A> Node<A> {
         self.keys.len() < NODE_SIZE
     }
 
+    /// This name is slightly misleading, because we actually check whether this node is the
+    /// minimum allowed size (for a non-root node).
     #[inline]
     fn too_small(&self) -> bool {
         self.keys.len() < MEDIAN
