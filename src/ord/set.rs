@@ -7,15 +7,13 @@
 //! An immutable ordered set implemented as a [B-tree] [1].
 //!
 //! Most operations on this type of set are O(log n). A
-//! [`HashSet`][hashset::HashSet] is usually a better choice for
+//! [`HashSet`] is usually a better choice for
 //! performance, but the `OrdSet` has the advantage of only requiring
 //! an [`Ord`][std::cmp::Ord] constraint on its values, and of being
 //! ordered, so values always come out from lowest to highest, where a
-//! [`HashSet`][hashset::HashSet] has no guaranteed ordering.
+//! [`HashSet`] has no guaranteed ordering.
 //!
 //! [1]: https://en.wikipedia.org/wiki/B-tree
-//! [hashset::HashSet]: ./struct.HashSet.html
-//! [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
@@ -163,15 +161,13 @@ def_pool!(OrdSetPool<A>, Node<Value<A>>);
 /// An immutable ordered set implemented as a [B-tree] [1].
 ///
 /// Most operations on this type of set are O(log n). A
-/// [`HashSet`][hashset::HashSet] is usually a better choice for
+/// [`HashSet`] is usually a better choice for
 /// performance, but the `OrdSet` has the advantage of only requiring
 /// an [`Ord`][std::cmp::Ord] constraint on its values, and of being
 /// ordered, so values always come out from lowest to highest, where a
-/// [`HashSet`][hashset::HashSet] has no guaranteed ordering.
+/// [`HashSet`] has no guaranteed ordering.
 ///
 /// [1]: https://en.wikipedia.org/wiki/B-tree
-/// [hashset::HashSet]: ./struct.HashSet.html
-/// [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 pub struct OrdSet<A> {
     size: usize,
     pool: OrdSetPool<A>,
