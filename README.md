@@ -2,9 +2,9 @@
 
 Blazing fast immutable collection datatypes for Rust.
 
-This is a fork of the [`im`](https://github.com/bodil/im-rs) crate,
-which appears to be unmaintained. (This fork is not currently any better,
-but hope springs eternal.)
+This is a fork of the [`im`](https://github.com/bodil/im-rs) crate, which
+appears to be unmaintained. The `1.0` release of `imbl` is compatible with the
+`15.0.0` release of `im`, but with some fixes to `OrdMap` and `OrdSet`.
 
 ## Documentation
 
@@ -12,7 +12,8 @@ but hope springs eternal.)
 
 ## Licence
 
-Copyright 2017 Bodil Stokke
+Copyright 2017--2021 Bodil Stokke
+Copyright 2021 Joe Neeman
 
 This software is subject to the terms of the Mozilla Public
 License, v. 2.0. If a copy of the MPL was not distributed with this
