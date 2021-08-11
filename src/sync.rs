@@ -4,7 +4,8 @@
 
 pub(crate) use self::lock::Lock;
 
-#[cfg(threadsafe)]
+// FIXME: This is intended to be replaced by something else when using the non-threadsafe, `Rc`
+// version of this crate. We have temporarily disabled that.
 mod lock {
     use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -23,39 +24,6 @@ mod lock {
         #[inline]
         pub(crate) fn lock(&mut self) -> Option<MutexGuard<'_, A>> {
             self.lock.lock().ok()
-        }
-    }
-
-    impl<A> Clone for Lock<A> {
-        fn clone(&self) -> Self {
-            Lock {
-                lock: self.lock.clone(),
-            }
-        }
-    }
-}
-
-#[cfg(not(threadsafe))]
-mod lock {
-    use std::cell::{RefCell, RefMut};
-    use std::rc::Rc;
-
-    /// Single threaded lock: a `RefCell` so we should safely panic if somehow
-    /// trying to access the stored data twice from the same thread.
-    pub(crate) struct Lock<A> {
-        lock: Rc<RefCell<A>>,
-    }
-
-    impl<A> Lock<A> {
-        pub(crate) fn new(value: A) -> Self {
-            Lock {
-                lock: Rc::new(RefCell::new(value)),
-            }
-        }
-
-        #[inline]
-        pub(crate) fn lock(&mut self) -> Option<RefMut<'_, A>> {
-            self.lock.try_borrow_mut().ok()
         }
     }
 

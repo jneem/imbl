@@ -54,7 +54,7 @@
 //! just pick the one that has the right shape and it should have
 //! acceptable performance characteristics for every operation you
 //! might need. Specialised data structures will always be faster at
-//! what they've been specialised for, but `im` aims to provide the
+//! what they've been specialised for, but `imbl` aims to provide the
 //! data structures which deliver the least chance of accidentally
 //! using them for the wrong thing.
 //!
@@ -282,33 +282,28 @@
 //!
 //! ## Thread Safety
 //!
-//! The data structures in the `im` crate are thread safe, through
-//! [`Arc`][std::sync::Arc]. This comes with a slight performance impact, so
-//! that if you prioritise speed over thread safety, you may want to use the
-//! `im-rc` crate instead, which is identical to `im` except that it uses
-//! [`Rc`][std::rc::Rc] instead of [`Arc`][std::sync::Arc], implying that the
-//! data structures in `im-rc` do not implement [`Send`][std::marker::Send] and
-//! [`Sync`][std::marker::Sync]. This yields approximately a 20-25% increase in
-//! general performance.
+//! The data structures in the `imbl` crate are thread safe, through [`Arc`][std::sync::Arc]. This
+//! comes with a slight performance impact. The original `im` crate had a non-threadsafe version
+//! called `im-rc`. If you prioritise speed over thread safety, you may want to use that crate
+//! instead.  We intend to eventually support a faster, non-threadsafe version of `imbl`.
 //!
 //! ## Feature Flags
 //!
-//! `im` comes with optional support for the following crates through Cargo
+//! `imbl` comes with optional support for the following crates through Cargo
 //! feature flags. You can enable them in your `Cargo.toml` file like this:
 //!
 //! ```no_compile
 //! [dependencies]
-//! im = { version = "*", features = ["proptest", "serde"] }
+//! imbl = { version = "*", features = ["proptest", "serde"] }
 //! ```
 //!
 //! | Feature | Description |
 //! | ------- | ----------- |
-//! | [`pool`](https://crates.io/crates/refpool) | Constructors and pool types for [`refpool`](https://crates.io/crates/refpool) memory pools (only available in `im-rc`) |
-//! | [`proptest`](https://crates.io/crates/proptest) | Strategies for all `im` datatypes under a `proptest` namespace, eg. `imbl::vector::proptest::vector()` |
-//! | [`quickcheck`](https://crates.io/crates/quickcheck) | [`quickcheck::Arbitrary`](https://docs.rs/quickcheck/latest/quickcheck/trait.Arbitrary.html) implementations for all `im` datatypes (not available in `im-rc`) |
-//! | [`rayon`](https://crates.io/crates/rayon) | parallel iterator implementations for [`Vector`][vector::Vector] (not available in `im-rc`) |
-//! | [`serde`](https://crates.io/crates/serde) | [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) and [`Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) implementations for all `im` datatypes |
-//! | [`arbitrary`](https://crates.io/crates/arbitrary/) | [`arbitrary::Arbitrary`](https://docs.rs/arbitrary/latest/arbitrary/trait.Arbitrary.html) implementations for all `im` datatypes |
+//! | [`proptest`](https://crates.io/crates/proptest) | Strategies for all `imbl` datatypes under a `proptest` namespace, eg. `imbl::vector::proptest::vector()` |
+//! | [`quickcheck`](https://crates.io/crates/quickcheck) | [`quickcheck::Arbitrary`](https://docs.rs/quickcheck/latest/quickcheck/trait.Arbitrary.html) implementations for all `imbl` datatypes |
+//! | [`rayon`](https://crates.io/crates/rayon) | parallel iterator implementations for [`Vector`][vector::Vector] |
+//! | [`serde`](https://crates.io/crates/serde) | [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) and [`Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) implementations for all `imbl` datatypes |
+//! | [`arbitrary`](https://crates.io/crates/arbitrary/) | [`arbitrary::Arbitrary`](https://docs.rs/arbitrary/latest/arbitrary/trait.Arbitrary.html) implementations for all `imbl` datatypes |
 //!
 //! [std::collections]: https://doc.rust-lang.org/std/collections/index.html
 //! [std::collections::VecDeque]: https://doc.rust-lang.org/std/collections/struct.VecDeque.html
@@ -378,16 +373,16 @@ pub mod ser;
 #[doc(hidden)]
 pub mod arbitrary;
 
-#[cfg(all(threadsafe, feature = "quickcheck"))]
+#[cfg(feature = "quickcheck")]
 #[doc(hidden)]
 pub mod quickcheck;
 
-#[cfg(any(threadsafe, not(feature = "pool")))]
+#[cfg(not(feature = "pool"))]
 mod fakepool;
 
-#[cfg(all(threadsafe, feature = "pool"))]
+#[cfg(feature = "pool")]
 compile_error!(
-    "The `pool` feature is not threadsafe but you've enabled it on a threadsafe version of `im`."
+    "The `pool` feature is not threadsafe but you've enabled it on a threadsafe version of `imbl`."
 );
 
 pub use crate::hashmap::HashMap;

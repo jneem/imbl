@@ -2123,7 +2123,12 @@ mod test {
     use crate::test::LolHasher;
     use ::proptest::num::{i16, usize};
     use ::proptest::{collection, proptest};
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::hash::BuildHasherDefault;
+
+    assert_impl_all!(HashMap<i32, i32>: Send, Sync);
+    assert_not_impl_any!(HashMap<i32, *const i32>: Send, Sync);
+    assert_not_impl_any!(HashMap<*const i32, i32>: Send, Sync);
 
     #[test]
     fn safe_mutation() {

@@ -68,7 +68,7 @@ pub use self::focus::{Focus, FocusMut};
 mod pool;
 pub use self::pool::RRBPool;
 
-#[cfg(all(threadsafe, any(test, feature = "rayon")))]
+#[cfg(any(test, feature = "rayon"))]
 pub mod rayon;
 
 /// Construct a vector from a sequence of elements.
@@ -2269,6 +2269,10 @@ mod test {
     use ::proptest::collection::vec;
     use ::proptest::num::{i32, usize};
     use ::proptest::proptest;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+
+    assert_impl_all!(Vector<i32>: Send, Sync);
+    assert_not_impl_any!(Vector<*const i32>: Send, Sync);
 
     #[test]
     fn macro_allows_trailing_comma() {

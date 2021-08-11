@@ -53,3 +53,4 @@ rand = { version = "0.8", features = ["small_rng"] }
 pretty_assertions = "0.7"
 metrohash = "1"
 proptest-derive = "0.3"
+static_assertions = "1.1.0"
