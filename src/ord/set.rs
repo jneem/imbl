@@ -1180,6 +1180,10 @@ mod test {
     use super::*;
     use crate::proptest::*;
     use ::proptest::proptest;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+
+    assert_impl_all!(OrdSet<i32>: Send, Sync);
+    assert_not_impl_any!(OrdSet<*const i32>: Send, Sync);
 
     #[test]
     fn match_strings_with_string_slices() {

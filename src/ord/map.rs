@@ -2195,6 +2195,11 @@ mod test {
     use crate::test::is_sorted;
     use ::proptest::num::{i16, usize};
     use ::proptest::{bool, collection, proptest};
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+
+    assert_impl_all!(OrdMap<i32, i32>: Send, Sync);
+    assert_not_impl_any!(OrdMap<i32, *const i32>: Send, Sync);
+    assert_not_impl_any!(OrdMap<*const i32, i32>: Send, Sync);
 
     #[test]
     fn iterates_in_order() {

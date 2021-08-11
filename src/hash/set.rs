@@ -1068,7 +1068,11 @@ mod test {
     use crate::test::LolHasher;
     use ::proptest::num::i16;
     use ::proptest::proptest;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::hash::BuildHasherDefault;
+
+    assert_impl_all!(HashSet<i32>: Send, Sync);
+    assert_not_impl_any!(HashSet<*const i32>: Send, Sync);
 
     #[test]
     fn insert_failing() {
