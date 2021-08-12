@@ -933,13 +933,21 @@ where
     /// ```
     #[must_use]
     pub fn union(self, other: Self) -> Self {
-        let (mut to_mutate, to_consume) = if self.len() >= other.len() {
-            (self, other)
+        let (mut to_mutate, to_consume, use_to_consume) = if self.len() >= other.len() {
+            (self, other, false)
         } else {
-            (other, self)
+            (other, self, true)
         };
         for (k, v) in to_consume {
-            to_mutate.entry(k).or_insert(v);
+            match to_mutate.entry(k) {
+                Entry::Occupied(mut e) if use_to_consume => {
+                    e.insert(v);
+                }
+                Entry::Vacant(e) => {
+                    e.insert(v);
+                }
+                _ => {}
+            }
         }
         to_mutate
     }
@@ -2379,6 +2387,26 @@ mod test {
                 }
             }
             assert_eq!(0, it.len());
+        }
+
+        #[test]
+        fn union(ref m1 in collection::hash_map(i16::ANY, i16::ANY, 0..100),
+                 ref m2 in collection::hash_map(i16::ANY, i16::ANY, 0..100)) {
+            let map1: HashMap<i16, i16> = FromIterator::from_iter(m1.iter().map(|(k, v)| (*k, *v)));
+            let map2: HashMap<i16, i16> = FromIterator::from_iter(m2.iter().map(|(k, v)| (*k, *v)));
+            let union_map = map1.union(map2);
+
+            for k in m1.keys() {
+                assert!(union_map.contains_key(k));
+            }
+
+            for k in m2.keys() {
+                assert!(union_map.contains_key(k));
+            }
+
+            for (k, v) in union_map.iter() {
+                assert_eq!(v, m1.get(k).or_else(|| m2.get(k)).unwrap());
+            }
         }
     }
 }
