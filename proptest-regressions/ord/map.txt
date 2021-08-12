@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 xs 888006417 2608449019 3789353629 478040202 # shrinks to ref m = {0: 0}
+cc 4d17a23bdf75385eeef3b52975b400b254cb7df841feaf5a362c8b046f5d8ac2 # shrinks to ref map1 = {20948: 0}, ref map2 = {0: 0, 20948: -1}

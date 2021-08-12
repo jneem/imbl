@@ -981,16 +981,20 @@ where
     /// ```
     #[inline]
     #[must_use]
-    pub fn union(self, other: Self) -> Self {
-        let (mut to_mutate, to_consume) = if self.len() >= other.len() {
-            (self, other)
+    pub fn union(mut self, mut other: Self) -> Self {
+        // We get better performance by consuming the small one and growing the big one. But the
+        // code isn't quite symmetric, because we need to keep values that are present in `self`.
+        if self.len() >= other.len() {
+            for (k, v) in other {
+                self.entry(k).or_insert(v);
+            }
+            self
         } else {
-            (other, self)
-        };
-        for (k, v) in to_consume {
-            to_mutate.entry(k).or_insert(v);
+            for (k, v) in self {
+                other.insert(k, v);
+            }
+            other
         }
-        to_mutate
     }
 
     /// Construct the union of two maps, using a function to decide
@@ -2655,6 +2659,24 @@ mod test {
                 }
             }).collect();
             assert_eq!(expected, diff);
+        }
+
+        #[test]
+        fn union(ref map1 in ord_map(i16::ANY, i16::ANY, 0..100),
+                 ref map2 in ord_map(i16::ANY, i16::ANY, 0..100)) {
+            let union_map = map1.clone().union(map2.clone());
+
+            for k in map1.keys() {
+                assert!(union_map.contains_key(k));
+            }
+
+            for k in map2.keys() {
+                assert!(union_map.contains_key(k));
+            }
+
+            for (k, v) in union_map.iter() {
+                assert_eq!(v, map1.get(k).or_else(|| map2.get(k)).unwrap());
+            }
         }
     }
 }
