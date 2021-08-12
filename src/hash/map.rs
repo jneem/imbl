@@ -933,13 +933,21 @@ where
     /// ```
     #[must_use]
     pub fn union(self, other: Self) -> Self {
-        let (mut to_mutate, to_consume) = if self.len() >= other.len() {
-            (self, other)
+        let (mut to_mutate, to_consume, use_to_consume) = if self.len() >= other.len() {
+            (self, other, false)
         } else {
-            (other, self)
+            (other, self, true)
         };
         for (k, v) in to_consume {
-            to_mutate.entry(k).or_insert(v);
+            match to_mutate.entry(k) {
+                Entry::Occupied(mut e) if use_to_consume => {
+                    e.insert(v);
+                }
+                Entry::Vacant(e) => {
+                    e.insert(v);
+                }
+                _ => {}
+            }
         }
         to_mutate
     }
