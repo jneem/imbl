@@ -2388,5 +2388,25 @@ mod test {
             }
             assert_eq!(0, it.len());
         }
+
+        #[test]
+        fn union(ref m1 in collection::hash_map(i16::ANY, i16::ANY, 0..100),
+                 ref m2 in collection::hash_map(i16::ANY, i16::ANY, 0..100)) {
+            let map1: HashMap<i16, i16> = FromIterator::from_iter(m1.iter().map(|(k, v)| (*k, *v)));
+            let map2: HashMap<i16, i16> = FromIterator::from_iter(m2.iter().map(|(k, v)| (*k, *v)));
+            let union_map = map1.union(map2);
+
+            for k in m1.keys() {
+                assert!(union_map.contains_key(k));
+            }
+
+            for k in m2.keys() {
+                assert!(union_map.contains_key(k));
+            }
+
+            for (k, v) in union_map.iter() {
+                assert_eq!(v, m1.get(k).or_else(|| m2.get(k)).unwrap());
+            }
+        }
     }
 }
