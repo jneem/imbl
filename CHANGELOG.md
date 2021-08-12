@@ -10,6 +10,7 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 -   Fixed #18, a critical bug that prevented everything from being `Send` and `Sync`.
+-   Fixed value priority of unions in `OrdMap` and `HashMap`: the values in `self` should always win.
 
 ## [1.0.0] - 2021-08-11
 
