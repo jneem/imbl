@@ -2429,6 +2429,8 @@ mod test {
                 omap.range((Included(i), Included(i + 7))).count(),
                 bmap.range((Included(i), Included(i + 7))).count(),
             );
+            assert_eq!(omap.range(..=i).next_back(), omap.get_prev(&i));
+            assert_eq!(omap.range(i..).next(), omap.get_next(&i));
         }
     }
 
