@@ -1457,6 +1457,89 @@ impl<A: Clone> Vector<A> {
         }
     }
 
+    /// Insert an element into a sorted vector using a comparator function.
+    ///
+    /// Insert an element into a vector in sorted order using the given
+    /// comparator function, assuming the vector is already in sorted order.
+    ///
+    /// Note that the ordering used to sort the vector must logically match
+    /// the ordering in the comparison function provided to `insert_ord_by`.
+    /// Incompatible definitions of the ordering won't result in memory
+    /// unsafety, but will likely result in out-of-order insertions.
+    ///
+    ///
+    /// Time: O(log n)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[macro_use] extern crate imbl;
+    /// use imbl::vector::Vector;
+    ///
+    /// let mut vec: Vector<u8> = vector![9, 8, 7, 3, 2, 1];
+    /// vec.insert_ord_by(5, |a, b| a.cmp(b).reverse());
+    /// assert_eq!(vector![9, 8, 7, 5, 3, 2, 1], vec);
+    ///
+    /// // Note that `insert_ord` does not work in this case because it uses
+    /// // the default comparison function for the item type.
+    /// vec.insert_ord(4);
+    /// assert_eq!(vector![4, 9, 8, 7, 5, 3, 2, 1], vec);
+    /// ```
+    pub fn insert_ord_by<F>(&mut self, item: A, mut f: F)
+    where
+        A: Ord,
+        F: FnMut(&A, &A) -> Ordering,
+    {
+        match self.binary_search_by(|scan_item| f(scan_item, &item)) {
+            Ok(idx) | Err(idx) => self.insert(idx, item),
+        }
+    }
+
+    /// Insert an element into a sorted vector where the comparison function
+    /// delegates to the Ord implementation for values calculated by a user-
+    /// provided function defined on the item type.
+    ///
+    /// This function assumes the vector is already sorted. If it isn't sorted,
+    /// this function may insert the provided value out of order.
+    ///
+    /// Note that the ordering of the sorted vector must logically match the
+    /// `PartialOrd` implementation of the type returned by the passed comparator
+    /// function `f`. Incompatible definitions of the ordering won't result in
+    /// memory unsafety, but will likely result in out-of-order insertions.
+    ///
+    ///
+    /// Time: O(log n)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[macro_use] extern crate imbl;
+    /// use imbl::vector::Vector;
+    ///
+    /// type A = (u8, &'static str);
+    ///
+    /// let mut vec: Vector<A> = vector![(3, "a"), (1, "c"), (0, "d")];
+    ///
+    /// // For the sake of this example, let's say that only the second element
+    /// // of the A tuple is important in the context of comparison.
+    /// vec.insert_ord_by_key((0, "b"), |a| a.1);
+    /// assert_eq!(vector![(3, "a"), (0, "b"), (1, "c"), (0, "d")], vec);
+    ///
+    /// // Note that `insert_ord` does not work in this case because it uses
+    /// // the default comparison function for the item type.
+    /// vec.insert_ord((0, "e"));
+    /// assert_eq!(vector![(3, "a"), (0, "b"), (0, "e"), (1, "c"), (0, "d")], vec);
+    /// ```
+    pub fn insert_ord_by_key<B, F>(&mut self, item: A, mut f: F)
+    where
+        B: Ord,
+        F: FnMut(&A) -> B,
+    {
+        match self.binary_search_by_key(&f(&item), |scan_item| f(scan_item)) {
+            Ok(idx) | Err(idx) => self.insert(idx, item),
+        }
+    }
+
     /// Sort a vector.
     ///
     /// Time: O(n log n)
