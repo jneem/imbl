@@ -50,12 +50,10 @@ pub(crate) struct Node<A> {
 }
 
 #[cfg(feature = "pool")]
-#[allow(unsafe_code)]
 unsafe fn cast_uninit<A>(target: &mut A) -> &mut mem::MaybeUninit<A> {
     &mut *(target as *mut A as *mut mem::MaybeUninit<A>)
 }
 
-#[allow(unsafe_code)]
 impl<A> PoolDefault for Node<A> {
     #[cfg(feature = "pool")]
     unsafe fn default_uninit(target: &mut mem::MaybeUninit<Self>) {
@@ -66,7 +64,6 @@ impl<A> PoolDefault for Node<A> {
     }
 }
 
-#[allow(unsafe_code)]
 impl<A> PoolClone for Node<A>
 where
     A: Clone,

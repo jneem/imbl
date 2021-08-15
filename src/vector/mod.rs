@@ -43,6 +43,8 @@
 //! [Vec]: https://doc.rust-lang.org/std/vec/struct.Vec.html
 //! [VecDeque]: https://doc.rust-lang.org/std/collections/struct.VecDeque.html
 
+#![allow(unsafe_code)]
+
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Error, Formatter};
@@ -57,7 +59,7 @@ use sized_chunks::InlineArray;
 use crate::nodes::chunk::{Chunk, CHUNK_SIZE};
 use crate::nodes::rrb::{Node, PopResult, PushResult, SplitResult};
 use crate::sort;
-use crate::util::{clone_ref, swap_indices, to_range, Pool, PoolDefault, PoolRef, Ref, Side};
+use crate::util::{clone_ref, to_range, Pool, PoolDefault, PoolRef, Ref, Side};
 
 use self::VectorInner::{Full, Inline, Single};
 
@@ -855,7 +857,16 @@ impl<A: Clone> Vector<A> {
     ///
     /// Time: O(log n)
     pub fn swap(&mut self, i: usize, j: usize) {
-        swap_indices(self, i, j)
+        if i != j {
+            let a: *mut A = &mut self[i];
+            let b: *mut A = &mut self[j];
+
+            // Vector's implementation of IndexMut ensures that if `i` and `j` are different
+            // indices then `&mut self[i]` and `&mut self[j]` are non-overlapping.
+            unsafe {
+                std::ptr::swap(a, b);
+            }
+        }
     }
 
     /// Push a value to the front of a vector.
@@ -1978,7 +1989,6 @@ impl<'a, A: Clone> Iterator for Iter<'a, A> {
         if self.front_index >= self.back_index {
             return None;
         }
-        #[allow(unsafe_code)]
         let focus: &'a mut Focus<'a, A> = unsafe { &mut *(&mut self.focus as *mut _) };
         let value = focus.get(self.front_index);
         self.front_index += 1;
@@ -2000,7 +2010,6 @@ impl<'a, A: Clone> DoubleEndedIterator for Iter<'a, A> {
             return None;
         }
         self.back_index -= 1;
-        #[allow(unsafe_code)]
         let focus: &'a mut Focus<'a, A> = unsafe { &mut *(&mut self.focus as *mut _) };
         focus.get(self.back_index)
     }
@@ -2057,7 +2066,6 @@ where
         if self.front_index >= self.back_index {
             return None;
         }
-        #[allow(unsafe_code)]
         let focus: &'a mut FocusMut<'a, A> = unsafe { &mut *(&mut self.focus as *mut _) };
         let value = focus.get_mut(self.front_index);
         self.front_index += 1;
@@ -2082,7 +2090,6 @@ where
             return None;
         }
         self.back_index -= 1;
-        #[allow(unsafe_code)]
         let focus: &'a mut FocusMut<'a, A> = unsafe { &mut *(&mut self.focus as *mut _) };
         focus.get_mut(self.back_index)
     }
@@ -2163,7 +2170,6 @@ impl<'a, A: Clone> Iterator for Chunks<'a, A> {
         if self.front_index >= self.back_index {
             return None;
         }
-        #[allow(unsafe_code)]
         let focus: &'a mut Focus<'a, A> = unsafe { &mut *(&mut self.focus as *mut _) };
         let (range, value) = focus.chunk_at(self.front_index);
         self.front_index = range.end;
@@ -2180,7 +2186,6 @@ impl<'a, A: Clone> DoubleEndedIterator for Chunks<'a, A> {
             return None;
         }
         self.back_index -= 1;
-        #[allow(unsafe_code)]
         let focus: &'a mut Focus<'a, A> = unsafe { &mut *(&mut self.focus as *mut _) };
         let (range, value) = focus.chunk_at(self.back_index);
         self.back_index = range.start;
@@ -2222,7 +2227,6 @@ impl<'a, A: Clone> Iterator for ChunksMut<'a, A> {
         if self.front_index >= self.back_index {
             return None;
         }
-        #[allow(unsafe_code)]
         let focus: &'a mut FocusMut<'a, A> = unsafe { &mut *(&mut self.focus as *mut _) };
         let (range, value) = focus.chunk_at(self.front_index);
         self.front_index = range.end;
@@ -2239,7 +2243,6 @@ impl<'a, A: Clone> DoubleEndedIterator for ChunksMut<'a, A> {
             return None;
         }
         self.back_index -= 1;
-        #[allow(unsafe_code)]
         let focus: &'a mut FocusMut<'a, A> = unsafe { &mut *(&mut self.focus as *mut _) };
         let (range, value) = focus.chunk_at(self.back_index);
         self.back_index = range.start;

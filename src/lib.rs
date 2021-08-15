@@ -331,9 +331,10 @@
 //! [cons-list]: https://en.wikipedia.org/wiki/Cons#Lists
 
 #![forbid(rust_2018_idioms)]
-#![deny(unsafe_code, nonstandard_style)]
+#![deny(nonstandard_style)]
 #![warn(unreachable_pub, missing_docs)]
 #![cfg_attr(has_specialisation, feature(specialization))]
+#![cfg_attr(not(feature = "pool"), deny(unsafe_code))]
 
 #[cfg(test)]
 #[macro_use]
