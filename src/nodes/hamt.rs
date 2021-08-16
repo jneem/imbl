@@ -45,7 +45,6 @@ pub(crate) struct Node<A> {
     data: SparseChunk<Entry<A>, HashWidth>,
 }
 
-#[allow(unsafe_code)]
 impl<A> PoolDefault for Node<A> {
     #[cfg(feature = "pool")]
     unsafe fn default_uninit(target: &mut mem::MaybeUninit<Self>) {
@@ -59,7 +58,6 @@ impl<A> PoolDefault for Node<A> {
     }
 }
 
-#[allow(unsafe_code)]
 impl<A> PoolClone for Node<A>
 where
     A: Clone,
@@ -293,19 +291,16 @@ impl<A: HashValue> Node<A> {
                     return child.insert(pool, hash, shift + HASH_SHIFT, value);
                 }
             }
+            #[allow(unsafe_code)]
             if !fallthrough {
                 // If we get here, we're looking at a value entry that needs a merge.
                 // We're going to be unsafe and pry it out of the reference, trusting
                 // that we overwrite it with the merged node.
-                #[allow(unsafe_code)]
                 let old_entry = unsafe { ptr::read(entry) };
                 if shift + HASH_SHIFT >= HASH_WIDTH {
                     // We're at the lowest level, need to set up a collision node.
                     let coll = CollisionNode::new(hash, old_entry.unwrap_value(), value);
-                    #[allow(unsafe_code)]
-                    unsafe {
-                        ptr::write(entry, Entry::from(coll))
-                    };
+                    unsafe { ptr::write(entry, Entry::from(coll)) };
                 } else if let Entry::Value(old_value, old_hash) = old_entry {
                     let node = Node::merge_values(
                         pool,
@@ -315,10 +310,7 @@ impl<A: HashValue> Node<A> {
                         hash,
                         shift + HASH_SHIFT,
                     );
-                    #[allow(unsafe_code)]
-                    unsafe {
-                        ptr::write(entry, Entry::from_node(pool, node))
-                    };
+                    unsafe { ptr::write(entry, Entry::from_node(pool, node)) };
                 } else {
                     unreachable!()
                 }

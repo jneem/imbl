@@ -5,8 +5,7 @@
 // Every codebase needs a `util` module.
 
 use std::cmp::Ordering;
-use std::ops::{Bound, IndexMut, Range, RangeBounds};
-use std::ptr;
+use std::ops::{Bound, Range, RangeBounds};
 
 #[cfg(feature = "pool")]
 pub(crate) use refpool::{PoolClone, PoolDefault};
@@ -30,27 +29,6 @@ where
 pub(crate) enum Side {
     Left,
     Right,
-}
-
-/// Swap two values of anything implementing `IndexMut`.
-///
-/// Like `slice::swap`, but more generic.
-#[allow(unsafe_code)]
-pub(crate) fn swap_indices<V>(vector: &mut V, a: usize, b: usize)
-where
-    V: IndexMut<usize>,
-    V::Output: Sized,
-{
-    if a == b {
-        return;
-    }
-    // so sorry, but there's no implementation for this in std that's
-    // sufficiently generic
-    let pa: *mut V::Output = &mut vector[a];
-    let pb: *mut V::Output = &mut vector[b];
-    unsafe {
-        ptr::swap(pa, pb);
-    }
 }
 
 #[allow(dead_code)]

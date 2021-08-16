@@ -277,9 +277,7 @@ impl<A> Clone for TreeFocus<A> {
     }
 }
 
-#[allow(unsafe_code)]
 unsafe impl<A: Send> Send for TreeFocus<A> {}
-#[allow(unsafe_code)]
 unsafe impl<A: Sync> Sync for TreeFocus<A> {}
 
 #[inline]
@@ -366,7 +364,6 @@ where
         }
     }
 
-    #[allow(unsafe_code)]
     fn get_focus(&self) -> &Chunk<A> {
         unsafe { &*self.target_ptr }
     }
@@ -559,7 +556,6 @@ where
     /// vec.focus_mut().pair(1, 3, |a, b| *a += *b);
     /// assert_eq!(vector![1, 6, 3, 4, 5], vec);
     /// ```
-    #[allow(unsafe_code)]
     pub fn pair<F, B>(&mut self, a: usize, b: usize, mut f: F) -> B
     where
         F: FnMut(&mut A, &mut A) -> B,
@@ -589,7 +585,6 @@ where
     /// vec.focus_mut().triplet(0, 2, 4, |a, b, c| *a += *b + *c);
     /// assert_eq!(vector![9, 2, 3, 4, 5], vec);
     /// ```
-    #[allow(unsafe_code)]
     pub fn triplet<F, B>(&mut self, a: usize, b: usize, c: usize, mut f: F) -> B
     where
         F: FnMut(&mut A, &mut A, &mut A) -> B,
@@ -796,7 +791,6 @@ where
     fn split_at(self, index: usize) -> (Self, Self) {
         let len = self.len();
         debug_assert!(index <= len);
-        #[allow(unsafe_code)]
         let left = TreeFocusMut {
             view: self.view.start..(self.view.start + index),
             middle_range: self.middle_range.clone(),
@@ -869,7 +863,6 @@ where
         }
     }
 
-    #[allow(unsafe_code)]
     fn get_focus(&mut self) -> &mut Chunk<A> {
         unsafe { &mut *self.target_ptr.load(Ordering::Relaxed) }
     }
