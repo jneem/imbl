@@ -85,8 +85,10 @@ use crate::vector::{
 /// [split_at]: #method.split_at
 pub enum Focus<'a, A> {
     #[doc(hidden)]
+    /// The Single variant is a focus of a simple Vector that can be represented as a single slice.
     Single(&'a [A]),
     #[doc(hidden)]
+    /// The Full variant is a focus of a more complex Vector that cannot be represented as a single slcice.
     Full(TreeFocus<A>),
 }
 
@@ -257,9 +259,18 @@ where
 }
 
 pub struct TreeFocus<A> {
+    /// A clone of the Vector's internal tree that this focus points to. A clone ensures that we don't require a
+    /// reference to the original tree.
     tree: RRB<A>,
+    /// The view represents the range of the tree that this TreeFocus can see. The view can be narrowed by calling
+    /// either the narrow or split_at methods.
     view: Range<usize>,
+    /// The tree version of the Vector is represented as the concatenation of 2 chunks, followed by the tree root,
+    /// followed by 2 chunks. The middle_range refers to the range of the Vector that the tree covers.
     middle_range: Range<usize>,
+    /// This implementation of a focus stores only a single chunk for the Vector. This chunk can refer to one of the 4
+    /// chunks front/back chunks or one of the leaves of the tree. The target_ptr is the pointer to the actual chunk
+    /// in question. The target_range is the range that the chunk represents.
     target_range: Range<usize>,
     target_ptr: *const Chunk<A>,
 }
@@ -289,6 +300,7 @@ impl<A> TreeFocus<A>
 where
     A: Clone,
 {
+    /// Creates a new TreeFocus for a Vector's RRB tree.
     fn new(tree: &RRB<A>) -> Self {
         let middle_start = tree.outer_f.len() + tree.inner_f.len();
         let middle_end = middle_start + tree.middle.len();
@@ -301,10 +313,12 @@ where
         }
     }
 
+    /// Returns the number of elements that the TreeFocus is valid for.
     fn len(&self) -> usize {
         self.view.end - self.view.start
     }
 
+    /// Restricts the TreeFocus to a subrange of itself.
     fn narrow(self, mut view: Range<usize>) -> Self {
         view.start += self.view.start;
         view.end += self.view.start;
@@ -317,6 +331,8 @@ where
         }
     }
 
+    /// Splits the TreeFocus into two disjoint foci. The first TreeFocus is valid for ..index while the
+    /// second is valid for index.. .
     fn split_at(self, index: usize) -> (Self, Self) {
         let len = self.len();
         let left = self.clone().narrow(0..index);
@@ -324,15 +340,18 @@ where
         (left, right)
     }
 
+    /// Computes an absolute index in the RRBTree for the given index relative to the start of this TreeFocus.
     fn physical_index(&self, index: usize) -> usize {
         debug_assert!(index < self.view.end);
         self.view.start + index
     }
 
+    /// Computes a range relative to the TreeFocus given one that is absolute in the RRBTree.
     fn logical_range(&self, range: &Range<usize>) -> Range<usize> {
         (range.start - self.view.start)..(range.end - self.view.start)
     }
 
+    /// Sets the internal chunk to the one that contains the given absolute index.
     fn set_focus(&mut self, index: usize) {
         if index < self.middle_range.start {
             let outer_len = self.tree.outer_f.len();
@@ -364,10 +383,12 @@ where
         }
     }
 
+    /// Gets the chunk that this TreeFocus is focused on.
     fn get_focus(&self) -> &Chunk<A> {
         unsafe { &*self.target_ptr }
     }
 
+    /// Gets the value at the given index relative to the TreeFocus.
     pub fn get(&mut self, index: usize) -> Option<&A> {
         if index >= self.len() {
             return None;
@@ -380,6 +401,7 @@ where
         Some(&self.get_focus()[target_phys_index])
     }
 
+    /// Gets the chunk for an index as a slice and its corresponding range within the TreeFocus.
     pub fn get_chunk(&mut self, index: usize) -> (Range<usize>, &[A]) {
         let phys_index = self.physical_index(index);
         if !contains(&self.target_range, &phys_index) {
@@ -457,8 +479,10 @@ where
 /// [Focus]: enum.Focus.html
 pub enum FocusMut<'a, A> {
     #[doc(hidden)]
+    /// The Single variant is a focusmut of a simple Vector that can be represented as a single slice.
     Single(RRBPool<A>, &'a mut [A]),
     #[doc(hidden)]
+    /// The Full variant is a focus of a more complex Vector that cannot be represented as a single slcice.
     Full(RRBPool<A>, TreeFocusMut<'a, A>),
 }
 
@@ -748,11 +772,25 @@ where
     }
 }
 
+// NOTE: The documentation the mutable version is similar to the non-mutable version. I will comment for the places
+// where there are differences, otherwise the documentation is copied directly.
 pub struct TreeFocusMut<'a, A> {
+    /// The tree that this TreeFocusMut refers to. Unlike the non-mutable version, TreeFocusMut needs to store a
+    /// mutable reference. Additionally, there may be multiple TreeFocusMuts that refer to the same tree so we need a
+    /// Lock to synchronise the changes.
     tree: Lock<&'a mut RRB<A>>,
+    /// The view represents the range of the tree that this TreeFocusMut can see. The view can be narrowed by calling
+    /// either the narrow or split_at methods.
     view: Range<usize>,
+    /// The tree version of the Vector is represented as the concatenation of 2 chunks, followed by the tree root,
+    /// followed by 2 chunks. The middle_range refers to the range of the Vector that the tree covers.
     middle_range: Range<usize>,
+    /// This implementation of a focusmut stores only a single chunk for the Vector. This chunk can refer to one of the
+    /// 4 chunks front/back chunks or one of the leaves of the tree. The target_ptr is the pointer to the actual chunk
+    /// in question. The target_range is the range that the chunk represents.
     target_range: Range<usize>,
+    /// Not actually sure why this needs to be an atomic, it seems like it is unneccessary. This is just a pointer to
+    /// the chunk referred to above.
     target_ptr: AtomicPtr<Chunk<A>>,
 }
 
@@ -760,6 +798,7 @@ impl<'a, A> TreeFocusMut<'a, A>
 where
     A: Clone + 'a,
 {
+    /// Creates a new TreeFocusMut for a Vector's RRB tree.
     fn new(tree: &'a mut RRB<A>) -> Self {
         let middle_start = tree.outer_f.len() + tree.inner_f.len();
         let middle_end = middle_start + tree.middle.len();
@@ -772,10 +811,12 @@ where
         }
     }
 
+    /// Returns the number of elements that the TreeFocusMut is valid for.
     fn len(&self) -> usize {
         self.view.end - self.view.start
     }
 
+    /// Restricts the TreeFocusMut to a subrange of itself.
     fn narrow(self, mut view: Range<usize>) -> Self {
         view.start += self.view.start;
         view.end += self.view.start;
@@ -788,6 +829,8 @@ where
         }
     }
 
+    /// Splits the TreeFocusMut into two disjoint foci. The first TreeFocusMut is valid for ..index while the
+    /// second is valid for index.. .
     fn split_at(self, index: usize) -> (Self, Self) {
         let len = self.len();
         debug_assert!(index <= len);
@@ -808,15 +851,18 @@ where
         (left, right)
     }
 
+    /// Computes an absolute index in the RRBTree for the given index relative to the start of this TreeFocusMut.
     fn physical_index(&self, index: usize) -> usize {
         debug_assert!(index < self.view.end);
         self.view.start + index
     }
 
+    /// Computes a range relative to the TreeFocusMut given one that is absolute in the RRBTree.
     fn logical_range(&self, range: &Range<usize>) -> Range<usize> {
         (range.start - self.view.start)..(range.end - self.view.start)
     }
 
+    /// Sets the internal chunk to the one that contains the given absolute index.
     fn set_focus(&mut self, pool: &RRBPool<A>, index: usize) {
         let mut tree = self
             .tree
@@ -863,10 +909,12 @@ where
         }
     }
 
+    /// Gets the chunk for an index and its corresponding range within the TreeFocusMut.
     fn get_focus(&mut self) -> &mut Chunk<A> {
         unsafe { &mut *self.target_ptr.load(Ordering::Relaxed) }
     }
 
+    /// Gets the value at the given index relative to the TreeFocusMut.
     pub fn get(&mut self, pool: &RRBPool<A>, index: usize) -> Option<&mut A> {
         if index >= self.len() {
             return None;
@@ -879,6 +927,7 @@ where
         Some(&mut self.get_focus()[target_phys_index])
     }
 
+    /// Gets the chunk for an index as a slice and its corresponding range within the TreeFocusMut.
     pub fn get_chunk(&mut self, pool: &RRBPool<A>, index: usize) -> (Range<usize>, &mut [A]) {
         let phys_index = self.physical_index(index);
         if !contains(&self.target_range, &phys_index) {
