@@ -175,7 +175,7 @@ impl<A: Clone> Clone for Entry<A> {
     }
 }
 
-impl<A: Clone> Entry<A> {
+impl<A> Entry<A> {
     fn len(&self) -> usize {
         match self {
             Nodes(_, ref nodes) => nodes.len(),
@@ -206,6 +206,12 @@ impl<A: Clone> Entry<A> {
         }
     }
 
+    fn is_empty_node(&self) -> bool {
+        matches!(self, Empty)
+    }
+}
+
+impl<A: Clone> Entry<A> {
     fn unwrap_values_mut(&mut self, pool: &RRBPool<A>) -> &mut Chunk<A> {
         match self {
             Values(ref mut values) => PoolRef::make_mut(&pool.value_pool, values),
@@ -233,10 +239,6 @@ impl<A: Clone> Entry<A> {
             _ => panic!("rrb::Entry::nodes: expected nodes, found values"),
         }
     }
-
-    fn is_empty_node(&self) -> bool {
-        matches!(self, Empty)
-    }
 }
 
 // Node
@@ -253,13 +255,13 @@ impl<A: Clone> Clone for Node<A> {
     }
 }
 
-impl<A: Clone> Default for Node<A> {
+impl<A> Default for Node<A> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<A: Clone> Node<A> {
+impl<A> Node<A> {
     pub(crate) fn new() -> Self {
         Node { children: Empty }
     }
@@ -474,17 +476,6 @@ impl<A: Clone> Node<A> {
         }
     }
 
-    pub(crate) fn index_mut(&mut self, pool: &RRBPool<A>, level: usize, index: usize) -> &mut A {
-        if level == 0 {
-            &mut self.children.unwrap_values_mut(pool)[index]
-        } else {
-            let target_idx = self.index_in(level, index).unwrap();
-            let offset = index - self.size_up_to(level, target_idx);
-            let child = &mut self.children.unwrap_nodes_mut(pool)[target_idx];
-            child.index_mut(pool, level - 1, offset)
-        }
-    }
-
     pub(crate) fn lookup_chunk(
         &self,
         level: usize,
@@ -503,6 +494,94 @@ impl<A: Clone> Node<A> {
             let children = self.children.unwrap_nodes();
             let child = &children[target_idx];
             child.lookup_chunk(level - 1, child_base, index - offset)
+        }
+    }
+
+    #[cfg(any(test, feature = "debug"))]
+    pub(crate) fn assert_invariants(&self, level: usize) -> usize {
+        // Verifies that the size table matches reality.
+        match self.children {
+            Entry::Empty => 0,
+            Entry::Values(ref values) => {
+                // An empty value node is pointless and should never occur.
+                assert_ne!(0, values.len());
+                // Value nodes should only occur at level 0.
+                assert_eq!(0, level);
+                values.len()
+            }
+            Entry::Nodes(ref size, ref children) => {
+                // A parent node with no children should never occur.
+                assert_ne!(0, children.len());
+                // Parent nodes should never occur at level 0.
+                assert_ne!(0, level);
+                let mut lengths = Vec::new();
+                let should_be_dense = if let Size::Size(_) = size {
+                    true
+                } else {
+                    false
+                };
+                for (index, child) in children.iter().enumerate() {
+                    let len = child.assert_invariants(level - 1);
+                    if should_be_dense && index < children.len() - 1 {
+                        // Assert that non-end nodes without size tables are full.
+                        assert_eq!(len, NODE_SIZE.pow(level as u32));
+                    }
+                    lengths.push(len);
+                }
+                match size {
+                    Size::Size(size) => {
+                        let total: usize = lengths.iter().sum();
+                        assert_eq!(*size, total);
+                    }
+                    Size::Table(ref table) => {
+                        assert_eq!(table.iter().len(), children.len());
+                        for (index, current) in table.iter().enumerate() {
+                            let expected: usize = lengths.iter().take(index + 1).sum();
+                            assert_eq!(expected, *current);
+                        }
+                    }
+                }
+                lengths.iter().sum()
+            }
+        }
+    }
+
+    // pub fn print<W>(&self, f: &mut W, indent: usize, level: usize) -> Result<(), fmt::Error>
+    // where
+    //     W: fmt::Write,
+    //     A: fmt::Debug,
+    // {
+    //     print_indent(f, indent)?;
+    //     if level == 0 {
+    //         if self.children.is_empty_node() {
+    //             writeln!(f, "Leaf: EMPTY")
+    //         } else {
+    //             writeln!(f, "Leaf: {:?}", self.children.unwrap_values())
+    //         }
+    //     } else {
+    //         match &self.children {
+    //             Entry::Nodes(size, children) => {
+    //                 writeln!(f, "Node level {} size_table {:?}", level, size)?;
+    //                 for child in children.iter() {
+    //                     child.print(f, indent + 4, level - 1)?;
+    //                 }
+    //                 Ok(())
+    //             }
+    //             _ => unreachable!(),
+    //         }
+    //     }
+    // }
+}
+
+impl<A: Clone> Node<A> {
+    pub(crate) fn index_mut(&mut self, pool: &RRBPool<A>, level: usize, index: usize) -> &mut A {
+        if level == 0 {
+            &mut self.children.unwrap_values_mut(pool)[index]
+        } else {
+            let target_idx = self.index_in(level, index).unwrap();
+            let offset = index - self.size_up_to(level, target_idx);
+            let child = &mut self.children.unwrap_nodes_mut(pool)[target_idx];
+            child.index_mut(pool, level - 1, offset)
         }
     }
 
@@ -1017,81 +1096,6 @@ impl<A: Clone> Node<A> {
             Self::merge_rebalance(pool, level, left, merged, right)
         }
     }
-
-    #[cfg(any(test, feature = "debug"))]
-    pub(crate) fn assert_invariants(&self, level: usize) -> usize {
-        // Verifies that the size table matches reality.
-        match self.children {
-            Entry::Empty => 0,
-            Entry::Values(ref values) => {
-                // An empty value node is pointless and should never occur.
-                assert_ne!(0, values.len());
-                // Value nodes should only occur at level 0.
-                assert_eq!(0, level);
-                values.len()
-            }
-            Entry::Nodes(ref size, ref children) => {
-                // A parent node with no children should never occur.
-                assert_ne!(0, children.len());
-                // Parent nodes should never occur at level 0.
-                assert_ne!(0, level);
-                let mut lengths = Vec::new();
-                let should_be_dense = if let Size::Size(_) = size {
-                    true
-                } else {
-                    false
-                };
-                for (index, child) in children.iter().enumerate() {
-                    let len = child.assert_invariants(level - 1);
-                    if should_be_dense && index < children.len() - 1 {
-                        // Assert that non-end nodes without size tables are full.
-                        assert_eq!(len, NODE_SIZE.pow(level as u32));
-                    }
-                    lengths.push(len);
-                }
-                match size {
-                    Size::Size(size) => {
-                        let total: usize = lengths.iter().sum();
-                        assert_eq!(*size, total);
-                    }
-                    Size::Table(ref table) => {
-                        assert_eq!(table.iter().len(), children.len());
-                        for (index, current) in table.iter().enumerate() {
-                            let expected: usize = lengths.iter().take(index + 1).sum();
-                            assert_eq!(expected, *current);
-                        }
-                    }
-                }
-                lengths.iter().sum()
-            }
-        }
-    }
-
-    // pub fn print<W>(&self, f: &mut W, indent: usize, level: usize) -> Result<(), fmt::Error>
-    // where
-    //     W: fmt::Write,
-    //     A: fmt::Debug,
-    // {
-    //     print_indent(f, indent)?;
-    //     if level == 0 {
-    //         if self.children.is_empty_node() {
-    //             writeln!(f, "Leaf: EMPTY")
-    //         } else {
-    //             writeln!(f, "Leaf: {:?}", self.children.unwrap_values())
-    //         }
-    //     } else {
-    //         match &self.children {
-    //             Entry::Nodes(size, children) => {
-    //                 writeln!(f, "Node level {} size_table {:?}", level, size)?;
-    //                 for child in children.iter() {
-    //                     child.print(f, indent + 4, level - 1)?;
-    //                 }
-    //                 Ok(())
-    //             }
-    //             _ => unreachable!(),
-    //         }
-    //     }
-    // }
 }
 
 // fn print_indent<W>(f: &mut W, indent: usize) -> Result<(), fmt::Error>

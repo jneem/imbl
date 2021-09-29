@@ -94,7 +94,7 @@ pub enum Focus<'a, A> {
 
 impl<'a, A> Focus<'a, A>
 where
-    A: Clone + 'a,
+    A: 'a,
 {
     /// Construct a `Focus` for a [`Vector`][Vector].
     ///
@@ -296,10 +296,7 @@ fn contains<A: Ord>(range: &Range<A>, index: &A) -> bool {
     *index >= range.start && *index < range.end
 }
 
-impl<A> TreeFocus<A>
-where
-    A: Clone,
-{
+impl<A> TreeFocus<A> {
     /// Creates a new TreeFocus for a Vector's RRB tree.
     fn new(tree: &RRB<A>) -> Self {
         let middle_start = tree.outer_f.len() + tree.inner_f.len();
@@ -488,6 +485,134 @@ pub enum FocusMut<'a, A> {
 
 impl<'a, A> FocusMut<'a, A>
 where
+    A: 'a,
+{
+    /// Get the length of the focused `Vector`.
+    pub fn len(&self) -> usize {
+        match self {
+            FocusMut::Single(_, chunk) => chunk.len(),
+            FocusMut::Full(_, tree) => tree.len(),
+        }
+    }
+
+    /// Test if the focused `Vector` is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Narrow the focus onto a subslice of the vector.
+    ///
+    /// `FocusMut::narrow(range)` has the same effect as `&slice[range]`, without
+    /// actually modifying the underlying vector.
+    ///
+    /// Panics if the range isn't fully inside the current focus.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::vector::Vector;
+    /// # use std::iter::FromIterator;
+    /// let mut vec = Vector::from_iter(0..1000);
+    /// let narrowed = vec.focus_mut().narrow(100..200);
+    /// let narrowed_vec = narrowed.unmut().into_iter().cloned().collect();
+    /// assert_eq!(Vector::from_iter(100..200), narrowed_vec);
+    /// ```
+    ///
+    /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
+    /// [Vector::split_at]: enum.Vector.html#method.split_at
+    pub fn narrow<R>(self, range: R) -> Self
+    where
+        R: RangeBounds<usize>,
+    {
+        let r = to_range(&range, self.len());
+        if r.start > r.end || r.start > self.len() {
+            panic!("vector::FocusMut::narrow: range out of bounds");
+        }
+        match self {
+            FocusMut::Single(pool, chunk) => FocusMut::Single(pool, &mut chunk[r]),
+            FocusMut::Full(pool, tree) => FocusMut::Full(pool, tree.narrow(r)),
+        }
+    }
+
+    /// Split the focus into two.
+    ///
+    /// Given an index `index`, consume the focus and produce two new foci, the
+    /// left onto indices `0..index`, and the right onto indices `index..N`
+    /// where `N` is the length of the current focus.
+    ///
+    /// Panics if the index is out of bounds.
+    ///
+    /// This is the moral equivalent of [`slice::split_at`][slice::split_at], in
+    /// that it leaves the underlying data structure unchanged, unlike
+    /// [`Vector::split_at`][Vector::split_at].
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::vector::Vector;
+    /// # use std::iter::FromIterator;
+    /// let mut vec = Vector::from_iter(0..1000);
+    /// {
+    ///     let (left, right) = vec.focus_mut().split_at(500);
+    ///     for ptr in left {
+    ///         *ptr += 100;
+    ///     }
+    ///     for ptr in right {
+    ///         *ptr -= 100;
+    ///     }
+    /// }
+    /// let expected = Vector::from_iter(100..600)
+    ///              + Vector::from_iter(400..900);
+    /// assert_eq!(expected, vec);
+    /// ```
+    ///
+    /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
+    /// [Vector::split_at]: enum.Vector.html#method.split_at
+    #[allow(clippy::redundant_clone)]
+    pub fn split_at(self, index: usize) -> (Self, Self) {
+        if index > self.len() {
+            panic!("vector::FocusMut::split_at: index out of bounds");
+        }
+        match self {
+            FocusMut::Single(pool, chunk) => {
+                let (left, right) = chunk.split_at_mut(index);
+                (
+                    FocusMut::Single(pool.clone(), left),
+                    FocusMut::Single(pool, right),
+                )
+            }
+            FocusMut::Full(pool, tree) => {
+                let (left, right) = tree.split_at(index);
+                (
+                    FocusMut::Full(pool.clone(), left),
+                    FocusMut::Full(pool, right),
+                )
+            }
+        }
+    }
+
+    /// Convert a `FocusMut` into a `Focus`.
+    pub fn unmut(self) -> Focus<'a, A> {
+        match self {
+            FocusMut::Single(_, chunk) => Focus::Single(chunk),
+            FocusMut::Full(_, mut tree) => Focus::Full(TreeFocus {
+                tree: {
+                    let t = tree.tree.lock().unwrap();
+                    (*t).clone()
+                },
+                view: tree.view.clone(),
+                middle_range: tree.middle_range.clone(),
+                target_range: 0..0,
+                target_ptr: null(),
+            }),
+        }
+    }
+}
+
+impl<'a, A> FocusMut<'a, A>
+where
     A: Clone + 'a,
 {
     /// Construct a `FocusMut` for a `Vector`.
@@ -500,19 +625,6 @@ where
             ),
             Full(pool, tree) => FocusMut::Full(pool.clone(), TreeFocusMut::new(tree)),
         }
-    }
-
-    /// Get the length of the focused `Vector`.
-    pub fn len(&self) -> usize {
-        match self {
-            FocusMut::Single(_, chunk) => chunk.len(),
-            FocusMut::Full(_, tree) => tree.len(),
-        }
-    }
-
-    /// Test if the focused `Vector` is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     /// Get a reference to the value at a given index.
@@ -639,116 +751,6 @@ where
             }
         }
     }
-
-    /// Narrow the focus onto a subslice of the vector.
-    ///
-    /// `FocusMut::narrow(range)` has the same effect as `&slice[range]`, without
-    /// actually modifying the underlying vector.
-    ///
-    /// Panics if the range isn't fully inside the current focus.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # #[macro_use] extern crate imbl;
-    /// # use imbl::vector::Vector;
-    /// # use std::iter::FromIterator;
-    /// let mut vec = Vector::from_iter(0..1000);
-    /// let narrowed = vec.focus_mut().narrow(100..200);
-    /// let narrowed_vec = narrowed.unmut().into_iter().cloned().collect();
-    /// assert_eq!(Vector::from_iter(100..200), narrowed_vec);
-    /// ```
-    ///
-    /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
-    /// [Vector::split_at]: enum.Vector.html#method.split_at
-    pub fn narrow<R>(self, range: R) -> Self
-    where
-        R: RangeBounds<usize>,
-    {
-        let r = to_range(&range, self.len());
-        if r.start > r.end || r.start > self.len() {
-            panic!("vector::FocusMut::narrow: range out of bounds");
-        }
-        match self {
-            FocusMut::Single(pool, chunk) => FocusMut::Single(pool, &mut chunk[r]),
-            FocusMut::Full(pool, tree) => FocusMut::Full(pool, tree.narrow(r)),
-        }
-    }
-
-    /// Split the focus into two.
-    ///
-    /// Given an index `index`, consume the focus and produce two new foci, the
-    /// left onto indices `0..index`, and the right onto indices `index..N`
-    /// where `N` is the length of the current focus.
-    ///
-    /// Panics if the index is out of bounds.
-    ///
-    /// This is the moral equivalent of [`slice::split_at`][slice::split_at], in
-    /// that it leaves the underlying data structure unchanged, unlike
-    /// [`Vector::split_at`][Vector::split_at].
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # #[macro_use] extern crate imbl;
-    /// # use imbl::vector::Vector;
-    /// # use std::iter::FromIterator;
-    /// let mut vec = Vector::from_iter(0..1000);
-    /// {
-    ///     let (left, right) = vec.focus_mut().split_at(500);
-    ///     for ptr in left {
-    ///         *ptr += 100;
-    ///     }
-    ///     for ptr in right {
-    ///         *ptr -= 100;
-    ///     }
-    /// }
-    /// let expected = Vector::from_iter(100..600)
-    ///              + Vector::from_iter(400..900);
-    /// assert_eq!(expected, vec);
-    /// ```
-    ///
-    /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
-    /// [Vector::split_at]: enum.Vector.html#method.split_at
-    #[allow(clippy::redundant_clone)]
-    pub fn split_at(self, index: usize) -> (Self, Self) {
-        if index > self.len() {
-            panic!("vector::FocusMut::split_at: index out of bounds");
-        }
-        match self {
-            FocusMut::Single(pool, chunk) => {
-                let (left, right) = chunk.split_at_mut(index);
-                (
-                    FocusMut::Single(pool.clone(), left),
-                    FocusMut::Single(pool, right),
-                )
-            }
-            FocusMut::Full(pool, tree) => {
-                let (left, right) = tree.split_at(index);
-                (
-                    FocusMut::Full(pool.clone(), left),
-                    FocusMut::Full(pool, right),
-                )
-            }
-        }
-    }
-
-    /// Convert a `FocusMut` into a `Focus`.
-    pub fn unmut(self) -> Focus<'a, A> {
-        match self {
-            FocusMut::Single(_, chunk) => Focus::Single(chunk),
-            FocusMut::Full(_, mut tree) => Focus::Full(TreeFocus {
-                tree: {
-                    let t = tree.tree.lock().unwrap();
-                    (*t).clone()
-                },
-                view: tree.view.clone(),
-                middle_range: tree.middle_range.clone(),
-                target_range: 0..0,
-                target_ptr: null(),
-            }),
-        }
-    }
 }
 
 impl<'a, A> IntoIterator for FocusMut<'a, A>
@@ -796,7 +798,7 @@ pub struct TreeFocusMut<'a, A> {
 
 impl<'a, A> TreeFocusMut<'a, A>
 where
-    A: Clone + 'a,
+    A: 'a,
 {
     /// Creates a new TreeFocusMut for a Vector's RRB tree.
     fn new(tree: &'a mut RRB<A>) -> Self {
@@ -862,6 +864,16 @@ where
         (range.start - self.view.start)..(range.end - self.view.start)
     }
 
+    /// Gets the chunk for an index and its corresponding range within the TreeFocusMut.
+    fn get_focus(&mut self) -> &mut Chunk<A> {
+        unsafe { &mut *self.target_ptr.load(Ordering::Relaxed) }
+    }
+}
+
+impl<'a, A> TreeFocusMut<'a, A>
+where
+    A: Clone + 'a,
+{
     /// Sets the internal chunk to the one that contains the given absolute index.
     fn set_focus(&mut self, pool: &RRBPool<A>, index: usize) {
         let mut tree = self
@@ -907,11 +919,6 @@ where
                 (range.start + self.middle_range.start)..(range.end + self.middle_range.start);
             self.target_ptr.store(ptr, Ordering::Relaxed);
         }
-    }
-
-    /// Gets the chunk for an index and its corresponding range within the TreeFocusMut.
-    fn get_focus(&mut self) -> &mut Chunk<A> {
-        unsafe { &mut *self.target_ptr.load(Ordering::Relaxed) }
     }
 
     /// Gets the value at the given index relative to the TreeFocusMut.

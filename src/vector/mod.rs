@@ -179,7 +179,7 @@ impl<A> Clone for RRB<A> {
     }
 }
 
-impl<A: Clone> Vector<A> {
+impl<A> Vector<A> {
     /// Get a reference to the memory pool this `Vector` is using.
     ///
     /// Note that if you didn't specifically construct it with a pool, you'll
@@ -386,15 +386,6 @@ impl<A: Clone> Vector<A> {
         Iter::new(self)
     }
 
-    /// Get a mutable iterator over a vector.
-    ///
-    /// Time: O(1)
-    #[inline]
-    #[must_use]
-    pub fn iter_mut(&mut self) -> IterMut<'_, A> {
-        IterMut::new(self)
-    }
-
     /// Get an iterator over the leaf nodes of a vector.
     ///
     /// This returns an iterator over the [`Chunk`s][Chunk] at the leaves of the
@@ -410,21 +401,6 @@ impl<A: Clone> Vector<A> {
         Chunks::new(self)
     }
 
-    /// Get a mutable iterator over the leaf nodes of a vector.
-    //
-    /// This returns an iterator over the [`Chunk`s][Chunk] at the leaves of the
-    /// RRB tree. These are useful for efficient parallelisation of work on
-    /// the vector, but should not be used for basic iteration.
-    ///
-    /// Time: O(1)
-    ///
-    /// [Chunk]: ../chunk/struct.Chunk.html
-    #[inline]
-    #[must_use]
-    pub fn leaves_mut(&mut self) -> ChunksMut<'_, A> {
-        ChunksMut::new(self)
-    }
-
     /// Construct a [`Focus`][Focus] for a vector.
     ///
     /// Time: O(1)
@@ -434,17 +410,6 @@ impl<A: Clone> Vector<A> {
     #[must_use]
     pub fn focus(&self) -> Focus<'_, A> {
         Focus::new(self)
-    }
-
-    /// Construct a [`FocusMut`][FocusMut] for a vector.
-    ///
-    /// Time: O(1)
-    ///
-    /// [FocusMut]: enum.FocusMut.html
-    #[inline]
-    #[must_use]
-    pub fn focus_mut(&mut self) -> FocusMut<'_, A> {
-        FocusMut::new(self)
     }
 
     /// Get a reference to the value at index `index` in a vector.
@@ -499,68 +464,6 @@ impl<A: Clone> Vector<A> {
         }
     }
 
-    /// Get a mutable reference to the value at index `index` in a
-    /// vector.
-    ///
-    /// Returns `None` if the index is out of bounds.
-    ///
-    /// Time: O(log n)
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #[macro_use] extern crate imbl;
-    /// # use imbl::Vector;
-    /// let mut vec = vector!["Joe", "Mike", "Robert"];
-    /// {
-    ///     let robert = vec.get_mut(2).unwrap();
-    ///     assert_eq!(&mut "Robert", robert);
-    ///     *robert = "Bjarne";
-    /// }
-    /// assert_eq!(vector!["Joe", "Mike", "Bjarne"], vec);
-    /// ```
-    #[must_use]
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut A> {
-        if index >= self.len() {
-            return None;
-        }
-
-        match &mut self.vector {
-            Inline(_, chunk) => chunk.get_mut(index),
-            Single(pool, chunk) => PoolRef::make_mut(&pool.value_pool, chunk).get_mut(index),
-            Full(pool, tree) => {
-                let mut local_index = index;
-
-                if local_index < tree.outer_f.len() {
-                    let outer_f = PoolRef::make_mut(&pool.value_pool, &mut tree.outer_f);
-                    return Some(&mut outer_f[local_index]);
-                }
-                local_index -= tree.outer_f.len();
-
-                if local_index < tree.inner_f.len() {
-                    let inner_f = PoolRef::make_mut(&pool.value_pool, &mut tree.inner_f);
-                    return Some(&mut inner_f[local_index]);
-                }
-                local_index -= tree.inner_f.len();
-
-                if local_index < tree.middle.len() {
-                    let middle = Ref::make_mut(&mut tree.middle);
-                    return Some(middle.index_mut(pool, tree.middle_level, local_index));
-                }
-                local_index -= tree.middle.len();
-
-                if local_index < tree.inner_b.len() {
-                    let inner_b = PoolRef::make_mut(&pool.value_pool, &mut tree.inner_b);
-                    return Some(&mut inner_b[local_index]);
-                }
-                local_index -= tree.inner_b.len();
-
-                let outer_b = PoolRef::make_mut(&pool.value_pool, &mut tree.outer_b);
-                Some(&mut outer_b[local_index])
-            }
-        }
-    }
-
     /// Get the first element of a vector.
     ///
     /// If the vector is empty, `None` is returned.
@@ -570,17 +473,6 @@ impl<A: Clone> Vector<A> {
     #[must_use]
     pub fn front(&self) -> Option<&A> {
         self.get(0)
-    }
-
-    /// Get a mutable reference to the first element of a vector.
-    ///
-    /// If the vector is empty, `None` is returned.
-    ///
-    /// Time: O(log n)
-    #[inline]
-    #[must_use]
-    pub fn front_mut(&mut self) -> Option<&mut A> {
-        self.get_mut(0)
     }
 
     /// Get the first element of a vector.
@@ -609,21 +501,6 @@ impl<A: Clone> Vector<A> {
             None
         } else {
             self.get(self.len() - 1)
-        }
-    }
-
-    /// Get a mutable reference to the last element of a vector.
-    ///
-    /// If the vector is empty, `None` is returned.
-    ///
-    /// Time: O(log n)
-    #[must_use]
-    pub fn back_mut(&mut self) -> Option<&mut A> {
-        if self.is_empty() {
-            None
-        } else {
-            let len = self.len();
-            self.get_mut(len - 1)
         }
     }
 
@@ -785,9 +662,7 @@ impl<A: Clone> Vector<A> {
     {
         self.binary_search_by(|k| f(k).cmp(b))
     }
-}
 
-impl<A: Clone> Vector<A> {
     /// Construct a vector with a single value.
     ///
     /// # Examples
@@ -818,6 +693,145 @@ impl<A: Clone> Vector<A> {
                 vector: Single(pool, chunk),
             }
         }
+    }
+
+    /// Verify the internal consistency of a vector.
+    ///
+    /// This method walks the RRB tree making up the current `Vector`
+    /// (if it has one) and verifies that all the invariants hold.
+    /// If something is wrong, it will panic.
+    ///
+    /// This method requires the `debug` feature flag.
+    #[cfg(any(test, feature = "debug"))]
+    pub fn assert_invariants(&self) {
+        if let Full(_, ref tree) = self.vector {
+            tree.assert_invariants();
+        }
+    }
+}
+
+impl<A: Clone> Vector<A> {
+    /// Get a mutable reference to the value at index `index` in a
+    /// vector.
+    ///
+    /// Returns `None` if the index is out of bounds.
+    ///
+    /// Time: O(log n)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::Vector;
+    /// let mut vec = vector!["Joe", "Mike", "Robert"];
+    /// {
+    ///     let robert = vec.get_mut(2).unwrap();
+    ///     assert_eq!(&mut "Robert", robert);
+    ///     *robert = "Bjarne";
+    /// }
+    /// assert_eq!(vector!["Joe", "Mike", "Bjarne"], vec);
+    /// ```
+    #[must_use]
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut A> {
+        if index >= self.len() {
+            return None;
+        }
+
+        match &mut self.vector {
+            Inline(_, chunk) => chunk.get_mut(index),
+            Single(pool, chunk) => PoolRef::make_mut(&pool.value_pool, chunk).get_mut(index),
+            Full(pool, tree) => {
+                let mut local_index = index;
+
+                if local_index < tree.outer_f.len() {
+                    let outer_f = PoolRef::make_mut(&pool.value_pool, &mut tree.outer_f);
+                    return Some(&mut outer_f[local_index]);
+                }
+                local_index -= tree.outer_f.len();
+
+                if local_index < tree.inner_f.len() {
+                    let inner_f = PoolRef::make_mut(&pool.value_pool, &mut tree.inner_f);
+                    return Some(&mut inner_f[local_index]);
+                }
+                local_index -= tree.inner_f.len();
+
+                if local_index < tree.middle.len() {
+                    let middle = Ref::make_mut(&mut tree.middle);
+                    return Some(middle.index_mut(pool, tree.middle_level, local_index));
+                }
+                local_index -= tree.middle.len();
+
+                if local_index < tree.inner_b.len() {
+                    let inner_b = PoolRef::make_mut(&pool.value_pool, &mut tree.inner_b);
+                    return Some(&mut inner_b[local_index]);
+                }
+                local_index -= tree.inner_b.len();
+
+                let outer_b = PoolRef::make_mut(&pool.value_pool, &mut tree.outer_b);
+                Some(&mut outer_b[local_index])
+            }
+        }
+    }
+
+    /// Get a mutable reference to the first element of a vector.
+    ///
+    /// If the vector is empty, `None` is returned.
+    ///
+    /// Time: O(log n)
+    #[inline]
+    #[must_use]
+    pub fn front_mut(&mut self) -> Option<&mut A> {
+        self.get_mut(0)
+    }
+
+    /// Get a mutable reference to the last element of a vector.
+    ///
+    /// If the vector is empty, `None` is returned.
+    ///
+    /// Time: O(log n)
+    #[must_use]
+    pub fn back_mut(&mut self) -> Option<&mut A> {
+        if self.is_empty() {
+            None
+        } else {
+            let len = self.len();
+            self.get_mut(len - 1)
+        }
+    }
+
+    /// Construct a [`FocusMut`][FocusMut] for a vector.
+    ///
+    /// Time: O(1)
+    ///
+    /// [FocusMut]: enum.FocusMut.html
+    #[inline]
+    #[must_use]
+    pub fn focus_mut(&mut self) -> FocusMut<'_, A> {
+        FocusMut::new(self)
+    }
+
+    /// Get a mutable iterator over a vector.
+    ///
+    /// Time: O(1)
+    #[inline]
+    #[must_use]
+    pub fn iter_mut(&mut self) -> IterMut<'_, A> {
+        IterMut::new(self)
+    }
+
+    /// Get a mutable iterator over the leaf nodes of a vector.
+    //
+    /// This returns an iterator over the [`Chunk`s][Chunk] at the leaves of the
+    /// RRB tree. These are useful for efficient parallelisation of work on
+    /// the vector, but should not be used for basic iteration.
+    ///
+    /// Time: O(1)
+    ///
+    /// [Chunk]: ../chunk/struct.Chunk.html
+    #[inline]
+    #[must_use]
+    pub fn leaves_mut(&mut self) -> ChunksMut<'_, A> {
+        ChunksMut::new(self)
     }
 
     /// Create a new vector with the value at index `index` updated.
@@ -1593,25 +1607,11 @@ impl<A: Clone> Vector<A> {
             sort::quicksort(self.focus_mut(), &cmp);
         }
     }
-
-    /// Verify the internal consistency of a vector.
-    ///
-    /// This method walks the RRB tree making up the current `Vector`
-    /// (if it has one) and verifies that all the invariants hold.
-    /// If something is wrong, it will panic.
-    ///
-    /// This method requires the `debug` feature flag.
-    #[cfg(any(test, feature = "debug"))]
-    pub fn assert_invariants(&self) {
-        if let Full(_, ref tree) = self.vector {
-            tree.assert_invariants();
-        }
-    }
 }
 
 // Implementation details
 
-impl<A: Clone> RRB<A> {
+impl<A> RRB<A> {
     fn new(pool: &RRBPool<A>) -> Self {
         RRB {
             length: 0,
@@ -1632,7 +1632,9 @@ impl<A: Clone> RRB<A> {
             self.outer_f.len() + self.inner_f.len() + ml + self.inner_b.len() + self.outer_b.len()
         );
     }
+}
 
+impl<A: Clone> RRB<A> {
     fn prune(&mut self) {
         if self.middle.is_empty() {
             self.middle = Ref::new(Node::new());
@@ -1771,7 +1773,7 @@ fn replace_pool_def<A: PoolDefault>(pool: &Pool<A>, dest: &mut PoolRef<A>) -> Po
 
 // Core traits
 
-impl<A: Clone> Default for Vector<A> {
+impl<A> Default for Vector<A> {
     fn default() -> Self {
         Self::new()
     }
@@ -1792,7 +1794,7 @@ impl<A: Clone> Clone for Vector<A> {
     }
 }
 
-impl<A: Clone + Debug> Debug for Vector<A> {
+impl<A: Debug> Debug for Vector<A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         f.debug_list().entries(self.iter()).finish()
         // match self {
@@ -1807,21 +1809,21 @@ impl<A: Clone + Debug> Debug for Vector<A> {
 }
 
 #[cfg(not(has_specialisation))]
-impl<A: Clone + PartialEq> PartialEq for Vector<A> {
+impl<A: PartialEq> PartialEq for Vector<A> {
     fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.iter().eq(other.iter())
     }
 }
 
 #[cfg(has_specialisation)]
-impl<A: Clone + PartialEq> PartialEq for Vector<A> {
+impl<A: PartialEq> PartialEq for Vector<A> {
     default fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.iter().eq(other.iter())
     }
 }
 
 #[cfg(has_specialisation)]
-impl<A: Clone + Eq> PartialEq for Vector<A> {
+impl<A: Eq> PartialEq for Vector<A> {
     fn eq(&self, other: &Self) -> bool {
         fn cmp_chunk<A>(left: &PoolRef<Chunk<A>>, right: &PoolRef<Chunk<A>>) -> bool {
             (left.is_empty() && right.is_empty()) || PoolRef::ptr_eq(left, right)
@@ -1859,21 +1861,21 @@ impl<A: Clone + Eq> PartialEq for Vector<A> {
     }
 }
 
-impl<A: Clone + Eq> Eq for Vector<A> {}
+impl<A: Eq> Eq for Vector<A> {}
 
-impl<A: Clone + PartialOrd> PartialOrd for Vector<A> {
+impl<A: PartialOrd> PartialOrd for Vector<A> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.iter().partial_cmp(other.iter())
     }
 }
 
-impl<A: Clone + Ord> Ord for Vector<A> {
+impl<A: Ord> Ord for Vector<A> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.iter().cmp(other.iter())
     }
 }
 
-impl<A: Clone + Hash> Hash for Vector<A> {
+impl<A: Hash> Hash for Vector<A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for i in self {
             i.hash(state)
@@ -1929,7 +1931,7 @@ impl<A: Clone> Extend<A> for Vector<A> {
     }
 }
 
-impl<A: Clone> Index<usize> for Vector<A> {
+impl<A> Index<usize> for Vector<A> {
     type Output = A;
     /// Get a reference to the value at index `index` in the vector.
     ///
@@ -1961,7 +1963,7 @@ impl<A: Clone> IndexMut<usize> for Vector<A> {
 
 // Conversions
 
-impl<'a, A: Clone> IntoIterator for &'a Vector<A> {
+impl<'a, A> IntoIterator for &'a Vector<A> {
     type Item = &'a A;
     type IntoIter = Iter<'a, A>;
     fn into_iter(self) -> Self::IntoIter {
@@ -2044,7 +2046,7 @@ pub struct Iter<'a, A> {
     back_index: usize,
 }
 
-impl<'a, A: Clone> Iter<'a, A> {
+impl<'a, A> Iter<'a, A> {
     fn new(seq: &'a Vector<A>) -> Self {
         Iter {
             focus: seq.focus(),
@@ -2062,7 +2064,7 @@ impl<'a, A: Clone> Iter<'a, A> {
     }
 }
 
-impl<'a, A: Clone> Iterator for Iter<'a, A> {
+impl<'a, A> Iterator for Iter<'a, A> {
     type Item = &'a A;
 
     /// Advance the iterator and return the next value.
@@ -2084,7 +2086,7 @@ impl<'a, A: Clone> Iterator for Iter<'a, A> {
     }
 }
 
-impl<'a, A: Clone> DoubleEndedIterator for Iter<'a, A> {
+impl<'a, A> DoubleEndedIterator for Iter<'a, A> {
     /// Advance the iterator and return the next value.
     ///
     /// Time: O(1)*
@@ -2098,9 +2100,9 @@ impl<'a, A: Clone> DoubleEndedIterator for Iter<'a, A> {
     }
 }
 
-impl<'a, A: Clone> ExactSizeIterator for Iter<'a, A> {}
+impl<'a, A> ExactSizeIterator for Iter<'a, A> {}
 
-impl<'a, A: Clone> FusedIterator for Iter<'a, A> {}
+impl<'a, A> FusedIterator for Iter<'a, A> {}
 
 /// A mutable iterator over vectors with values of type `A`.
 ///
@@ -2113,10 +2115,17 @@ pub struct IterMut<'a, A> {
     back_index: usize,
 }
 
-impl<'a, A> IterMut<'a, A>
-where
-    A: Clone,
-{
+impl<'a, A> IterMut<'a, A> {
+    fn from_focus(focus: FocusMut<'a, A>) -> Self {
+        IterMut {
+            front_index: 0,
+            back_index: focus.len(),
+            focus,
+        }
+    }
+}
+
+impl<'a, A: Clone> IterMut<'a, A> {
     fn new(seq: &'a mut Vector<A>) -> Self {
         let focus = seq.focus_mut();
         let len = focus.len();
@@ -2124,14 +2133,6 @@ where
             focus,
             front_index: 0,
             back_index: len,
-        }
-    }
-
-    fn from_focus(focus: FocusMut<'a, A>) -> Self {
-        IterMut {
-            front_index: 0,
-            back_index: focus.len(),
-            focus,
         }
     }
 }
@@ -2187,7 +2188,7 @@ pub struct ConsumingIter<A> {
     vector: Vector<A>,
 }
 
-impl<A: Clone> ConsumingIter<A> {
+impl<A> ConsumingIter<A> {
     fn new(vector: Vector<A>) -> Self {
         Self { vector }
     }
@@ -2233,7 +2234,7 @@ pub struct Chunks<'a, A> {
     back_index: usize,
 }
 
-impl<'a, A: Clone> Chunks<'a, A> {
+impl<'a, A> Chunks<'a, A> {
     fn new(seq: &'a Vector<A>) -> Self {
         Chunks {
             focus: seq.focus(),
@@ -2243,7 +2244,7 @@ impl<'a, A: Clone> Chunks<'a, A> {
     }
 }
 
-impl<'a, A: Clone> Iterator for Chunks<'a, A> {
+impl<'a, A> Iterator for Chunks<'a, A> {
     type Item = &'a [A];
 
     /// Advance the iterator and return the next value.
@@ -2260,7 +2261,7 @@ impl<'a, A: Clone> Iterator for Chunks<'a, A> {
     }
 }
 
-impl<'a, A: Clone> DoubleEndedIterator for Chunks<'a, A> {
+impl<'a, A> DoubleEndedIterator for Chunks<'a, A> {
     /// Remove and return an element from the back of the iterator.
     ///
     /// Time: O(1)*
@@ -2276,7 +2277,7 @@ impl<'a, A: Clone> DoubleEndedIterator for Chunks<'a, A> {
     }
 }
 
-impl<'a, A: Clone> FusedIterator for Chunks<'a, A> {}
+impl<'a, A> FusedIterator for Chunks<'a, A> {}
 
 /// A mutable iterator over the leaf nodes of a vector.
 ///
