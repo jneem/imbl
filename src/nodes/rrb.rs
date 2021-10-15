@@ -366,6 +366,9 @@ impl<A: Clone> Node<A> {
         self.children.len() == 1
     }
 
+    /// Checks whether this node has the full number of children.
+    ///
+    /// This is not a recursive check: it doesn't check whether then children are themselves full.
     pub(crate) fn is_full(&self) -> bool {
         self.children.is_full()
     }
@@ -615,7 +618,7 @@ impl<A: Clone> Node<A> {
                     }
                 }
             };
-            if is_full {
+            if is_full && !chunk.is_empty() {
                 PushResult::Full(chunk, num_drained)
             } else {
                 // If the chunk is empty after being drained, there might be
