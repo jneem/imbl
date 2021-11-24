@@ -748,7 +748,7 @@ impl<A: Clone> Node<A> {
                             }
                         }
                         if is_full {
-                            return PushResult::Full(chunk, 0);
+                            return PushResult::Full(chunk, num_drained);
                         } else {
                             Some(Node::from_chunk(pool, level - 1, chunk))
                         }
