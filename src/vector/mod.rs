@@ -197,8 +197,12 @@ impl<A> Vector<A> {
     /// to grow further.
     fn needs_promotion(&self) -> bool {
         match &self.vector {
-            Inline(_, chunk) if chunk.is_full() => true,
-            Single(_, chunk) if chunk.is_full() => true,
+            // Prevent the inline array from getting bigger than a single chunk. This means that we
+            // can always promote `Inline` to `Single`, even when we're configured to have a small
+            // chunk size. (TODO: it might be better to just never use `Single` in this situation,
+            // but that's a more invasive change.)
+            Inline(_, chunk) => chunk.is_full() || chunk.len() + 1 >= CHUNK_SIZE,
+            Single(_, chunk) => chunk.is_full(),
             _ => false,
         }
     }
@@ -1396,11 +1400,7 @@ impl<A: Clone> Vector<A> {
             return self.push_back(value);
         }
         assert!(index < self.len());
-        if if let Inline(_, chunk) = &self.vector {
-            chunk.is_full()
-        } else {
-            false
-        } {
+        if matches!(&self.vector, Inline(_, _)) && self.needs_promotion() {
             self.promote_inline();
         }
         match &mut self.vector {
