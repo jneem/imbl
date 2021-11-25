@@ -2450,6 +2450,10 @@ mod test {
 
     #[test]
     fn issue_70() {
+        // This test assumes that chunks are of size 64.
+        if CHUNK_SIZE != 64 {
+            return;
+        }
         let mut x = Vector::new();
         for _ in 0..262 {
             x.push_back(0);
@@ -2529,7 +2533,9 @@ mod test {
         x.push_back(0u32);
         match x.vector {
             VectorInner::Full(_, tree) => {
-                assert_eq!(3, tree.middle.number_of_children());
+                if CHUNK_SIZE == 64 {
+                    assert_eq!(3, tree.middle.number_of_children());
+                }
                 assert_eq!(
                     2 * NODE_SIZE * CHUNK_SIZE + CHUNK_SIZE - 1,
                     tree.middle.len()
