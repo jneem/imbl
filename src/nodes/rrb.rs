@@ -63,35 +63,33 @@ impl Size {
         Size::Table(PoolRef::new(pool, chunk))
     }
 
+    /// Enlarges this size table by inserting an extra element on one end.
+    ///
+    /// Note that this will turn `self` into a `Table` variant, which will always be correct but
+    /// may not be optimally efficient.
     fn push(&mut self, pool: &Pool<Chunk<usize>>, side: Side, level: usize, value: usize) {
-        let size = match self {
-            Size::Size(ref mut size) => match side {
-                Left => *size,
-                Right => {
-                    *size += value;
-                    return;
-                }
-            },
-            Size::Table(ref mut size_ref) => {
-                let size_table = PoolRef::make_mut(pool, size_ref);
-                debug_assert!(size_table.len() < NODE_SIZE);
-                match side {
-                    Left => {
-                        for entry in size_table.iter_mut() {
-                            *entry += value;
-                        }
-                        size_table.push_front(value);
-                    }
-                    Right => {
-                        let prev = *(size_table.last().unwrap_or(&0));
-                        size_table.push_back(value + prev);
-                    }
-                }
-                return;
-            }
+        if let Size::Size(size) = self {
+            *self = Size::table_from_size(pool, level, *size);
         };
-        *self = Size::table_from_size(pool, level, size);
-        self.push(pool, side, level, value);
+        if let Size::Table(ref mut size_ref) = self {
+            let size_table = PoolRef::make_mut(pool, size_ref);
+            debug_assert!(size_table.len() < NODE_SIZE);
+            match side {
+                Left => {
+                    for entry in size_table.iter_mut() {
+                        *entry += value;
+                    }
+                    size_table.push_front(value);
+                }
+                Right => {
+                    let prev = *(size_table.last().unwrap_or(&0));
+                    size_table.push_back(value + prev);
+                }
+            }
+        } else {
+            // If we weren't a `Size::Table` initially, we already converted ourselves to one.
+            unreachable!();
+        }
     }
 
     fn pop(&mut self, pool: &Pool<Chunk<usize>>, side: Side, level: usize, value: usize) {
@@ -267,25 +265,24 @@ impl<A> Node<A> {
     }
 
     pub(crate) fn parent(pool: &RRBPool<A>, level: usize, children: Chunk<Self>) -> Self {
-        let size = {
-            let mut size = Size::Size(0);
-            let mut it = children.iter().peekable();
-            loop {
-                match it.next() {
-                    None => break,
-                    Some(child) => {
-                        if size.is_size()
-                            && !child.is_completely_dense(level - 1)
-                            && it.peek().is_some()
-                        {
-                            size = Size::table_from_size(&pool.size_pool, level, size.size());
-                        }
-                        size.push(&pool.size_pool, Right, level, child.len())
-                    }
-                }
+        let mut size = Size::Size(0);
+        let mut dense = true;
+
+        // Construct a size table for the children, but avoid allocating a table if the children
+        // are leftwise-dense.
+        for child in children.iter() {
+            if !dense && size.is_size() {
+                size = Size::table_from_size(&pool.size_pool, level, size.size());
             }
-            size
-        };
+
+            let child_len = child.len();
+            if let Size::Size(ref mut s) = size {
+                *s += child_len;
+            } else {
+                size.push(&pool.size_pool, Right, level, child_len);
+            }
+            dense &= child.is_completely_dense(level - 1);
+        }
         Node {
             children: Nodes(size, PoolRef::new(&pool.node_pool, children)),
         }
@@ -733,23 +730,20 @@ impl<A: Clone> Node<A> {
                     }
                 }
             };
-            if is_full && !chunk.is_empty() {
+            if chunk.is_empty() {
+                PushResult::Done
+            } else if is_full {
                 PushResult::Full(chunk, num_drained)
             } else {
-                // If the chunk is empty after being drained, there might be
-                // more space in existing chunks. To keep the middle dense, we
-                // do not add it here.
-                if !chunk.is_empty() {
-                    if side == Left && chunk.len() < NODE_SIZE {
-                        if let Entry::Nodes(ref mut size, _) = self.children {
-                            if let Size::Size(value) = *size {
-                                *size = Size::table_from_size(&pool.size_pool, level, value);
-                            }
+                if side == Left && chunk.len() < NODE_SIZE {
+                    if let Entry::Nodes(ref mut size, _) = self.children {
+                        if let Size::Size(value) = *size {
+                            *size = Size::table_from_size(&pool.size_pool, level, value);
                         }
                     }
-                    self.push_size(pool, side, level, chunk.len());
-                    self.push_child_node(pool, side, Node::from_chunk(pool, 0, chunk));
                 }
+                self.push_size(pool, side, level, chunk.len());
+                self.push_child_node(pool, side, Node::from_chunk(pool, 0, chunk));
                 PushResult::Done
             }
         } else {
