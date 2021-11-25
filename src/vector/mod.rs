@@ -699,6 +699,18 @@ impl<A> Vector<A> {
         }
     }
 
+    /// Dump the internal RRB tree into graphviz format.
+    ///
+    /// This method requires the `debug` feature flag.
+    #[cfg(any(test, feature = "debug"))]
+    pub fn dot<W: std::io::Write>(&self, write: W) -> std::io::Result<()> {
+        if let Full(_, ref tree) = self.vector {
+            tree.middle.dot(write)
+        } else {
+            Ok(())
+        }
+    }
+
     /// Verify the internal consistency of a vector.
     ///
     /// This method walks the RRB tree making up the current `Vector`
