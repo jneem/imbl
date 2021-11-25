@@ -549,6 +549,42 @@ impl<A> Node<A> {
         }
     }
 
+    #[cfg(any(test, feature = "debug"))]
+    pub(crate) fn dot<W: std::io::Write>(&self, write: W) -> std::io::Result<()> {
+        let mut w = Box::new(write) as Box<dyn std::io::Write>;
+        writeln!(w, "digraph  {{")?;
+        self.dot_nodes(&mut w)?;
+        writeln!(w, "}}")?;
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "debug"))]
+    fn dot_nodes<'a>(&self, write: &mut Box<dyn std::io::Write + 'a>) -> std::io::Result<()> {
+        let id = self as *const _ as usize;
+        match self.children {
+            Entry::Empty => {}
+            Entry::Values(ref values) => {
+                writeln!(write, "node{} [label={}];", id, values.len())?;
+            }
+            Entry::Nodes(ref size, ref children) => {
+                let label = match size {
+                    Size::Size(size) => size.to_string(),
+                    Size::Table(ref table) => {
+                        format!("\"{:?}\"", table.as_slice())
+                    }
+                };
+                writeln!(write, "node{} [label={}];", id, label)?;
+
+                for child in children.iter() {
+                    child.dot_nodes(write)?;
+                    let child_id = child as *const _ as usize;
+                    writeln!(write, "node{} -> node{};", id, child_id)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     // pub fn print<W>(&self, f: &mut W, indent: usize, level: usize) -> Result<(), fmt::Error>
     // where
     //     W: fmt::Write,
