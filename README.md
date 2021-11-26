@@ -13,6 +13,7 @@ appears to be unmaintained. The `1.0` release of `imbl` is compatible with the
 ## Licence
 
 Copyright 2017--2021 Bodil Stokke
+
 Copyright 2021 Joe Neeman
 
 This software is subject to the terms of the Mozilla Public
