@@ -1,41 +1,41 @@
 name: Continuous Integration
 on:
   push:
+    branches:
+      - main
   pull_request:
   schedule:
     - cron: "0 0 1,15 * *"
 
 jobs:
   fmt:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: true
-      matrix:
-        rust: [stable]
-        os: [ubuntu-latest]
 
     steps:
-      - uses: hecrj/setup-rust-action@v1
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
         with:
-          rust-version: ${{ matrix.rust }}
-      - uses: actions/checkout@v1
-      - name: Check format
-        run: |
-          cargo fmt -- --check
+          toolchain: stable
+      - uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: -- --check
 
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        rust: [stable, beta, nightly]
+        rust: [stable, beta, nightly, 1.51]
         os: [ubuntu-latest, windows-latest, macOS-latest]
 
     steps:
-      - uses: hecrj/setup-rust-action@v1
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
         with:
-          rust-version: ${{ matrix.rust }}
-      - uses: actions/checkout@v1
+          toolchain: ${{ matrix.rust }}
       - name: Run tests
         run: |
           cargo test --all-features
@@ -44,10 +44,12 @@ jobs:
   clippy:
     runs-on: ubuntu-latest
     steps:
-      - uses: hecrj/setup-rust-action@v1
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
         with:
-          rust-version: stable
+          toolchain: stable
           components: clippy
-      - uses: actions/checkout@v1
-      - name: Clippy
-        run: cargo clippy -- -D warnings
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
