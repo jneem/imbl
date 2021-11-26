@@ -950,6 +950,16 @@ where
     }
 }
 
+impl<A, S, const N: usize> From<[A;N]> for HashSet<A, S>
+where
+    A: Hash + Eq + Clone,
+    S: BuildHasher + Default,
+{
+    fn from(arr: [A; N]) -> Self {
+        IntoIterator::into_iter(arr).collect()
+    }
+}
+
 impl<'a, A, S> From<&'a [A]> for HashSet<A, S>
 where
     A: Hash + Eq + Clone,
