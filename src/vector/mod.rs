@@ -556,7 +556,7 @@ impl<A> Vector<A> {
     /// Test if a given element is in the vector.
     ///
     /// Searches the vector for the first occurrence of a given value,
-    /// and returns `true if it's there. If it's nowhere to be found
+    /// and returns `true` if it's there. If it's nowhere to be found
     /// in the vector, it returns `false`.
     ///
     /// Time: O(n)
