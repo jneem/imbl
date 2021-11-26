@@ -22,11 +22,10 @@
 //! [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 
 use std::borrow::Borrow;
-use std::cmp::Ordering;
 use std::collections;
 use std::collections::hash_map::RandomState;
 use std::fmt::{Debug, Error, Formatter};
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::{BuildHasher, Hash};
 use std::iter::{FromIterator, FusedIterator, Sum};
 use std::mem;
 use std::ops::{Add, Index, IndexMut};
@@ -1614,50 +1613,6 @@ where
     V: Eq,
     S: BuildHasher,
 {
-}
-
-impl<K, V, S> PartialOrd for HashMap<K, V, S>
-where
-    K: Hash + Eq + Clone + PartialOrd,
-    V: PartialOrd + Clone,
-    S: BuildHasher,
-{
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if Ref::ptr_eq(&self.hasher, &other.hasher) {
-            return self.iter().partial_cmp(other.iter());
-        }
-        self.iter().partial_cmp(other.iter())
-    }
-}
-
-impl<K, V, S> Ord for HashMap<K, V, S>
-where
-    K: Hash + Eq + Ord + Clone,
-    V: Ord + Clone,
-    S: BuildHasher,
-{
-    fn cmp(&self, other: &Self) -> Ordering {
-        if Ref::ptr_eq(&self.hasher, &other.hasher) {
-            return self.iter().cmp(other.iter());
-        }
-        self.iter().cmp(other.iter())
-    }
-}
-
-impl<K, V, S> Hash for HashMap<K, V, S>
-where
-    K: Hash + Eq,
-    V: Hash,
-    S: BuildHasher,
-{
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        for i in self.iter() {
-            i.hash(state);
-        }
-    }
 }
 
 impl<K, V, S> Default for HashMap<K, V, S>

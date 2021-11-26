@@ -22,11 +22,10 @@
 //! [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 
 use std::borrow::Borrow;
-use std::cmp::Ordering;
 use std::collections::hash_map::RandomState;
 use std::collections::{self, BTreeSet};
 use std::fmt::{Debug, Error, Formatter};
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::{BuildHasher, Hash};
 use std::iter::FusedIterator;
 use std::iter::{FromIterator, IntoIterator, Sum};
 use std::ops::{Add, Deref, Mul};
@@ -668,47 +667,6 @@ where
     A: Hash + Eq,
     S: BuildHasher + Default,
 {
-}
-
-impl<A, S> PartialOrd for HashSet<A, S>
-where
-    A: Hash + Eq + Clone + PartialOrd,
-    S: BuildHasher + Default,
-{
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if Ref::ptr_eq(&self.hasher, &other.hasher) {
-            return self.iter().partial_cmp(other.iter());
-        }
-        self.iter().partial_cmp(other.iter())
-    }
-}
-
-impl<A, S> Ord for HashSet<A, S>
-where
-    A: Hash + Eq + Clone + Ord,
-    S: BuildHasher + Default,
-{
-    fn cmp(&self, other: &Self) -> Ordering {
-        if Ref::ptr_eq(&self.hasher, &other.hasher) {
-            return self.iter().cmp(other.iter());
-        }
-        self.iter().cmp(other.iter())
-    }
-}
-
-impl<A, S> Hash for HashSet<A, S>
-where
-    A: Hash + Eq,
-    S: BuildHasher + Default,
-{
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        for i in self.iter() {
-            i.hash(state);
-        }
-    }
 }
 
 impl<A, S> Default for HashSet<A, S>
