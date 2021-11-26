@@ -6,6 +6,23 @@ on:
     - cron: "0 0 1,15 * *"
 
 jobs:
+  fmt:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        rust: [stable]
+        os: [ubuntu-latest]
+
+    steps:
+      - uses: hecrj/setup-rust-action@v1
+        with:
+          rust-version: ${{ matrix.rust }}
+      - uses: actions/checkout@v1
+      - name: Check format
+        run: |
+          cargo fmt -- --check
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:
