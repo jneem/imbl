@@ -950,7 +950,7 @@ where
     }
 }
 
-impl<A, S, const N: usize> From<[A;N]> for HashSet<A, S>
+impl<A, S, const N: usize> From<[A; N]> for HashSet<A, S>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default,
