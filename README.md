@@ -10,6 +10,11 @@ appears to be unmaintained. The `1.0` release of `imbl` is compatible with the
 
 * [API docs](https://docs.rs/imbl/)
 
+## Minimum supported rust version
+
+This crate supports rust 1.51 and later. As const generics become more useful,
+the minimum supported rust version will increase.
+
 ## Licence
 
 Copyright 2017--2021 Bodil Stokke
