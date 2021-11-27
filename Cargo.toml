@@ -30,6 +30,7 @@ version_check = "0.9"
 
 [features]
 debug = []
+small-chunks = []
 
 [dependencies]
 typenum = "1.12"

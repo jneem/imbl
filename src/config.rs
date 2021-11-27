@@ -5,13 +5,22 @@
 use typenum::*;
 
 /// The branching factor of RRB-trees
+#[cfg(feature = "small-chunks")]
+pub(crate) type VectorChunkSize = U4;
+#[cfg(not(feature = "small-chunks"))]
 pub(crate) type VectorChunkSize = U64;
 
 /// The branching factor of B-trees
+#[cfg(feature = "small-chunks")]
+pub(crate) type OrdChunkSize = U4; // Must be an even number!
+#[cfg(not(feature = "small-chunks"))]
 pub(crate) type OrdChunkSize = U64; // Must be an even number!
 
 /// The level size of HAMTs, in bits
 /// Branching factor is 2 ^ HashLevelSize.
+#[cfg(feature = "small-chunks")]
+pub(crate) type HashLevelSize = U2;
+#[cfg(not(feature = "small-chunks"))]
 pub(crate) type HashLevelSize = U5;
 
 /// The size of per-instance memory pools if the `pool` feature is enabled.
