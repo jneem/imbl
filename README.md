@@ -1,5 +1,10 @@
 # imbl
 
+[![crates.io](https://img.shields.io/crates/v/imbl)](https://crates.io/crates/imbl)
+![tests](https://github.com/jneem/imbl/actions/workflows/ci.yml/badge.svg)
+[![docs.rs](https://docs.rs/imbl/badge.svg)](https://docs.rs/imbl/)
+[![coverage](https://coveralls.io/repos/github/jneem/imbl/badge.svg)](https://coveralls.io/github/jneem/imbl)
+
 Blazing fast immutable collection datatypes for Rust.
 
 This is a fork of the [`im`](https://github.com/bodil/im-rs) crate, which
