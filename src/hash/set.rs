@@ -21,19 +21,23 @@
 //! [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
 //! [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 
-use std::borrow::Borrow;
-use std::collections::hash_map::RandomState;
-use std::collections::{self, BTreeSet};
-use std::fmt::{Debug, Error, Formatter};
-use std::hash::{BuildHasher, Hash};
-use std::iter::FusedIterator;
-use std::iter::{FromIterator, IntoIterator, Sum};
-use std::ops::{Add, Deref, Mul};
+use std::{
+    borrow::Borrow,
+    collections::{self, hash_map::RandomState, BTreeSet},
+    fmt::{Debug, Error, Formatter},
+    hash::{BuildHasher, Hash},
+    iter::{FromIterator, FusedIterator, IntoIterator, Sum},
+    ops::{Add, Deref, Mul},
+};
 
-use crate::nodes::hamt::{hash_key, Drain as NodeDrain, HashValue, Iter as NodeIter, Node};
-use crate::ordset::OrdSet;
-use crate::util::{Pool, PoolRef, Ref};
-use crate::Vector;
+use crate::{
+    nodes::hamt::{
+        hash_key, Drain as NodeDrain, HashValue, Iter as NodeIter, Node,
+    },
+    ordset::OrdSet,
+    util::{Pool, PoolRef, Ref},
+    Vector,
+};
 
 /// Construct a set from a sequence of values.
 ///
@@ -92,9 +96,9 @@ def_pool!(HashSetPool<A>, Node<Value<A>>);
 /// [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 pub struct HashSet<A, S = RandomState> {
     hasher: Ref<S>,
-    pool: HashSetPool<A>,
-    root: PoolRef<Node<Value<A>>>,
-    size: usize,
+    pool:   HashSetPool<A>,
+    root:   PoolRef<Node<Value<A>>>,
+    size:   usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -102,6 +106,7 @@ struct Value<A>(A);
 
 impl<A> Deref for Value<A> {
     type Target = A;
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -136,10 +141,10 @@ impl<A> HashSet<A, RandomState> {
     #[must_use]
     pub fn with_pool(pool: &HashSetPool<A>) -> Self {
         Self {
-            pool: pool.clone(),
+            pool:   pool.clone(),
             hasher: Default::default(),
-            size: 0,
-            root: PoolRef::default(&pool.0),
+            size:   0,
+            root:   PoolRef::default(&pool.0),
         }
     }
 }
@@ -404,7 +409,7 @@ where
             None => {
                 self.size += 1;
                 None
-            }
+            },
             Some(Value(old_value)) => Some(old_value),
         }
     }
@@ -418,7 +423,8 @@ where
         A: Borrow<BA>,
     {
         let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
-        let result = root.remove(&self.pool.0, hash_key(&*self.hasher, a), 0, a);
+        let result =
+            root.remove(&self.pool.0, hash_key(&*self.hasher, a), 0, a);
         if result.is_some() {
             self.size -= 1;
         }
@@ -490,7 +496,8 @@ where
         let old_root = self.root.clone();
         let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
         for (value, hash) in NodeIter::new(&old_root, self.size) {
-            if !f(value) && root.remove(&self.pool.0, hash, 0, value).is_some() {
+            if !f(value) && root.remove(&self.pool.0, hash, 0, value).is_some()
+            {
                 self.size -= 1;
             }
         }
@@ -645,9 +652,9 @@ where
     fn clone(&self) -> Self {
         HashSet {
             hasher: self.hasher.clone(),
-            pool: self.pool.clone(),
-            root: self.root.clone(),
-            size: self.size,
+            pool:   self.pool.clone(),
+            root:   self.root.clone(),
+            size:   self.size,
         }
     }
 }
@@ -816,9 +823,11 @@ where
     }
 }
 
-impl<'a, A> ExactSizeIterator for Iter<'a, A> {}
+impl<'a, A> ExactSizeIterator for Iter<'a, A> {
+}
 
-impl<'a, A> FusedIterator for Iter<'a, A> {}
+impl<'a, A> FusedIterator for Iter<'a, A> {
+}
 
 /// A consuming iterator over the elements of a set.
 pub struct ConsumingIter<A>
@@ -843,9 +852,13 @@ where
     }
 }
 
-impl<A> ExactSizeIterator for ConsumingIter<A> where A: Hash + Eq + Clone {}
+impl<A> ExactSizeIterator for ConsumingIter<A> where A: Hash + Eq + Clone
+{
+}
 
-impl<A> FusedIterator for ConsumingIter<A> where A: Hash + Eq + Clone {}
+impl<A> FusedIterator for ConsumingIter<A> where A: Hash + Eq + Clone
+{
+}
 
 // Iterator conversions
 
@@ -871,8 +884,8 @@ where
     A: Hash + Eq,
     S: BuildHasher,
 {
-    type Item = &'a A;
     type IntoIter = Iter<'a, A>;
+    type Item = &'a A;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -884,8 +897,8 @@ where
     A: Hash + Eq + Clone,
     S: BuildHasher,
 {
-    type Item = A;
     type IntoIter = ConsumingIter<Self::Item>;
+    type Item = A;
 
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter {
@@ -1031,11 +1044,9 @@ pub mod proptest {
 
 #[cfg(test)]
 mod test {
-    use super::proptest::*;
-    use super::*;
+    use super::{proptest::*, *};
     use crate::test::LolHasher;
-    use ::proptest::num::i16;
-    use ::proptest::proptest;
+    use ::proptest::{num::i16, proptest};
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::hash::BuildHasherDefault;
 
@@ -1044,7 +1055,8 @@ mod test {
 
     #[test]
     fn insert_failing() {
-        let mut set: HashSet<i16, BuildHasherDefault<LolHasher>> = Default::default();
+        let mut set: HashSet<i16, BuildHasherDefault<LolHasher>> =
+            Default::default();
         set.insert(14658);
         assert_eq!(1, set.len());
         set.insert(-19198);
@@ -1078,7 +1090,8 @@ mod test {
             lhs.sort();
 
             let hasher = Ref::from(MetroHashBuilder::new(i));
-            let mut iset: HashSet<_, MetroHashBuilder> = HashSet::with_hasher(hasher.clone());
+            let mut iset: HashSet<_, MetroHashBuilder> =
+                HashSet::with_hasher(hasher.clone());
             for &i in &lhs {
                 iset.insert(i);
             }

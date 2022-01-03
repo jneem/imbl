@@ -9,8 +9,10 @@ extern crate rand;
 extern crate rayon;
 extern crate test;
 
-use rand::distributions::{Distribution, Standard};
-use rand::Rng;
+use rand::{
+    distributions::{Distribution, Standard},
+    Rng,
+};
 use std::iter::FromIterator;
 use test::Bencher;
 

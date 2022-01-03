@@ -2,19 +2,25 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use std::borrow::Borrow;
-use std::fmt;
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::iter::FusedIterator;
-use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
-use std::{mem, ptr};
+use std::{
+    borrow::Borrow,
+    fmt,
+    hash::{BuildHasher, Hash, Hasher},
+    iter::FusedIterator,
+    mem, ptr,
+    slice::{Iter as SliceIter, IterMut as SliceIterMut},
+};
 
 use bitmaps::Bits;
-use sized_chunks::sparse_chunk::{Iter as ChunkIter, IterMut as ChunkIterMut, SparseChunk};
+use sized_chunks::sparse_chunk::{
+    Iter as ChunkIter, IterMut as ChunkIterMut, SparseChunk,
+};
 use typenum::{Pow, Unsigned, U2};
 
-use crate::config::HashLevelSize;
-use crate::util::{clone_ref, Pool, PoolClone, PoolDefault, PoolRef, Ref};
+use crate::{
+    config::HashLevelSize,
+    util::{clone_ref, Pool, PoolClone, PoolDefault, PoolRef, Ref},
+};
 
 pub(crate) type HashWidth = <U2 as Pow<HashLevelSize>>::Output;
 pub(crate) type HashBits = <HashWidth as Bits>::Store; // a uint of HASH_SIZE bits
@@ -22,7 +28,10 @@ pub(crate) const HASH_SHIFT: usize = HashLevelSize::USIZE;
 pub(crate) const HASH_WIDTH: usize = HashWidth::USIZE;
 pub(crate) const HASH_MASK: HashBits = (HASH_WIDTH - 1) as HashBits;
 
-pub(crate) fn hash_key<K: Hash + ?Sized, S: BuildHasher>(bh: &S, key: &K) -> HashBits {
+pub(crate) fn hash_key<K: Hash + ?Sized, S: BuildHasher>(
+    bh: &S,
+    key: &K,
+) -> HashBits {
     let mut hasher = bh.build_hasher();
     key.hash(&mut hasher);
     hasher.finish() as HashBits
@@ -104,7 +113,11 @@ impl<A> Entry<A> {
     fn unwrap_value(self) -> A {
         match self {
             Entry::Value(a, _) => a,
-            _ => panic!("nodes::hamt::Entry::unwrap_value: unwrapped a non-value"),
+            _ => {
+                panic!(
+                    "nodes::hamt::Entry::unwrap_value: unwrapped a non-value"
+                )
+            },
         }
     }
 
@@ -146,14 +159,23 @@ impl<A> Node<A> {
     }
 
     #[inline]
-    pub(crate) fn pair(index1: usize, value1: Entry<A>, index2: usize, value2: Entry<A>) -> Self {
+    pub(crate) fn pair(
+        index1: usize,
+        value1: Entry<A>,
+        index2: usize,
+        value2: Entry<A>,
+    ) -> Self {
         Node {
             data: SparseChunk::pair(index1, value1, index2, value2),
         }
     }
 
     #[inline]
-    pub(crate) fn single_child(pool: &Pool<Node<A>>, index: usize, node: Self) -> Self {
+    pub(crate) fn single_child(
+        pool: &Pool<Node<A>>,
+        index: usize,
+        node: Self,
+    ) -> Self {
         Node {
             data: SparseChunk::unit(index, Entry::from_node(pool, node)),
         }
@@ -191,12 +213,24 @@ impl<A: HashValue> Node<A> {
             )
         } else {
             // Pass the values down a level.
-            let node = Node::merge_values(pool, value1, hash1, value2, hash2, shift + HASH_SHIFT);
+            let node = Node::merge_values(
+                pool,
+                value1,
+                hash1,
+                value2,
+                hash2,
+                shift + HASH_SHIFT,
+            );
             Node::single_child(pool, index1, node)
         }
     }
 
-    pub(crate) fn get<BK>(&self, hash: HashBits, shift: usize, key: &BK) -> Option<&A>
+    pub(crate) fn get<BK>(
+        &self,
+        hash: HashBits,
+        shift: usize,
+        key: &BK,
+    ) -> Option<&A>
     where
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
@@ -210,9 +244,11 @@ impl<A: HashValue> Node<A> {
                     } else {
                         None
                     }
-                }
+                },
                 Entry::Collision(ref coll) => coll.get(key),
-                Entry::Node(ref child) => child.get(hash, shift + HASH_SHIFT, key),
+                Entry::Node(ref child) => {
+                    child.get(hash, shift + HASH_SHIFT, key)
+                },
             }
         } else {
             None
@@ -240,15 +276,15 @@ impl<A: HashValue> Node<A> {
                     } else {
                         None
                     }
-                }
+                },
                 Entry::Collision(ref mut coll_ref) => {
                     let coll = Ref::make_mut(coll_ref);
                     coll.get_mut(key)
-                }
+                },
                 Entry::Node(ref mut child_ref) => {
                     let child = PoolRef::make_mut(pool, child_ref);
                     child.get_mut(pool, hash, shift + HASH_SHIFT, key)
-                }
+                },
             }
         } else {
             None
@@ -279,17 +315,17 @@ impl<A: HashValue> Node<A> {
                         // some nodes.
                         fallthrough = true;
                     }
-                }
+                },
                 // There's already a collision here.
                 Entry::Collision(ref mut collision) => {
                     let coll = Ref::make_mut(collision);
                     return coll.insert(value);
-                }
+                },
                 Entry::Node(ref mut child_ref) => {
                     // Child node
                     let child = PoolRef::make_mut(pool, child_ref);
                     return child.insert(pool, hash, shift + HASH_SHIFT, value);
-                }
+                },
             }
             #[allow(unsafe_code)]
             if !fallthrough {
@@ -299,7 +335,11 @@ impl<A: HashValue> Node<A> {
                 let old_entry = unsafe { ptr::read(entry) };
                 if shift + HASH_SHIFT >= HASH_WIDTH {
                     // We're at the lowest level, need to set up a collision node.
-                    let coll = CollisionNode::new(hash, old_entry.unwrap_value(), value);
+                    let coll = CollisionNode::new(
+                        hash,
+                        old_entry.unwrap_value(),
+                        value,
+                    );
                     unsafe { ptr::write(entry, Entry::from(coll)) };
                 } else if let Entry::Value(old_value, old_hash) = old_entry {
                     let node = Node::merge_values(
@@ -347,7 +387,7 @@ impl<A: HashValue> Node<A> {
                         // Key wasn't in the map.
                         return None;
                     } // Otherwise, fall through to the removal.
-                }
+                },
                 Entry::Collision(ref mut coll_ref) => {
                     let coll = Ref::make_mut(coll_ref);
                     removed = coll.remove(key);
@@ -356,16 +396,17 @@ impl<A: HashValue> Node<A> {
                     } else {
                         return removed;
                     }
-                }
+                },
                 Entry::Node(ref mut child_ref) => {
                     let child = PoolRef::make_mut(pool, child_ref);
                     match child.remove(pool, hash, shift + HASH_SHIFT, key) {
                         None => {
                             return None;
-                        }
+                        },
                         Some(value) => {
                             if child.len() == 1
-                                && child.data[child.data.first_index().unwrap()].is_value()
+                                && child.data[child.data.first_index().unwrap()]
+                                    .is_value()
                             {
                                 // If the child now contains only a single value node,
                                 // pull it up one level and discard the child.
@@ -374,9 +415,9 @@ impl<A: HashValue> Node<A> {
                             } else {
                                 return Some(value);
                             }
-                        }
+                        },
                     }
-                }
+                },
             }
         }
         if let Some(node) = new_node {
@@ -462,9 +503,9 @@ impl<A: HashValue> CollisionNode<A> {
 // Ref iterator
 
 pub(crate) struct Iter<'a, A> {
-    count: usize,
-    stack: Vec<ChunkIter<'a, Entry<A>, HashWidth>>,
-    current: ChunkIter<'a, Entry<A>, HashWidth>,
+    count:     usize,
+    stack:     Vec<ChunkIter<'a, Entry<A>, HashWidth>>,
+    current:   ChunkIter<'a, Entry<A>, HashWidth>,
     collision: Option<(HashBits, SliceIter<'a, A>)>,
 }
 
@@ -474,9 +515,9 @@ where
 {
     pub(crate) fn new(root: &'a Node<A>, size: usize) -> Self {
         Iter {
-            count: size,
-            stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
-            current: root.data.iter(),
+            count:     size,
+            stack:     Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
+            current:   root.data.iter(),
             collision: None,
         }
     }
@@ -495,11 +536,11 @@ where
         if self.collision.is_some() {
             if let Some((hash, ref mut coll)) = self.collision {
                 match coll.next() {
-                    None => {}
+                    None => {},
                     Some(value) => {
                         self.count -= 1;
                         return Some((value, hash));
-                    }
+                    },
                 }
             }
             self.collision = None;
@@ -509,21 +550,24 @@ where
             Some(Entry::Value(value, hash)) => {
                 self.count -= 1;
                 Some((value, *hash))
-            }
+            },
             Some(Entry::Node(child)) => {
-                let current = mem::replace(&mut self.current, child.data.iter());
+                let current =
+                    mem::replace(&mut self.current, child.data.iter());
                 self.stack.push(current);
                 self.next()
-            }
+            },
             Some(Entry::Collision(coll)) => {
                 self.collision = Some((coll.hash, coll.data.iter()));
                 self.next()
-            }
-            None => match self.stack.pop() {
-                None => None,
-                Some(iter) => {
-                    self.current = iter;
-                    self.next()
+            },
+            None => {
+                match self.stack.pop() {
+                    None => None,
+                    Some(iter) => {
+                        self.current = iter;
+                        self.next()
+                    },
                 }
             },
         }
@@ -534,17 +578,21 @@ where
     }
 }
 
-impl<'a, A> ExactSizeIterator for Iter<'a, A> where A: 'a {}
+impl<'a, A> ExactSizeIterator for Iter<'a, A> where A: 'a
+{
+}
 
-impl<'a, A> FusedIterator for Iter<'a, A> where A: 'a {}
+impl<'a, A> FusedIterator for Iter<'a, A> where A: 'a
+{
+}
 
 // Mut ref iterator
 
 pub(crate) struct IterMut<'a, A> {
-    count: usize,
-    pool: Pool<Node<A>>,
-    stack: Vec<ChunkIterMut<'a, Entry<A>, HashWidth>>,
-    current: ChunkIterMut<'a, Entry<A>, HashWidth>,
+    count:     usize,
+    pool:      Pool<Node<A>>,
+    stack:     Vec<ChunkIterMut<'a, Entry<A>, HashWidth>>,
+    current:   ChunkIterMut<'a, Entry<A>, HashWidth>,
     collision: Option<(HashBits, SliceIterMut<'a, A>)>,
 }
 
@@ -552,12 +600,16 @@ impl<'a, A> IterMut<'a, A>
 where
     A: 'a,
 {
-    pub(crate) fn new(pool: &Pool<Node<A>>, root: &'a mut Node<A>, size: usize) -> Self {
+    pub(crate) fn new(
+        pool: &Pool<Node<A>>,
+        root: &'a mut Node<A>,
+        size: usize,
+    ) -> Self {
         IterMut {
-            count: size,
-            pool: pool.clone(),
-            stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
-            current: root.data.iter_mut(),
+            count:     size,
+            pool:      pool.clone(),
+            stack:     Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
+            current:   root.data.iter_mut(),
             collision: None,
         }
     }
@@ -576,11 +628,11 @@ where
         if self.collision.is_some() {
             if let Some((hash, ref mut coll)) = self.collision {
                 match coll.next() {
-                    None => {}
+                    None => {},
                     Some(value) => {
                         self.count -= 1;
                         return Some((value, hash));
-                    }
+                    },
                 }
             }
             self.collision = None;
@@ -590,23 +642,26 @@ where
             Some(Entry::Value(value, hash)) => {
                 self.count -= 1;
                 Some((value, *hash))
-            }
+            },
             Some(Entry::Node(child_ref)) => {
                 let child = PoolRef::make_mut(&self.pool, child_ref);
-                let current = mem::replace(&mut self.current, child.data.iter_mut());
+                let current =
+                    mem::replace(&mut self.current, child.data.iter_mut());
                 self.stack.push(current);
                 self.next()
-            }
+            },
             Some(Entry::Collision(coll_ref)) => {
                 let coll = Ref::make_mut(coll_ref);
                 self.collision = Some((coll.hash, coll.data.iter_mut()));
                 self.next()
-            }
-            None => match self.stack.pop() {
-                None => None,
-                Some(iter) => {
-                    self.current = iter;
-                    self.next()
+            },
+            None => {
+                match self.stack.pop() {
+                    None => None,
+                    Some(iter) => {
+                        self.current = iter;
+                        self.next()
+                    },
                 }
             },
         }
@@ -617,9 +672,13 @@ where
     }
 }
 
-impl<'a, A> ExactSizeIterator for IterMut<'a, A> where A: Clone + 'a {}
+impl<'a, A> ExactSizeIterator for IterMut<'a, A> where A: Clone + 'a
+{
+}
 
-impl<'a, A> FusedIterator for IterMut<'a, A> where A: Clone + 'a {}
+impl<'a, A> FusedIterator for IterMut<'a, A> where A: Clone + 'a
+{
+}
 
 // Consuming iterator
 
@@ -627,10 +686,10 @@ pub(crate) struct Drain<A>
 where
     A: HashValue,
 {
-    count: usize,
-    pool: Pool<Node<A>>,
-    stack: Vec<PoolRef<Node<A>>>,
-    current: PoolRef<Node<A>>,
+    count:     usize,
+    pool:      Pool<Node<A>>,
+    stack:     Vec<PoolRef<Node<A>>>,
+    current:   PoolRef<Node<A>>,
     collision: Option<CollisionNode<A>>,
 }
 
@@ -638,12 +697,16 @@ impl<A> Drain<A>
 where
     A: HashValue,
 {
-    pub(crate) fn new(pool: &Pool<Node<A>>, root: PoolRef<Node<A>>, size: usize) -> Self {
+    pub(crate) fn new(
+        pool: &Pool<Node<A>>,
+        root: PoolRef<Node<A>>,
+        size: usize,
+    ) -> Self {
         Drain {
-            count: size,
-            pool: pool.clone(),
-            stack: vec![],
-            current: root,
+            count:     size,
+            pool:      pool.clone(),
+            stack:     vec![],
+            current:   root,
             collision: None,
         }
     }
@@ -673,21 +736,23 @@ where
             Some(Entry::Value(value, hash)) => {
                 self.count -= 1;
                 Some((value, hash))
-            }
+            },
             Some(Entry::Collision(coll_ref)) => {
                 self.collision = Some(clone_ref(coll_ref));
                 self.next()
-            }
+            },
             Some(Entry::Node(child)) => {
                 let parent = mem::replace(&mut self.current, child);
                 self.stack.push(parent);
                 self.next()
-            }
-            None => match self.stack.pop() {
-                None => None,
-                Some(parent) => {
-                    self.current = parent;
-                    self.next()
+            },
+            None => {
+                match self.stack.pop() {
+                    None => None,
+                    Some(parent) => {
+                        self.current = parent;
+                        self.next()
+                    },
                 }
             },
         }
@@ -698,9 +763,13 @@ where
     }
 }
 
-impl<A: HashValue> ExactSizeIterator for Drain<A> where A: Clone {}
+impl<A: HashValue> ExactSizeIterator for Drain<A> where A: Clone
+{
+}
 
-impl<A: HashValue> FusedIterator for Drain<A> where A: Clone {}
+impl<A: HashValue> FusedIterator for Drain<A> where A: Clone
+{
+}
 
 impl<A: HashValue + fmt::Debug> fmt::Debug for Node<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -709,7 +778,9 @@ impl<A: HashValue + fmt::Debug> fmt::Debug for Node<A> {
             write!(f, "{}: ", i)?;
             match &self.data[i] {
                 Entry::Value(v, h) => write!(f, "{:?} :: {}, ", v, h)?,
-                Entry::Collision(c) => write!(f, "Coll{:?} :: {}", c.data, c.hash)?,
+                Entry::Collision(c) => {
+                    write!(f, "Coll{:?} :: {}", c.data, c.hash)?
+                },
                 Entry::Node(n) => write!(f, "{:?}, ", n)?,
             }
         }

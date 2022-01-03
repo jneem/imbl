@@ -4,8 +4,10 @@
 
 // Every codebase needs a `util` module.
 
-use std::cmp::Ordering;
-use std::ops::{Bound, Range, RangeBounds};
+use std::{
+    cmp::Ordering,
+    ops::{Bound, Range, RangeBounds},
+};
 
 #[cfg(feature = "pool")]
 pub(crate) use refpool::{PoolClone, PoolDefault};
@@ -13,7 +15,9 @@ pub(crate) use refpool::{PoolClone, PoolDefault};
 // The `Ref` type is an alias for either `Rc` or `Arc`, user's choice.
 // FIXME: we have temporarily disabled `Rc`, so this is always `Arc`.
 // `Arc` without refpool
-pub(crate) use crate::fakepool::{Arc as PoolRef, Pool, PoolClone, PoolDefault};
+pub(crate) use crate::fakepool::{
+    Arc as PoolRef, Pool, PoolClone, PoolDefault,
+};
 
 // `Ref` == `Arc` when threadsafe
 pub(crate) type Ref<A> = std::sync::Arc<A>;
@@ -32,7 +36,10 @@ pub(crate) enum Side {
 }
 
 #[allow(dead_code)]
-pub(crate) fn linear_search_by<'a, A, I, F>(iterable: I, mut cmp: F) -> Result<usize, usize>
+pub(crate) fn linear_search_by<'a, A, I, F>(
+    iterable: I,
+    mut cmp: F,
+) -> Result<usize, usize>
 where
     A: 'a,
     I: IntoIterator<Item = &'a A>,
@@ -43,7 +50,7 @@ where
         match cmp(value) {
             Ordering::Equal => return Ok(pos),
             Ordering::Greater => return Err(pos),
-            Ordering::Less => {}
+            Ordering::Less => {},
         }
         pos += 1;
     }

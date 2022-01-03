@@ -2,26 +2,29 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-use std::fmt;
-use std::hash::{BuildHasher, Hash};
-use std::marker::PhantomData;
-use std::ops::Deref;
+use serde::{
+    de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor},
+    ser::{Serialize, SerializeMap, SerializeSeq, Serializer},
+};
+use std::{
+    fmt,
+    hash::{BuildHasher, Hash},
+    marker::PhantomData,
+    ops::Deref,
+};
 
-use crate::hashmap::HashMap;
-use crate::hashset::HashSet;
-use crate::ordmap::OrdMap;
-use crate::ordset::OrdSet;
-use crate::vector::Vector;
+use crate::{
+    hashmap::HashMap, hashset::HashSet, ordmap::OrdMap, ordset::OrdSet,
+    vector::Vector,
+};
 
 struct SeqVisitor<'de, S, A>
 where
     S: From<Vec<A>>,
     A: Deserialize<'de>,
 {
-    phantom_s: PhantomData<S>,
-    phantom_a: PhantomData<A>,
+    phantom_s:        PhantomData<S>,
+    phantom_a:        PhantomData<A>,
     phantom_lifetime: PhantomData<&'de ()>,
 }
 
@@ -32,8 +35,8 @@ where
 {
     pub(crate) fn new() -> SeqVisitor<'de, S, A> {
         SeqVisitor {
-            phantom_s: PhantomData,
-            phantom_a: PhantomData,
+            phantom_s:        PhantomData,
+            phantom_a:        PhantomData,
             phantom_lifetime: PhantomData,
         }
     }
@@ -50,7 +53,10 @@ where
         formatter.write_str("a sequence")
     }
 
-    fn visit_seq<Access>(self, mut access: Access) -> Result<Self::Value, Access::Error>
+    fn visit_seq<Access>(
+        self,
+        mut access: Access,
+    ) -> Result<Self::Value, Access::Error>
     where
         Access: SeqAccess<'de>,
     {
@@ -71,9 +77,9 @@ where
     K: Deserialize<'de>,
     V: Deserialize<'de>,
 {
-    phantom_s: PhantomData<S>,
-    phantom_k: PhantomData<K>,
-    phantom_v: PhantomData<V>,
+    phantom_s:        PhantomData<S>,
+    phantom_k:        PhantomData<K>,
+    phantom_v:        PhantomData<V>,
     phantom_lifetime: PhantomData<&'de ()>,
 }
 
@@ -85,9 +91,9 @@ where
 {
     pub(crate) fn new() -> MapVisitor<'de, S, K, V> {
         MapVisitor {
-            phantom_s: PhantomData,
-            phantom_k: PhantomData,
-            phantom_v: PhantomData,
+            phantom_s:        PhantomData,
+            phantom_k:        PhantomData,
+            phantom_v:        PhantomData,
             phantom_lifetime: PhantomData,
         }
     }
@@ -105,7 +111,10 @@ where
         formatter.write_str("a sequence")
     }
 
-    fn visit_map<Access>(self, mut access: Access) -> Result<Self::Value, Access::Error>
+    fn visit_map<Access>(
+        self,
+        mut access: Access,
+    ) -> Result<Self::Value, Access::Error>
     where
         Access: MapAccess<'de>,
     {
@@ -146,8 +155,8 @@ impl<A: Ord + Clone + Serialize> Serialize for OrdSet<A> {
 
 // Map
 
-impl<'de, K: Deserialize<'de> + Ord + Clone, V: Deserialize<'de> + Clone> Deserialize<'de>
-    for OrdMap<K, V>
+impl<'de, K: Deserialize<'de> + Ord + Clone, V: Deserialize<'de> + Clone>
+    Deserialize<'de> for OrdMap<K, V>
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
@@ -157,7 +166,9 @@ impl<'de, K: Deserialize<'de> + Ord + Clone, V: Deserialize<'de> + Clone> Deseri
     }
 }
 
-impl<K: Serialize + Ord + Clone, V: Serialize + Clone> Serialize for OrdMap<K, V> {
+impl<K: Serialize + Ord + Clone, V: Serialize + Clone> Serialize
+    for OrdMap<K, V>
+{
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -206,8 +217,8 @@ where
 
 // HashSet
 
-impl<'de, A: Deserialize<'de> + Hash + Eq + Clone, S: BuildHasher + Default> Deserialize<'de>
-    for HashSet<A, S>
+impl<'de, A: Deserialize<'de> + Hash + Eq + Clone, S: BuildHasher + Default>
+    Deserialize<'de> for HashSet<A, S>
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
@@ -217,7 +228,9 @@ impl<'de, A: Deserialize<'de> + Hash + Eq + Clone, S: BuildHasher + Default> Des
     }
 }
 
-impl<A: Serialize + Hash + Eq + Clone, S: BuildHasher + Default> Serialize for HashSet<A, S> {
+impl<A: Serialize + Hash + Eq + Clone, S: BuildHasher + Default> Serialize
+    for HashSet<A, S>
+{
     fn serialize<Ser>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error>
     where
         Ser: Serializer,
@@ -260,8 +273,7 @@ impl<A: Clone + Serialize> Serialize for Vector<A> {
 mod test {
     use super::*;
     use crate::proptest::{hash_map, hash_set, ord_map, ord_set, vector};
-    use ::proptest::num::i32;
-    use ::proptest::proptest;
+    use ::proptest::{num::i32, proptest};
     use serde_json::{from_str, to_string};
 
     proptest! {

@@ -21,20 +21,24 @@
 //! [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
 //! [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 
-use std::borrow::Borrow;
-use std::collections;
-use std::collections::hash_map::RandomState;
-use std::fmt::{Debug, Error, Formatter};
-use std::hash::{BuildHasher, Hash};
-use std::iter::{FromIterator, FusedIterator, Sum};
-use std::mem;
-use std::ops::{Add, Index, IndexMut};
-
-use crate::nodes::hamt::{
-    hash_key, Drain as NodeDrain, HashBits, HashValue, Iter as NodeIter, IterMut as NodeIterMut,
-    Node,
+use std::{
+    borrow::Borrow,
+    collections,
+    collections::hash_map::RandomState,
+    fmt::{Debug, Error, Formatter},
+    hash::{BuildHasher, Hash},
+    iter::{FromIterator, FusedIterator, Sum},
+    mem,
+    ops::{Add, Index, IndexMut},
 };
-use crate::util::{Pool, PoolRef, Ref};
+
+use crate::{
+    nodes::hamt::{
+        hash_key, Drain as NodeDrain, HashBits, HashValue, Iter as NodeIter,
+        IterMut as NodeIterMut, Node,
+    },
+    util::{Pool, PoolRef, Ref},
+};
 
 /// Construct a hash map from a sequence of key/value pairs.
 ///
@@ -97,9 +101,9 @@ def_pool!(HashMapPool<K,V>, Node<(K,V)>);
 /// [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 
 pub struct HashMap<K, V, S = RandomState> {
-    size: usize,
-    pool: HashMapPool<K, V>,
-    root: PoolRef<Node<(K, V)>>,
+    size:   usize,
+    pool:   HashMapPool<K, V>,
+    root:   PoolRef<Node<(K, V)>>,
     hasher: Ref<S>,
 }
 
@@ -480,8 +484,9 @@ where
         F: FnMut(&V, &B) -> bool,
         RM: Borrow<HashMap<K, B, S>>,
     {
-        self.iter()
-            .all(|(k, v)| other.borrow().get(k).map(|ov| cmp(v, ov)).unwrap_or(false))
+        self.iter().all(|(k, v)| {
+            other.borrow().get(k).map(|ov| cmp(v, ov)).unwrap_or(false)
+        })
     }
 
     /// Test whether a map is a proper submap of another map, meaning
@@ -692,7 +697,8 @@ where
         K: Borrow<BK>,
     {
         let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
-        let result = root.remove(&self.pool.0, hash_key(&*self.hasher, k), 0, k);
+        let result =
+            root.remove(&self.pool.0, hash_key(&*self.hasher, k), 0, k);
         if result.is_some() {
             self.size -= 1;
         }
@@ -785,7 +791,7 @@ where
             Some((_, v2, m)) => {
                 let out_v = f(&k, v2, v);
                 m.update(k, out_v)
-            }
+            },
         }
     }
 
@@ -799,7 +805,12 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn update_lookup_with_key<F>(&self, k: K, v: V, f: F) -> (Option<V>, Self)
+    pub fn update_lookup_with_key<F>(
+        &self,
+        k: K,
+        v: V,
+        f: F,
+    ) -> (Option<V>, Self)
     where
         F: FnOnce(&K, &V, V) -> V,
     {
@@ -808,7 +819,7 @@ where
             Some((_, v2, m)) => {
                 let out_v = f(&k, &v2, v);
                 (Some(v2), m.update(k, out_v))
-            }
+            },
         }
     }
 
@@ -882,7 +893,9 @@ where
         let old_root = self.root.clone();
         let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
         for ((key, value), hash) in NodeIter::new(&old_root, self.size) {
-            if !f(key, value) && root.remove(&self.pool.0, hash, 0, key).is_some() {
+            if !f(key, value)
+                && root.remove(&self.pool.0, hash, 0, key).is_some()
+            {
                 self.size -= 1;
             }
         }
@@ -932,20 +945,21 @@ where
     /// ```
     #[must_use]
     pub fn union(self, other: Self) -> Self {
-        let (mut to_mutate, to_consume, use_to_consume) = if self.len() >= other.len() {
-            (self, other, false)
-        } else {
-            (other, self, true)
-        };
+        let (mut to_mutate, to_consume, use_to_consume) =
+            if self.len() >= other.len() {
+                (self, other, false)
+            } else {
+                (other, self, true)
+            };
         for (k, v) in to_consume {
             match to_mutate.entry(k) {
                 Entry::Occupied(mut e) if use_to_consume => {
                     e.insert(v);
-                }
+                },
                 Entry::Vacant(e) => {
                     e.insert(v);
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
         to_mutate
@@ -1015,11 +1029,11 @@ where
             match self.remove(&key) {
                 None => {
                     self.insert(key, right_value);
-                }
+                },
                 Some(left_value) => {
                     let final_value = f(&key, left_value, right_value);
                     self.insert(key, final_value);
-                }
+                },
             }
         }
         self
@@ -1223,7 +1237,11 @@ where
     /// ));
     /// ```
     #[must_use]
-    pub fn symmetric_difference_with_key<F>(mut self, other: Self, mut f: F) -> Self
+    pub fn symmetric_difference_with_key<F>(
+        mut self,
+        other: Self,
+        mut f: F,
+    ) -> Self
     where
         F: FnMut(&K, V, V) -> Option<V>,
     {
@@ -1232,12 +1250,13 @@ where
             match self.remove(&key) {
                 None => {
                     out.insert(key, right_value);
-                }
+                },
                 Some(left_value) => {
-                    if let Some(final_value) = f(&key, left_value, right_value) {
+                    if let Some(final_value) = f(&key, left_value, right_value)
+                    {
                         out.insert(key, final_value);
                     }
-                }
+                },
             }
         }
         out.union(self)
@@ -1295,7 +1314,11 @@ where
     /// Time: O(n log n)
     #[inline]
     #[must_use]
-    pub fn intersection_with<B, C, F>(self, other: HashMap<K, B, S>, mut f: F) -> HashMap<K, C, S>
+    pub fn intersection_with<B, C, F>(
+        self,
+        other: HashMap<K, B, S>,
+        mut f: F,
+    ) -> HashMap<K, C, S>
     where
         B: Clone,
         C: Clone,
@@ -1341,7 +1364,7 @@ where
                 Some(left_value) => {
                     let result = f(&key, left_value, right_value);
                     out.insert(key, result);
-                }
+                },
             }
         }
         out
@@ -1437,9 +1460,9 @@ where
     V: Clone,
     S: BuildHasher,
 {
-    map: &'a mut HashMap<K, V, S>,
+    map:  &'a mut HashMap<K, V, S>,
     hash: HashBits,
-    key: K,
+    key:  K,
 }
 
 impl<'a, K, V, S> OccupiedEntry<'a, K, V, S>
@@ -1506,9 +1529,9 @@ where
     V: Clone,
     S: BuildHasher,
 {
-    map: &'a mut HashMap<K, V, S>,
+    map:  &'a mut HashMap<K, V, S>,
     hash: HashBits,
-    key: K,
+    key:  K,
 }
 
 impl<'a, K, V, S> VacantEntry<'a, K, V, S>
@@ -1560,9 +1583,9 @@ where
     #[inline]
     fn clone(&self) -> Self {
         HashMap {
-            root: self.root.clone(),
-            pool: self.pool.clone(),
-            size: self.size,
+            root:   self.root.clone(),
+            pool:   self.pool.clone(),
+            size:   self.size,
             hasher: self.hasher.clone(),
         }
     }
@@ -1789,9 +1812,11 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> {}
+impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> {
+}
 
-impl<'a, K, V> FusedIterator for Iter<'a, K, V> {}
+impl<'a, K, V> FusedIterator for Iter<'a, K, V> {
+}
 
 /// A mutable iterator over the elements of a map.
 pub struct IterMut<'a, K, V>
@@ -1852,9 +1877,13 @@ where
     }
 }
 
-impl<A> ExactSizeIterator for ConsumingIter<A> where A: HashValue + Clone {}
+impl<A> ExactSizeIterator for ConsumingIter<A> where A: HashValue + Clone
+{
+}
 
-impl<A> FusedIterator for ConsumingIter<A> where A: HashValue + Clone {}
+impl<A> FusedIterator for ConsumingIter<A> where A: HashValue + Clone
+{
+}
 
 /// An iterator over the keys of a map.
 pub struct Keys<'a, K, V> {
@@ -1873,9 +1902,11 @@ impl<'a, K, V> Iterator for Keys<'a, K, V> {
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for Keys<'a, K, V> {}
+impl<'a, K, V> ExactSizeIterator for Keys<'a, K, V> {
+}
 
-impl<'a, K, V> FusedIterator for Keys<'a, K, V> {}
+impl<'a, K, V> FusedIterator for Keys<'a, K, V> {
+}
 
 /// An iterator over the values of a map.
 pub struct Values<'a, K, V> {
@@ -1894,17 +1925,19 @@ impl<'a, K, V> Iterator for Values<'a, K, V> {
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for Values<'a, K, V> {}
+impl<'a, K, V> ExactSizeIterator for Values<'a, K, V> {
+}
 
-impl<'a, K, V> FusedIterator for Values<'a, K, V> {}
+impl<'a, K, V> FusedIterator for Values<'a, K, V> {
+}
 
 impl<'a, K, V, S> IntoIterator for &'a HashMap<K, V, S>
 where
     K: Hash + Eq,
     S: BuildHasher,
 {
-    type Item = (&'a K, &'a V);
     type IntoIter = Iter<'a, K, V>;
+    type Item = (&'a K, &'a V);
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -1918,8 +1951,8 @@ where
     V: Clone,
     S: BuildHasher,
 {
-    type Item = (K, V);
     type IntoIter = ConsumingIter<(K, V)>;
+    type Item = (K, V);
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -1956,7 +1989,8 @@ impl<K, V, S> AsRef<HashMap<K, V, S>> for HashMap<K, V, S> {
     }
 }
 
-impl<'m, 'k, 'v, K, V, OK, OV, SA, SB> From<&'m HashMap<&'k K, &'v V, SA>> for HashMap<OK, OV, SB>
+impl<'m, 'k, 'v, K, V, OK, OV, SA, SB> From<&'m HashMap<&'k K, &'v V, SA>>
+    for HashMap<OK, OV, SB>
 where
     K: Hash + Eq + ToOwned<Owned = OK> + ?Sized,
     V: ToOwned<Owned = OV> + ?Sized,
@@ -2084,8 +2118,11 @@ pub mod proptest {
 mod test {
     use super::*;
     use crate::test::LolHasher;
-    use ::proptest::num::{i16, usize};
-    use ::proptest::{collection, proptest};
+    use ::proptest::{
+        collection,
+        num::{i16, usize},
+        proptest,
+    };
     use static_assertions::{assert_impl_all, assert_not_impl_any};
     use std::hash::BuildHasherDefault;
 
@@ -2095,7 +2132,8 @@ mod test {
 
     #[test]
     fn safe_mutation() {
-        let v1: HashMap<usize, usize> = HashMap::from_iter((0..131_072).map(|i| (i, i)));
+        let v1: HashMap<usize, usize> =
+            HashMap::from_iter((0..131_072).map(|i| (i, i)));
         let mut v2 = v1.clone();
         v2.insert(131_000, 23);
         assert_eq!(Some(&23), v2.get(&131_000));
@@ -2122,7 +2160,9 @@ mod test {
     fn remove_failing() {
         let pairs = [(1469, 0), (-67, 0)];
         let mut m: collections::HashMap<i16, i16, _> =
-            collections::HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
+            collections::HashMap::with_hasher(
+                BuildHasherDefault::<LolHasher>::default(),
+            );
         for &(ref k, ref v) in &pairs {
             m.insert(*k, *v);
         }
@@ -2164,7 +2204,8 @@ mod test {
     #[test]
     fn remove_top_level_collisions() {
         let pairs = vec![9, 2569, 27145];
-        let mut map: HashMap<i16, i16, BuildHasherDefault<LolHasher>> = Default::default();
+        let mut map: HashMap<i16, i16, BuildHasherDefault<LolHasher>> =
+            Default::default();
         for k in pairs.clone() {
             map.insert(k, k);
         }

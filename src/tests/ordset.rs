@@ -1,7 +1,9 @@
 #![allow(clippy::unit_arg)]
 
-use std::collections::BTreeSet;
-use std::fmt::{Debug, Error, Formatter, Write};
+use std::{
+    collections::BTreeSet,
+    fmt::{Debug, Error, Formatter, Write},
+};
 
 use crate::OrdSet;
 
@@ -32,11 +34,11 @@ where
                 Action::Insert(ref value) => {
                     expected.insert(value.clone());
                     writeln!(out, "set.insert({:?});", value)?;
-                }
+                },
                 Action::Remove(ref value) => {
                     expected.remove(value);
                     writeln!(out, "set.remove({:?});", value)?;
-                }
+                },
             }
         }
         writeln!(

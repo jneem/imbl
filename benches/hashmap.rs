@@ -41,7 +41,8 @@ fn reorder<A: Copy>(vec: &[A]) -> Vec<A> {
 fn hashmap_lookup_n(size: usize, b: &mut Bencher) {
     let keys = random_keys(size);
     let order = reorder(&keys);
-    let m: HashMap<i64, i64> = HashMap::from_iter(keys.into_iter().map(|i| (i, 1)));
+    let m: HashMap<i64, i64> =
+        HashMap::from_iter(keys.into_iter().map(|i| (i, 1)));
     b.iter(|| {
         for i in &order {
             let _ = m.get(i);
@@ -122,7 +123,8 @@ fn hashmap_insert_mut_10000(b: &mut Bencher) {
 fn hashmap_remove_n(size: usize, b: &mut Bencher) {
     let keys = random_keys(size);
     let order = reorder(&keys);
-    let map: HashMap<i64, i64> = HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
+    let map: HashMap<i64, i64> =
+        HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
     b.iter(|| {
         let mut m = map.clone();
         for i in &order {
@@ -149,7 +151,8 @@ fn hashmap_remove_1000(b: &mut Bencher) {
 fn hashmap_remove_mut_n(size: usize, b: &mut Bencher) {
     let keys = random_keys(size);
     let order = reorder(&keys);
-    let map: HashMap<i64, i64> = HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
+    let map: HashMap<i64, i64> =
+        HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
     b.iter(|| {
         let mut m = map.clone();
         for i in &order {
@@ -176,7 +179,8 @@ fn hashmap_remove_mut_1000(b: &mut Bencher) {
 fn hashmap_insert_once_n(size: usize, b: &mut Bencher) {
     let mut keys = random_keys(size + 1);
     let key = keys.pop().unwrap();
-    let map: HashMap<i64, i64> = HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
+    let map: HashMap<i64, i64> =
+        HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
     b.iter(|| map.update(key, key))
 }
 
@@ -203,7 +207,8 @@ fn hashmap_insert_once_10000(b: &mut Bencher) {
 fn hashmap_remove_once_n(size: usize, b: &mut Bencher) {
     let keys = random_keys(size + 1);
     let key = keys[0];
-    let map: HashMap<i64, i64> = HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
+    let map: HashMap<i64, i64> =
+        HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
     b.iter(|| map.without(&key))
 }
 
@@ -230,7 +235,8 @@ fn hashmap_remove_once_10000(b: &mut Bencher) {
 fn hashmap_lookup_once_n(size: usize, b: &mut Bencher) {
     let keys = random_keys(size + 1);
     let key = keys[0];
-    let map: HashMap<i64, i64> = HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
+    let map: HashMap<i64, i64> =
+        HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
     b.iter(|| map.get(&key))
 }
 

@@ -1,7 +1,9 @@
 use crate::{HashMap, HashSet, OrdMap, OrdSet, Vector};
 use ::quickcheck::{Arbitrary, Gen};
-use std::hash::{BuildHasher, Hash};
-use std::iter::FromIterator;
+use std::{
+    hash::{BuildHasher, Hash},
+    iter::FromIterator,
+};
 
 impl<A: Arbitrary + Sync + Clone> Arbitrary for Vector<A> {
     fn arbitrary(g: &mut Gen) -> Self {
@@ -9,7 +11,9 @@ impl<A: Arbitrary + Sync + Clone> Arbitrary for Vector<A> {
     }
 }
 
-impl<K: Ord + Clone + Arbitrary + Sync, V: Clone + Arbitrary + Sync> Arbitrary for OrdMap<K, V> {
+impl<K: Ord + Clone + Arbitrary + Sync, V: Clone + Arbitrary + Sync> Arbitrary
+    for OrdMap<K, V>
+{
     fn arbitrary(g: &mut Gen) -> Self {
         OrdMap::from_iter(Vec::<(K, V)>::arbitrary(g))
     }

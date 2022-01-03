@@ -3,11 +3,11 @@
 //! These are only available when using the `proptest` feature flag.
 
 use crate::{HashMap, HashSet, OrdMap, OrdSet, Vector};
-use ::proptest::collection::vec;
-use ::proptest::strategy::{BoxedStrategy, Strategy, ValueTree};
-use std::hash::Hash;
-use std::iter::FromIterator;
-use std::ops::Range;
+use ::proptest::{
+    collection::vec,
+    strategy::{BoxedStrategy, Strategy, ValueTree},
+};
+use std::{hash::Hash, iter::FromIterator, ops::Range};
 
 /// A strategy for generating a [`Vector`][Vector] of a certain size.
 ///
@@ -55,7 +55,9 @@ pub fn ord_map<K: Strategy + 'static, V: Strategy + 'static>(
     key: K,
     value: V,
     size: Range<usize>,
-) -> BoxedStrategy<OrdMap<<K::Tree as ValueTree>::Value, <V::Tree as ValueTree>::Value>>
+) -> BoxedStrategy<
+    OrdMap<<K::Tree as ValueTree>::Value, <V::Tree as ValueTree>::Value>,
+>
 where
     <K::Tree as ValueTree>::Value: Ord + Clone,
     <V::Tree as ValueTree>::Value: Clone,
@@ -119,7 +121,9 @@ pub fn hash_map<K: Strategy + 'static, V: Strategy + 'static>(
     key: K,
     value: V,
     size: Range<usize>,
-) -> BoxedStrategy<HashMap<<K::Tree as ValueTree>::Value, <V::Tree as ValueTree>::Value>>
+) -> BoxedStrategy<
+    HashMap<<K::Tree as ValueTree>::Value, <V::Tree as ValueTree>::Value>,
+>
 where
     <K::Tree as ValueTree>::Value: Hash + Eq + Clone,
     <V::Tree as ValueTree>::Value: Clone,

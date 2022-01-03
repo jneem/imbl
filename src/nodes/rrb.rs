@@ -2,15 +2,16 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use std::mem::replace;
-use std::ops::Range;
+use std::{mem::replace, ops::Range};
 
-use crate::nodes::chunk::{Chunk, CHUNK_SIZE};
-use crate::util::{
-    Pool, PoolRef,
-    Side::{self, Left, Right},
+use crate::{
+    nodes::chunk::{Chunk, CHUNK_SIZE},
+    util::{
+        Pool, PoolRef,
+        Side::{self, Left, Right},
+    },
+    vector::RRBPool,
 };
-use crate::vector::RRBPool;
 
 use self::Entry::*;
 
@@ -46,7 +47,11 @@ impl Size {
         }
     }
 
-    fn table_from_size(pool: &Pool<Chunk<usize>>, level: usize, size: usize) -> Self {
+    fn table_from_size(
+        pool: &Pool<Chunk<usize>>,
+        level: usize,
+        size: usize,
+    ) -> Self {
         let mut chunk = Chunk::new();
         let mut remaining = size;
         if let Some(child_size) = NODE_SIZE.checked_pow(level as u32) {
@@ -67,7 +72,13 @@ impl Size {
     ///
     /// Note that this will turn `self` into a `Table` variant, which will always be correct but
     /// may not be optimally efficient.
-    fn push(&mut self, pool: &Pool<Chunk<usize>>, side: Side, level: usize, value: usize) {
+    fn push(
+        &mut self,
+        pool: &Pool<Chunk<usize>>,
+        side: Side,
+        level: usize,
+        value: usize,
+    ) {
         if let Size::Size(size) = self {
             *self = Size::table_from_size(pool, level, *size);
         };
@@ -80,11 +91,11 @@ impl Size {
                         *entry += value;
                     }
                     size_table.push_front(value);
-                }
+                },
                 Right => {
                     let prev = *(size_table.last().unwrap_or(&0));
                     size_table.push_back(value + prev);
-                }
+                },
             }
         } else {
             // If we weren't a `Size::Table` initially, we already converted ourselves to one.
@@ -92,13 +103,21 @@ impl Size {
         }
     }
 
-    fn pop(&mut self, pool: &Pool<Chunk<usize>>, side: Side, level: usize, value: usize) {
+    fn pop(
+        &mut self,
+        pool: &Pool<Chunk<usize>>,
+        side: Side,
+        level: usize,
+        value: usize,
+    ) {
         let size = match self {
-            Size::Size(ref mut size) => match side {
-                Left => *size,
-                Right => {
-                    *size -= value;
-                    return;
+            Size::Size(ref mut size) => {
+                match side {
+                    Left => *size,
+                    Right => {
+                        *size -= value;
+                        return;
+                    },
                 }
             },
             Size::Table(ref mut size_ref) => {
@@ -110,21 +129,27 @@ impl Size {
                         for entry in size_table.iter_mut() {
                             *entry -= value;
                         }
-                    }
+                    },
                     Right => {
                         let pop = size_table.pop_back();
                         let last = size_table.last().unwrap_or(&0);
                         debug_assert_eq!(value, pop - last);
-                    }
+                    },
                 }
                 return;
-            }
+            },
         };
         *self = Size::table_from_size(pool, level, size);
         self.pop(pool, side, level, value);
     }
 
-    fn update(&mut self, pool: &Pool<Chunk<usize>>, index: usize, level: usize, value: isize) {
+    fn update(
+        &mut self,
+        pool: &Pool<Chunk<usize>>,
+        index: usize,
+        level: usize,
+        value: isize,
+    ) {
         let size = match self {
             Size::Size(ref size) => *size,
             Size::Table(ref mut size_ref) => {
@@ -133,7 +158,7 @@ impl Size {
                     *entry = (*entry as isize + value) as usize;
                 }
                 return;
-            }
+            },
         };
         *self = Size::table_from_size(pool, level, size);
         self.update(pool, index, level, value);
@@ -193,14 +218,20 @@ impl<A> Entry<A> {
     fn unwrap_values(&self) -> &Chunk<A> {
         match self {
             Values(ref values) => values,
-            _ => panic!("rrb::Entry::unwrap_values: expected values, found nodes"),
+            _ => {
+                panic!(
+                    "rrb::Entry::unwrap_values: expected values, found nodes"
+                )
+            },
         }
     }
 
     fn unwrap_nodes(&self) -> &Chunk<Node<A>> {
         match self {
             Nodes(_, ref nodes) => nodes,
-            _ => panic!("rrb::Entry::unwrap_nodes: expected nodes, found values"),
+            _ => {
+                panic!("rrb::Entry::unwrap_nodes: expected nodes, found values")
+            },
         }
     }
 
@@ -212,15 +243,29 @@ impl<A> Entry<A> {
 impl<A: Clone> Entry<A> {
     fn unwrap_values_mut(&mut self, pool: &RRBPool<A>) -> &mut Chunk<A> {
         match self {
-            Values(ref mut values) => PoolRef::make_mut(&pool.value_pool, values),
-            _ => panic!("rrb::Entry::unwrap_values_mut: expected values, found nodes"),
+            Values(ref mut values) => {
+                PoolRef::make_mut(&pool.value_pool, values)
+            },
+            _ => {
+                panic!(
+                    "rrb::Entry::unwrap_values_mut: expected values, found \
+                     nodes"
+                )
+            },
         }
     }
 
     fn unwrap_nodes_mut(&mut self, pool: &RRBPool<A>) -> &mut Chunk<Node<A>> {
         match self {
-            Nodes(_, ref mut nodes) => PoolRef::make_mut(&pool.node_pool, nodes),
-            _ => panic!("rrb::Entry::unwrap_nodes_mut: expected nodes, found values"),
+            Nodes(_, ref mut nodes) => {
+                PoolRef::make_mut(&pool.node_pool, nodes)
+            },
+            _ => {
+                panic!(
+                    "rrb::Entry::unwrap_nodes_mut: expected nodes, found \
+                     values"
+                )
+            },
         }
     }
 
@@ -261,10 +306,16 @@ impl<A> Default for Node<A> {
 
 impl<A> Node<A> {
     pub(crate) fn new() -> Self {
-        Node { children: Empty }
+        Node {
+            children: Empty
+        }
     }
 
-    pub(crate) fn parent(pool: &RRBPool<A>, level: usize, children: Chunk<Self>) -> Self {
+    pub(crate) fn parent(
+        pool: &RRBPool<A>,
+        level: usize,
+        children: Chunk<Self>,
+    ) -> Self {
         let mut size = Size::Size(0);
         let mut dense = true;
 
@@ -272,7 +323,8 @@ impl<A> Node<A> {
         // are leftwise-dense.
         for child in children.iter() {
             if !dense && size.is_size() {
-                size = Size::table_from_size(&pool.size_pool, level, size.size());
+                size =
+                    Size::table_from_size(&pool.size_pool, level, size.size());
             }
 
             let child_len = child.len();
@@ -292,7 +344,11 @@ impl<A> Node<A> {
         self.children = Empty;
     }
 
-    pub(crate) fn from_chunk(pool: &RRBPool<A>, level: usize, chunk: PoolRef<Chunk<A>>) -> Self {
+    pub(crate) fn from_chunk(
+        pool: &RRBPool<A>,
+        level: usize,
+        chunk: PoolRef<Chunk<A>>,
+    ) -> Self {
         let node = Node {
             children: Values(chunk),
         };
@@ -312,18 +368,27 @@ impl<A> Node<A> {
         }
     }
 
-    pub(crate) fn join_dense(pool: &RRBPool<A>, left: Self, right: Self) -> Self {
+    pub(crate) fn join_dense(
+        pool: &RRBPool<A>,
+        left: Self,
+        right: Self,
+    ) -> Self {
         let left_len = left.len();
         let right_len = right.len();
         Node {
             children: {
-                let children = PoolRef::new(&pool.node_pool, Chunk::pair(left, right));
+                let children =
+                    PoolRef::new(&pool.node_pool, Chunk::pair(left, right));
                 Nodes(Size::Size(left_len + right_len), children)
             },
         }
     }
 
-    pub(crate) fn elevate(self, pool: &RRBPool<A>, level_increment: usize) -> Self {
+    pub(crate) fn elevate(
+        self,
+        pool: &RRBPool<A>,
+        level_increment: usize,
+    ) -> Self {
         if level_increment > 0 {
             Self::single_parent(pool, self.elevate(pool, level_increment - 1))
         } else {
@@ -331,7 +396,12 @@ impl<A> Node<A> {
         }
     }
 
-    pub(crate) fn join_branches(self, pool: &RRBPool<A>, right: Self, level: usize) -> Self {
+    pub(crate) fn join_branches(
+        self,
+        pool: &RRBPool<A>,
+        right: Self,
+        level: usize,
+    ) -> Self {
         let left_len = self.len();
         let right_len = right.len();
         let size = if self.is_completely_dense(level) && right.is_dense() {
@@ -351,7 +421,9 @@ impl<A> Node<A> {
     pub(crate) fn len(&self) -> usize {
         match self.children {
             Entry::Nodes(Size::Size(size), _) => size,
-            Entry::Nodes(Size::Table(ref size_table), _) => *(size_table.last().unwrap_or(&0)),
+            Entry::Nodes(Size::Table(ref size_table), _) => {
+                *(size_table.last().unwrap_or(&0))
+            },
             Entry::Values(ref values) => values.len(),
             Entry::Empty => 0,
         }
@@ -411,21 +483,39 @@ impl<A> Node<A> {
     }
 
     #[inline]
-    fn push_size(&mut self, pool: &RRBPool<A>, side: Side, level: usize, value: usize) {
+    fn push_size(
+        &mut self,
+        pool: &RRBPool<A>,
+        side: Side,
+        level: usize,
+        value: usize,
+    ) {
         if let Entry::Nodes(ref mut size, _) = self.children {
             size.push(&pool.size_pool, side, level, value)
         }
     }
 
     #[inline]
-    fn pop_size(&mut self, pool: &RRBPool<A>, side: Side, level: usize, value: usize) {
+    fn pop_size(
+        &mut self,
+        pool: &RRBPool<A>,
+        side: Side,
+        level: usize,
+        value: usize,
+    ) {
         if let Entry::Nodes(ref mut size, _) = self.children {
             size.pop(&pool.size_pool, side, level, value)
         }
     }
 
     #[inline]
-    fn update_size(&mut self, pool: &RRBPool<A>, index: usize, level: usize, value: isize) {
+    fn update_size(
+        &mut self,
+        pool: &RRBPool<A>,
+        index: usize,
+        level: usize,
+        value: isize,
+    ) {
         if let Entry::Nodes(ref mut size, _) = self.children {
             size.update(&pool.size_pool, index, level, value)
         }
@@ -447,11 +537,12 @@ impl<A> Node<A> {
     }
 
     fn index_in(&self, level: usize, index: usize) -> Option<usize> {
-        let mut target_idx = if let Some(child_size) = NODE_SIZE.checked_pow(level as u32) {
-            index / child_size
-        } else {
-            0
-        };
+        let mut target_idx =
+            if let Some(child_size) = NODE_SIZE.checked_pow(level as u32) {
+                index / child_size
+            } else {
+                0
+            };
         if target_idx >= self.children.len() {
             return None;
         }
@@ -508,7 +599,7 @@ impl<A> Node<A> {
                 // Value nodes should only occur at level 0.
                 assert_eq!(0, level);
                 values.len()
-            }
+            },
             Entry::Nodes(ref size, ref children) => {
                 // A parent node with no children should never occur.
                 assert_ne!(0, children.len());
@@ -532,22 +623,26 @@ impl<A> Node<A> {
                     Size::Size(size) => {
                         let total: usize = lengths.iter().sum();
                         assert_eq!(*size, total);
-                    }
+                    },
                     Size::Table(ref table) => {
                         assert_eq!(table.iter().len(), children.len());
                         for (index, current) in table.iter().enumerate() {
-                            let expected: usize = lengths.iter().take(index + 1).sum();
+                            let expected: usize =
+                                lengths.iter().take(index + 1).sum();
                             assert_eq!(expected, *current);
                         }
-                    }
+                    },
                 }
                 lengths.iter().sum()
-            }
+            },
         }
     }
 
     #[cfg(any(test, feature = "debug"))]
-    pub(crate) fn dot<W: std::io::Write>(&self, write: W) -> std::io::Result<()> {
+    pub(crate) fn dot<W: std::io::Write>(
+        &self,
+        write: W,
+    ) -> std::io::Result<()> {
         let mut w = Box::new(write) as Box<dyn std::io::Write>;
         writeln!(w, "digraph  {{")?;
         self.dot_nodes(&mut w)?;
@@ -556,19 +651,22 @@ impl<A> Node<A> {
     }
 
     #[cfg(any(test, feature = "debug"))]
-    fn dot_nodes<'a>(&self, write: &mut Box<dyn std::io::Write + 'a>) -> std::io::Result<()> {
+    fn dot_nodes<'a>(
+        &self,
+        write: &mut Box<dyn std::io::Write + 'a>,
+    ) -> std::io::Result<()> {
         let id = self as *const _ as usize;
         match self.children {
-            Entry::Empty => {}
+            Entry::Empty => {},
             Entry::Values(ref values) => {
                 writeln!(write, "node{} [label={}];", id, values.len())?;
-            }
+            },
             Entry::Nodes(ref size, ref children) => {
                 let label = match size {
                     Size::Size(size) => size.to_string(),
                     Size::Table(ref table) => {
                         format!("\"{:?}\"", table.as_slice())
-                    }
+                    },
                 };
                 writeln!(write, "node{} [label={}];", id, label)?;
 
@@ -577,7 +675,7 @@ impl<A> Node<A> {
                     let child_id = child as *const _ as usize;
                     writeln!(write, "node{} -> node{};", id, child_id)?;
                 }
-            }
+            },
         }
         Ok(())
     }
@@ -610,7 +708,12 @@ impl<A> Node<A> {
 }
 
 impl<A: Clone> Node<A> {
-    pub(crate) fn index_mut(&mut self, pool: &RRBPool<A>, level: usize, index: usize) -> &mut A {
+    pub(crate) fn index_mut(
+        &mut self,
+        pool: &RRBPool<A>,
+        level: usize,
+        index: usize,
+    ) -> &mut A {
         if level == 0 {
             &mut self.children.unwrap_values_mut(pool)[index]
         } else {
@@ -643,7 +746,12 @@ impl<A: Clone> Node<A> {
         }
     }
 
-    fn push_child_node(&mut self, pool: &RRBPool<A>, side: Side, child: Node<A>) {
+    fn push_child_node(
+        &mut self,
+        pool: &RRBPool<A>,
+        side: Side,
+        child: Node<A>,
+    ) {
         let children = self.children.unwrap_nodes_mut(pool);
         match side {
             Left => children.push_front(child),
@@ -683,7 +791,7 @@ impl<A: Clone> Node<A> {
                         Side::Left => {
                             chunk.append(values);
                             values.append(chunk);
-                        }
+                        },
                         Side::Right => values.append(chunk),
                     }
                     PushResult::Done
@@ -696,39 +804,59 @@ impl<A: Clone> Node<A> {
             // possible over from the new node.
             let num_drained = match side {
                 Side::Right => {
-                    if let Entry::Nodes(ref mut size, ref mut children) = self.children {
-                        let rightmost = PoolRef::make_mut(&pool.node_pool, children)
-                            .last_mut()
-                            .unwrap();
+                    if let Entry::Nodes(ref mut size, ref mut children) =
+                        self.children
+                    {
+                        let rightmost =
+                            PoolRef::make_mut(&pool.node_pool, children)
+                                .last_mut()
+                                .unwrap();
                         let old_size = rightmost.len();
-                        let chunk = PoolRef::make_mut(&pool.value_pool, &mut chunk);
+                        let chunk =
+                            PoolRef::make_mut(&pool.value_pool, &mut chunk);
                         let values = rightmost.children.unwrap_values_mut(pool);
-                        let to_drain = chunk.len().min(NODE_SIZE - values.len());
+                        let to_drain =
+                            chunk.len().min(NODE_SIZE - values.len());
                         values.drain_from_front(chunk, to_drain);
                         size.pop(&pool.size_pool, Side::Right, level, old_size);
-                        size.push(&pool.size_pool, Side::Right, level, values.len());
+                        size.push(
+                            &pool.size_pool,
+                            Side::Right,
+                            level,
+                            values.len(),
+                        );
                         to_drain
                     } else {
                         0
                     }
-                }
+                },
                 Side::Left => {
-                    if let Entry::Nodes(ref mut size, ref mut children) = self.children {
-                        let leftmost = PoolRef::make_mut(&pool.node_pool, children)
-                            .first_mut()
-                            .unwrap();
+                    if let Entry::Nodes(ref mut size, ref mut children) =
+                        self.children
+                    {
+                        let leftmost =
+                            PoolRef::make_mut(&pool.node_pool, children)
+                                .first_mut()
+                                .unwrap();
                         let old_size = leftmost.len();
-                        let chunk = PoolRef::make_mut(&pool.value_pool, &mut chunk);
+                        let chunk =
+                            PoolRef::make_mut(&pool.value_pool, &mut chunk);
                         let values = leftmost.children.unwrap_values_mut(pool);
-                        let to_drain = chunk.len().min(NODE_SIZE - values.len());
+                        let to_drain =
+                            chunk.len().min(NODE_SIZE - values.len());
                         values.drain_from_back(chunk, to_drain);
                         size.pop(&pool.size_pool, Side::Left, level, old_size);
-                        size.push(&pool.size_pool, Side::Left, level, values.len());
+                        size.push(
+                            &pool.size_pool,
+                            Side::Left,
+                            level,
+                            values.len(),
+                        );
                         to_drain
                     } else {
                         0
                     }
-                }
+                },
             };
             if chunk.is_empty() {
                 PushResult::Done
@@ -738,12 +866,20 @@ impl<A: Clone> Node<A> {
                 if side == Left && chunk.len() < NODE_SIZE {
                     if let Entry::Nodes(ref mut size, _) = self.children {
                         if let Size::Size(value) = *size {
-                            *size = Size::table_from_size(&pool.size_pool, level, value);
+                            *size = Size::table_from_size(
+                                &pool.size_pool,
+                                level,
+                                value,
+                            );
                         }
                     }
                 }
                 self.push_size(pool, side, level, chunk.len());
-                self.push_child_node(pool, side, Node::from_chunk(pool, 0, chunk));
+                self.push_child_node(
+                    pool,
+                    side,
+                    Node::from_chunk(pool, 0, chunk),
+                );
                 PushResult::Done
             }
         } else {
@@ -763,45 +899,65 @@ impl<A: Clone> Node<A> {
                         // elements were added to the child. We need to reflect
                         // that change in the size field of the node.
                         match side {
-                            Right => match self.children {
-                                Entry::Nodes(Size::Table(ref mut sizes), _) => {
-                                    let sizes = PoolRef::make_mut(&pool.size_pool, sizes);
-                                    sizes[index] += num_drained;
+                            Right => {
+                                match self.children {
+                                    Entry::Nodes(
+                                        Size::Table(ref mut sizes),
+                                        _,
+                                    ) => {
+                                        let sizes = PoolRef::make_mut(
+                                            &pool.size_pool,
+                                            sizes,
+                                        );
+                                        sizes[index] += num_drained;
+                                    },
+                                    Entry::Nodes(
+                                        Size::Size(ref mut size),
+                                        _,
+                                    ) => {
+                                        *size += num_drained;
+                                    },
+                                    Entry::Values(_) | Entry::Empty => (),
                                 }
-                                Entry::Nodes(Size::Size(ref mut size), _) => {
-                                    *size += num_drained;
-                                }
-                                Entry::Values(_) | Entry::Empty => (),
                             },
                             Left => {
-                                self.update_size(pool, 0, level, num_drained as isize);
-                            }
+                                self.update_size(
+                                    pool,
+                                    0,
+                                    level,
+                                    num_drained as isize,
+                                );
+                            },
                         }
                         if is_full {
                             return PushResult::Full(chunk, num_drained);
                         } else {
                             Some(Node::from_chunk(pool, level - 1, chunk))
                         }
-                    }
+                    },
                 }
             };
             match new_child {
                 None => {
                     self.update_size(pool, index, level, chunk_size as isize);
                     PushResult::Done
-                }
+                },
                 Some(child) => {
                     if side == Left && chunk_size < NODE_SIZE {
                         if let Entry::Nodes(ref mut size, _) = self.children {
                             if let Size::Size(value) = *size {
-                                *size = Size::table_from_size(&pool.size_pool, level, value);
+                                *size = Size::table_from_size(
+                                    &pool.size_pool,
+                                    level,
+                                    value,
+                                );
                             }
                         }
                     }
                     self.push_size(pool, side, level, child.len());
                     self.push_child_node(pool, side, child);
                     PushResult::Done
-                }
+                },
             }
         }
     }
@@ -819,16 +975,28 @@ impl<A: Clone> Node<A> {
             // should only get here if the tree is just one leaf node
             match replace(&mut self.children, Empty) {
                 Values(chunk) => PopResult::Drained(chunk),
-                Empty => panic!("rrb::Node::pop_chunk: non-empty tree with Empty leaf"),
-                Nodes(_, _) => panic!("rrb::Node::pop_chunk: branch node at leaf"),
+                Empty => {
+                    panic!(
+                        "rrb::Node::pop_chunk: non-empty tree with Empty leaf"
+                    )
+                },
+                Nodes(_, _) => {
+                    panic!("rrb::Node::pop_chunk: branch node at leaf")
+                },
             }
         } else if level == 1 {
             let child_node = self.pop_child_node(pool, side);
             self.pop_size(pool, side, level, child_node.len());
             let chunk = match child_node.children {
                 Values(ref chunk) => chunk.clone(),
-                Empty => panic!("rrb::Node::pop_chunk: non-empty tree with Empty leaf"),
-                Nodes(_, _) => panic!("rrb::Node::pop_chunk: branch node at leaf"),
+                Empty => {
+                    panic!(
+                        "rrb::Node::pop_chunk: non-empty tree with Empty leaf"
+                    )
+                },
+                Nodes(_, _) => {
+                    panic!("rrb::Node::pop_chunk: branch node at leaf")
+                },
             };
             if self.is_empty() {
                 PopResult::Drained(chunk)
@@ -850,7 +1018,7 @@ impl<A: Clone> Node<A> {
                     PopResult::Drained(chunk) => {
                         drained = true;
                         chunk
-                    }
+                    },
                 }
             };
             if drained {
@@ -907,15 +1075,24 @@ impl<A: Clone> Node<A> {
         } else if let Some(target_idx) = self.index_in(level, index) {
             let size_up_to = self.size_up_to(level, target_idx);
             let (size, children) =
-                if let Entry::Nodes(ref mut size, ref mut children) = self.children {
+                if let Entry::Nodes(ref mut size, ref mut children) =
+                    self.children
+                {
                     (size, PoolRef::make_mut(&pool.node_pool, children))
                 } else {
                     unreachable!()
                 };
             let child_gone = 0 == {
                 let child_node = &mut children[target_idx];
-                match child_node.split(pool, level - 1, drop_side, index - size_up_to) {
-                    SplitResult::OutOfBounds => return SplitResult::OutOfBounds,
+                match child_node.split(
+                    pool,
+                    level - 1,
+                    drop_side,
+                    index - size_up_to,
+                ) {
+                    SplitResult::OutOfBounds => {
+                        return SplitResult::OutOfBounds;
+                    },
                     SplitResult::Dropped(amount) => dropped = amount,
                 }
                 child_node.len()
@@ -928,9 +1105,14 @@ impl<A: Clone> Node<A> {
                     }
                     children.drop_left(drop_from);
                     if let Size::Size(value) = *size {
-                        *size = Size::table_from_size(&pool.size_pool, level, value);
+                        *size = Size::table_from_size(
+                            &pool.size_pool,
+                            level,
+                            value,
+                        );
                     }
-                    let size_table = if let Size::Table(ref mut size_ref) = size {
+                    let size_table = if let Size::Table(ref mut size_ref) = size
+                    {
                         PoolRef::make_mut(&pool.size_pool, size_ref)
                     } else {
                         unreachable!()
@@ -945,7 +1127,7 @@ impl<A: Clone> Node<A> {
                     for i in size_table.iter_mut() {
                         *i -= dropped;
                     }
-                }
+                },
                 Right => {
                     let at_last = target_idx == children.len() - 1;
                     let mut drop_from = target_idx + 1;
@@ -958,7 +1140,7 @@ impl<A: Clone> Node<A> {
                     match size {
                         Size::Size(ref mut size) if at_last => {
                             *size -= dropped;
-                        }
+                        },
                         Size::Size(ref mut size) => {
                             let size_per_child = NODE_SIZE.pow(level as u32);
                             let remainder = (target_idx + 1) * size_per_child;
@@ -968,14 +1150,16 @@ impl<A: Clone> Node<A> {
                                 *size = new_size;
                             } else {
                                 unreachable!(
-                                    "this means node is empty, should be caught at start of method"
+                                    "this means node is empty, should be \
+                                     caught at start of method"
                                 );
                             }
-                        }
+                        },
                         Size::Table(ref mut size_ref) => {
-                            let size_table = PoolRef::make_mut(&pool.size_pool, size_ref);
-                            let dropped_size =
-                                size_table[size_table.len() - 1] - size_table[target_idx];
+                            let size_table =
+                                PoolRef::make_mut(&pool.size_pool, size_ref);
+                            let dropped_size = size_table[size_table.len() - 1]
+                                - size_table[target_idx];
                             if drop_from < size_table.len() {
                                 size_table.drop_right(drop_from);
                             }
@@ -983,9 +1167,9 @@ impl<A: Clone> Node<A> {
                                 size_table[target_idx] -= dropped;
                             }
                             dropped += dropped_size;
-                        }
+                        },
                     }
-                }
+                },
             }
             SplitResult::Dropped(dropped)
         } else {
@@ -993,7 +1177,11 @@ impl<A: Clone> Node<A> {
         }
     }
 
-    fn merge_leaves(pool: &RRBPool<A>, mut left: Self, mut right: Self) -> Self {
+    fn merge_leaves(
+        pool: &RRBPool<A>,
+        mut left: Self,
+        mut right: Self,
+    ) -> Self {
         if left.children.is_empty_node() {
             // Left is empty, just use right
             Self::single_parent(pool, right)
@@ -1051,12 +1239,16 @@ impl<A: Clone> Node<A> {
                 for value in subtree.children.values() {
                     next_leaf.push_back(value);
                     if next_leaf.is_full() {
-                        let new_node =
-                            Node::from_chunk(pool, 0, PoolRef::new(&pool.value_pool, next_leaf));
+                        let new_node = Node::from_chunk(
+                            pool,
+                            0,
+                            PoolRef::new(&pool.value_pool, next_leaf),
+                        );
                         next_subtree.push_back(new_node);
                         next_leaf = Chunk::new();
                         if next_subtree.is_full() {
-                            let new_subtree = Node::parent(pool, level, next_subtree);
+                            let new_subtree =
+                                Node::parent(pool, level, next_subtree);
                             root.push_back(new_subtree);
                             next_subtree = Chunk::new();
                         }
@@ -1070,7 +1262,8 @@ impl<A: Clone> Node<A> {
                         next_subtree.push_back(new_node);
                         next_node = Chunk::new();
                         if next_subtree.is_full() {
-                            let new_subtree = Node::parent(pool, level, next_subtree);
+                            let new_subtree =
+                                Node::parent(pool, level, next_subtree);
                             root.push_back(new_subtree);
                             next_subtree = Chunk::new();
                         }
@@ -1079,7 +1272,11 @@ impl<A: Clone> Node<A> {
             }
         }
         if !next_leaf.is_empty() {
-            let new_node = Node::from_chunk(pool, 0, PoolRef::new(&pool.value_pool, next_leaf));
+            let new_node = Node::from_chunk(
+                pool,
+                0,
+                PoolRef::new(&pool.value_pool, next_leaf),
+            );
             next_subtree.push_back(new_node);
         }
         if !next_node.is_empty() {
@@ -1093,7 +1290,12 @@ impl<A: Clone> Node<A> {
         Node::parent(pool, level + 1, root)
     }
 
-    pub(crate) fn merge(pool: &RRBPool<A>, mut left: Self, mut right: Self, level: usize) -> Self {
+    pub(crate) fn merge(
+        pool: &RRBPool<A>,
+        mut left: Self,
+        mut right: Self,
+        level: usize,
+    ) -> Self {
         if level == 0 {
             Self::merge_leaves(pool, left, right)
         } else {
@@ -1104,20 +1306,38 @@ impl<A: Clone> Node<A> {
                     Node::parent(pool, 0, Chunk::new())
                 } else {
                     let left_last =
-                        if let Entry::Nodes(ref mut size, ref mut children) = left.children {
-                            let node = PoolRef::make_mut(&pool.node_pool, children).pop_back();
+                        if let Entry::Nodes(ref mut size, ref mut children) =
+                            left.children
+                        {
+                            let node =
+                                PoolRef::make_mut(&pool.node_pool, children)
+                                    .pop_back();
                             if !node.is_empty() {
-                                size.pop(&pool.size_pool, Side::Right, level, node.len());
+                                size.pop(
+                                    &pool.size_pool,
+                                    Side::Right,
+                                    level,
+                                    node.len(),
+                                );
                             }
                             node
                         } else {
                             panic!("expected nodes, found entries or empty");
                         };
                     let right_first =
-                        if let Entry::Nodes(ref mut size, ref mut children) = right.children {
-                            let node = PoolRef::make_mut(&pool.node_pool, children).pop_front();
+                        if let Entry::Nodes(ref mut size, ref mut children) =
+                            right.children
+                        {
+                            let node =
+                                PoolRef::make_mut(&pool.node_pool, children)
+                                    .pop_front();
                             if !node.is_empty() {
-                                size.pop(&pool.size_pool, Side::Left, level, node.len());
+                                size.pop(
+                                    &pool.size_pool,
+                                    Side::Left,
+                                    level,
+                                    node.len(),
+                                );
                             }
                             node
                         } else {

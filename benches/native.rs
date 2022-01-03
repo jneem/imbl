@@ -9,8 +9,10 @@ extern crate rand;
 extern crate test;
 
 use rand::{rngs::SmallRng, Rng, SeedableRng};
-use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::iter::FromIterator;
+use std::{
+    collections::{BTreeMap, HashMap, VecDeque},
+    iter::FromIterator,
+};
 use test::Bencher;
 
 fn random_keys(size: usize) -> Vec<i64> {

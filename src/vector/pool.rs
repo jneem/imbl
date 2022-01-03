@@ -2,16 +2,17 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use crate::config::POOL_SIZE;
-use crate::nodes::chunk::Chunk;
-use crate::nodes::rrb::Node;
-use crate::util::Pool;
+use crate::{
+    config::POOL_SIZE,
+    nodes::{chunk::Chunk, rrb::Node},
+    util::Pool,
+};
 
 /// A memory pool for `Vector`.
 pub struct RRBPool<A> {
-    pub(crate) node_pool: Pool<Chunk<Node<A>>>,
+    pub(crate) node_pool:  Pool<Chunk<Node<A>>>,
     pub(crate) value_pool: Pool<Chunk<A>>,
-    pub(crate) size_pool: Pool<Chunk<usize>>,
+    pub(crate) size_pool:  Pool<Chunk<usize>>,
 }
 
 impl<A> RRBPool<A> {
@@ -27,9 +28,9 @@ impl<A> RRBPool<A> {
         size_table_pool_size: usize,
     ) -> Self {
         Self {
-            node_pool: Pool::new(node_pool_size),
+            node_pool:  Pool::new(node_pool_size),
             value_pool: Pool::new(leaf_pool_size),
-            size_pool: Pool::new(size_table_pool_size),
+            size_pool:  Pool::new(size_table_pool_size),
         }
     }
 
@@ -66,9 +67,9 @@ impl<A> Default for RRBPool<A> {
 impl<A> Clone for RRBPool<A> {
     fn clone(&self) -> Self {
         Self {
-            node_pool: self.node_pool.clone(),
+            node_pool:  self.node_pool.clone(),
             value_pool: self.value_pool.clone(),
-            size_pool: self.size_pool.clone(),
+            size_pool:  self.size_pool.clone(),
         }
     }
 }

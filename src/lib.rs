@@ -350,13 +350,11 @@ mod util;
 
 #[macro_use]
 mod ord;
-pub use crate::ord::map as ordmap;
-pub use crate::ord::set as ordset;
+pub use crate::ord::{map as ordmap, set as ordset};
 
 #[macro_use]
 mod hash;
-pub use crate::hash::map as hashmap;
-pub use crate::hash::set as hashset;
+pub use crate::hash::{map as hashmap, set as hashset};
 
 #[macro_use]
 pub mod vector;
@@ -383,15 +381,15 @@ mod fakepool;
 
 #[cfg(feature = "pool")]
 compile_error!(
-    "The `pool` feature is not threadsafe but you've enabled it on a threadsafe version of `imbl`."
+    "The `pool` feature is not threadsafe but you've enabled it on a \
+     threadsafe version of `imbl`."
 );
 
-pub use crate::hashmap::HashMap;
-pub use crate::hashset::HashSet;
-pub use crate::ordmap::OrdMap;
-pub use crate::ordset::OrdSet;
 #[doc(inline)]
 pub use crate::vector::Vector;
+pub use crate::{
+    hashmap::HashMap, hashset::HashSet, ordmap::OrdMap, ordset::OrdSet,
+};
 
 #[cfg(test)]
 mod test;
@@ -483,8 +481,10 @@ mod lib_test {
         let ordmap = ordmap![1 => 1, 2 => 2, 3 => 3];
         assert_eq!(ordmap![1 => 1, 2 => 23, 3 => 3], update_in!(ordmap, 2, 23));
 
-        let vecs = vector![vector![1, 2, 3], vector![4, 5, 6], vector![7, 8, 9]];
-        let vecs_target = vector![vector![1, 2, 3], vector![4, 5, 23], vector![7, 8, 9]];
+        let vecs =
+            vector![vector![1, 2, 3], vector![4, 5, 6], vector![7, 8, 9]];
+        let vecs_target =
+            vector![vector![1, 2, 3], vector![4, 5, 23], vector![7, 8, 9]];
         assert_eq!(vecs_target, update_in!(vecs, 1 => 2, 23));
     }
 
@@ -497,7 +497,8 @@ mod lib_test {
         let ordmap = ordmap![1 => 1, 2 => 2, 3 => 3];
         assert_eq!(Some(&2), get_in!(ordmap, &2));
 
-        let vecs = vector![vector![1, 2, 3], vector![4, 5, 6], vector![7, 8, 9]];
+        let vecs =
+            vector![vector![1, 2, 3], vector![4, 5, 6], vector![7, 8, 9]];
         assert_eq!(Some(&6), get_in!(vecs, 1 => 2));
     }
 }

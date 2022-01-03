@@ -17,23 +17,28 @@
 //! [hashmap::HashMap]: ../hashmap/struct.HashMap.html
 //! [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 
-use std::borrow::Borrow;
-use std::cmp::Ordering;
-use std::collections;
-use std::fmt::{Debug, Error, Formatter};
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::iter::{FromIterator, Iterator, Sum};
-use std::mem;
-use std::ops::{Add, Index, IndexMut, RangeBounds};
+use std::{
+    borrow::Borrow,
+    cmp::Ordering,
+    collections,
+    fmt::{Debug, Error, Formatter},
+    hash::{BuildHasher, Hash, Hasher},
+    iter::{FromIterator, Iterator, Sum},
+    mem,
+    ops::{Add, Index, IndexMut, RangeBounds},
+};
 
-use crate::hashmap::HashMap;
-use crate::nodes::btree::{BTreeValue, Insert, Node, Remove};
 #[cfg(has_specialisation)]
 use crate::util::linear_search_by;
-use crate::util::{Pool, PoolRef};
+use crate::{
+    hashmap::HashMap,
+    nodes::btree::{BTreeValue, Insert, Node, Remove},
+    util::{Pool, PoolRef},
+};
 
 pub use crate::nodes::btree::{
-    ConsumingIter, DiffItem as NodeDiffItem, DiffIter as NodeDiffIter, Iter as RangedIter,
+    ConsumingIter, DiffItem as NodeDiffItem, DiffIter as NodeDiffIter,
+    Iter as RangedIter,
 };
 
 /// Construct a map from a sequence of key/value pairs.
@@ -116,7 +121,10 @@ impl<K: Ord, V> BTreeValue for (K, V) {
         slice.binary_search_by(|value| Self::Key::borrow(&value.0).cmp(key))
     }
 
-    default fn search_value(slice: &[Self], key: &Self) -> Result<usize, usize> {
+    default fn search_value(
+        slice: &[Self],
+        key: &Self,
+    ) -> Result<usize, usize> {
         slice.binary_search_by(|value| value.0.cmp(&key.0))
     }
 
@@ -378,13 +386,17 @@ where
     /// Get an iterator over a map's keys.
     #[must_use]
     pub fn keys(&self) -> Keys<'_, K, V> {
-        Keys { it: self.iter() }
+        Keys {
+            it: self.iter()
+        }
     }
 
     /// Get an iterator over a map's values.
     #[must_use]
     pub fn values(&self) -> Values<'_, K, V> {
-        Values { it: self.iter() }
+        Values {
+            it: self.iter()
+        }
     }
 
     /// Get an iterator over the differences between this map and
@@ -542,8 +554,9 @@ where
         F: FnMut(&V, &B) -> bool,
         RM: Borrow<OrdMap<K, B>>,
     {
-        self.iter()
-            .all(|(k, v)| other.borrow().get(k).map(|ov| cmp(v, ov)).unwrap_or(false))
+        self.iter().all(|(k, v)| {
+            other.borrow().get(k).map(|ov| cmp(v, ov)).unwrap_or(false)
+        })
     }
 
     /// Test whether a map is a proper submap of another map, meaning
@@ -747,11 +760,13 @@ where
                 Insert::Added => {
                     self.size += 1;
                     return None;
-                }
-                Insert::Split(left, median, right) => PoolRef::new(
-                    &self.pool.0,
-                    Node::new_from_split(&self.pool.0, left, median, right),
-                ),
+                },
+                Insert::Split(left, median, right) => {
+                    PoolRef::new(
+                        &self.pool.0,
+                        Node::new_from_split(&self.pool.0, left, median, right),
+                    )
+                },
             }
         };
         self.size += 1;
@@ -800,8 +815,10 @@ where
                 Remove::Removed(pair) => {
                     self.size -= 1;
                     return Some(pair);
-                }
-                Remove::Update(pair, root) => (PoolRef::new(&self.pool.0, root), Some(pair)),
+                },
+                Remove::Update(pair, root) => {
+                    (PoolRef::new(&self.pool.0, root), Some(pair))
+                },
             }
         };
         self.size -= 1;
@@ -869,7 +886,7 @@ where
             Some((_, v2, m)) => {
                 let out_v = f(&k, v2, v);
                 m.update(k, out_v)
-            }
+            },
         }
     }
 
@@ -883,7 +900,12 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn update_lookup_with_key<F>(self, k: K, v: V, f: F) -> (Option<V>, Self)
+    pub fn update_lookup_with_key<F>(
+        self,
+        k: K,
+        v: V,
+        f: F,
+    ) -> (Option<V>, Self)
     where
         F: FnOnce(&K, &V, V) -> V,
     {
@@ -892,7 +914,7 @@ where
             Some((_, v2, m)) => {
                 let out_v = f(&k, &v2, v);
                 (Some(v2), m.update(k, out_v))
-            }
+            },
         }
     }
 
@@ -1061,11 +1083,11 @@ where
             match self.remove(&key) {
                 None => {
                     self.insert(key, right_value);
-                }
+                },
                 Some(left_value) => {
                     let final_value = f(&key, left_value, right_value);
                     self.insert(key, final_value);
-                }
+                },
             }
         }
         self
@@ -1265,7 +1287,11 @@ where
     /// ));
     /// ```
     #[must_use]
-    pub fn symmetric_difference_with_key<F>(mut self, other: Self, mut f: F) -> Self
+    pub fn symmetric_difference_with_key<F>(
+        mut self,
+        other: Self,
+        mut f: F,
+    ) -> Self
     where
         F: FnMut(&K, V, V) -> Option<V>,
     {
@@ -1274,12 +1300,13 @@ where
             match self.remove(&key) {
                 None => {
                     out.insert(key, right_value);
-                }
+                },
                 Some(left_value) => {
-                    if let Some(final_value) = f(&key, left_value, right_value) {
+                    if let Some(final_value) = f(&key, left_value, right_value)
+                    {
                         out.insert(key, final_value);
                     }
-                }
+                },
             }
         }
         out.union(self)
@@ -1337,7 +1364,11 @@ where
     /// Time: O(n log n)
     #[inline]
     #[must_use]
-    pub fn intersection_with<B, C, F>(self, other: OrdMap<K, B>, mut f: F) -> OrdMap<K, C>
+    pub fn intersection_with<B, C, F>(
+        self,
+        other: OrdMap<K, B>,
+        mut f: F,
+    ) -> OrdMap<K, C>
     where
         B: Clone,
         C: Clone,
@@ -1366,7 +1397,11 @@ where
     /// ));
     /// ```
     #[must_use]
-    pub fn intersection_with_key<B, C, F>(mut self, other: OrdMap<K, B>, mut f: F) -> OrdMap<K, C>
+    pub fn intersection_with_key<B, C, F>(
+        mut self,
+        other: OrdMap<K, B>,
+        mut f: F,
+    ) -> OrdMap<K, C>
     where
         B: Clone,
         C: Clone,
@@ -1379,7 +1414,7 @@ where
                 Some(left_value) => {
                     let result = f(&key, left_value, right_value);
                     out.insert(key, result);
-                }
+                },
             }
         }
         out
@@ -1459,7 +1494,7 @@ where
             Some((k, _)) => {
                 let (key, value, next) = self.extract_with_key(k).unwrap();
                 (Some((key, value)), next)
-            }
+            },
         }
     }
 
@@ -1480,7 +1515,7 @@ where
             Some((k, _)) => {
                 let (key, value, next) = self.extract_with_key(k).unwrap();
                 (Some((key, value)), next)
-            }
+            },
         }
     }
 
@@ -1492,9 +1527,15 @@ where
     #[must_use]
     pub fn entry(&mut self, key: K) -> Entry<'_, K, V> {
         if self.contains_key(&key) {
-            Entry::Occupied(OccupiedEntry { map: self, key })
+            Entry::Occupied(OccupiedEntry {
+                map: self,
+                key,
+            })
         } else {
-            Entry::Vacant(VacantEntry { map: self, key })
+            Entry::Vacant(VacantEntry {
+                map: self,
+                key,
+            })
         }
     }
 }
@@ -1711,7 +1752,8 @@ where
     }
 }
 
-impl<K: Ord + Eq, V: Eq> Eq for OrdMap<K, V> {}
+impl<K: Ord + Eq, V: Eq> Eq for OrdMap<K, V> {
+}
 
 impl<K, V> PartialOrd for OrdMap<K, V>
 where
@@ -1881,7 +1923,9 @@ where
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> where (K, V): 'a + BTreeValue {}
+impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> where (K, V): 'a + BTreeValue
+{
+}
 
 /// An iterator over the differences between two maps.
 pub struct DiffIter<'a, 'b, K, V> {
@@ -1911,16 +1955,20 @@ where
     type Item = DiffItem<'a, 'b, K, V>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.it.next().map(|item| match item {
-            NodeDiffItem::Add((k, v)) => DiffItem::Add(k, v),
-            NodeDiffItem::Update {
-                old: (oldk, oldv),
-                new: (newk, newv),
-            } => DiffItem::Update {
-                old: (oldk, oldv),
-                new: (newk, newv),
-            },
-            NodeDiffItem::Remove((k, v)) => DiffItem::Remove(k, v),
+        self.it.next().map(|item| {
+            match item {
+                NodeDiffItem::Add((k, v)) => DiffItem::Add(k, v),
+                NodeDiffItem::Update {
+                    old: (oldk, oldv),
+                    new: (newk, newv),
+                } => {
+                    DiffItem::Update {
+                        old: (oldk, oldv),
+                        new: (newk, newv),
+                    }
+                },
+                NodeDiffItem::Remove((k, v)) => DiffItem::Remove(k, v),
+            }
         })
     }
 }
@@ -2028,8 +2076,8 @@ impl<'a, K, V> IntoIterator for &'a OrdMap<K, V>
 where
     K: Ord,
 {
-    type Item = (&'a K, &'a V);
     type IntoIter = Iter<'a, K, V>;
+    type Item = (&'a K, &'a V);
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -2041,8 +2089,8 @@ where
     K: Ord + Clone,
     V: Clone,
 {
-    type Item = (K, V);
     type IntoIter = ConsumingIter<(K, V)>;
+    type Item = (K, V);
 
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter::new(&self.root, self.size)
@@ -2113,7 +2161,8 @@ where
     }
 }
 
-impl<K: Ord, V, RK: Eq + Hash, RV> From<collections::HashMap<RK, RV>> for OrdMap<K, V>
+impl<K: Ord, V, RK: Eq + Hash, RV> From<collections::HashMap<RK, RV>>
+    for OrdMap<K, V>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
@@ -2123,7 +2172,8 @@ where
     }
 }
 
-impl<'a, K, V, OK, OV, RK, RV> From<&'a collections::HashMap<RK, RV>> for OrdMap<K, V>
+impl<'a, K, V, OK, OV, RK, RV> From<&'a collections::HashMap<RK, RV>>
+    for OrdMap<K, V>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2149,7 +2199,8 @@ where
     }
 }
 
-impl<'a, K: Ord, V, RK, RV, OK, OV> From<&'a collections::BTreeMap<RK, RV>> for OrdMap<K, V>
+impl<'a, K: Ord, V, RK, RV, OK, OV> From<&'a collections::BTreeMap<RK, RV>>
+    for OrdMap<K, V>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2165,14 +2216,16 @@ where
     }
 }
 
-impl<K: Ord + Hash + Eq + Clone, V: Clone, S: BuildHasher> From<HashMap<K, V, S>> for OrdMap<K, V> {
+impl<K: Ord + Hash + Eq + Clone, V: Clone, S: BuildHasher>
+    From<HashMap<K, V, S>> for OrdMap<K, V>
+{
     fn from(m: HashMap<K, V, S>) -> Self {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K: Ord + Hash + Eq + Clone, V: Clone, S: BuildHasher> From<&'a HashMap<K, V, S>>
-    for OrdMap<K, V>
+impl<'a, K: Ord + Hash + Eq + Clone, V: Clone, S: BuildHasher>
+    From<&'a HashMap<K, V, S>> for OrdMap<K, V>
 {
     fn from(m: &'a HashMap<K, V, S>) -> Self {
         m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
@@ -2195,10 +2248,12 @@ pub mod proptest {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::proptest::*;
-    use crate::test::is_sorted;
-    use ::proptest::num::{i16, usize};
-    use ::proptest::{bool, collection, proptest};
+    use crate::{proptest::*, test::is_sorted};
+    use ::proptest::{
+        bool, collection,
+        num::{i16, usize},
+        proptest,
+    };
     use static_assertions::{assert_impl_all, assert_not_impl_any};
 
     assert_impl_all!(OrdMap<i32, i32>: Send, Sync);
@@ -2382,29 +2437,41 @@ mod test {
     #[test]
     fn ranged_iter() {
         let map: OrdMap<i32, i32> = ordmap![1=>2, 2=>3, 3=>4, 4=>5, 5=>6, 7=>8];
-        let range: Vec<(i32, i32)> = map.range(..).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(..).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (7, 8)], range);
-        let range: Vec<(i32, i32)> = map.range(..).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(..).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(7, 8), (5, 6), (4, 5), (3, 4), (2, 3), (1, 2)], range);
-        let range: Vec<(i32, i32)> = map.range(2..5).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(2..5).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(2, 3), (3, 4), (4, 5)], range);
-        let range: Vec<(i32, i32)> = map.range(2..5).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(2..5).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(4, 5), (3, 4), (2, 3)], range);
-        let range: Vec<(i32, i32)> = map.range(3..).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(3..).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(3, 4), (4, 5), (5, 6), (7, 8)], range);
-        let range: Vec<(i32, i32)> = map.range(3..).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(3..).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(7, 8), (5, 6), (4, 5), (3, 4)], range);
-        let range: Vec<(i32, i32)> = map.range(..4).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(..4).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4)], range);
-        let range: Vec<(i32, i32)> = map.range(..4).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(..4).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(3, 4), (2, 3), (1, 2)], range);
-        let range: Vec<(i32, i32)> = map.range(..=3).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(..=3).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4)], range);
-        let range: Vec<(i32, i32)> = map.range(..=3).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(..=3).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(3, 4), (2, 3), (1, 2)], range);
-        let range: Vec<(i32, i32)> = map.range(..6).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(..6).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], range);
-        let range: Vec<(i32, i32)> = map.range(..=6).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> =
+            map.range(..=6).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], range);
     }
 
@@ -2423,8 +2490,14 @@ mod test {
         for i in (0..NODE_SIZE * 5).chain(N - NODE_SIZE * 5..=N + 1) {
             assert_eq!(omap.range(i..).count(), bmap.range(i..).count());
             assert_eq!(omap.range(..i).count(), bmap.range(..i).count());
-            assert_eq!(omap.range(i..i + 7).count(), bmap.range(i..i + 7).count());
-            assert_eq!(omap.range(i..=i + 7).count(), bmap.range(i..=i + 7).count());
+            assert_eq!(
+                omap.range(i..i + 7).count(),
+                bmap.range(i..i + 7).count()
+            );
+            assert_eq!(
+                omap.range(i..=i + 7).count(),
+                bmap.range(i..=i + 7).count()
+            );
             assert_eq!(
                 omap.range((Included(i), Included(i + 7))).count(),
                 bmap.range((Included(i), Included(i + 7))).count(),
@@ -2645,7 +2718,7 @@ mod test {
                 if a.contains_key(&k) {
                     if b.contains_key(&k) {
                         let old = a.get(&k).unwrap();
-                        if old != v	{
+                        if old != v {
                             Some(DiffItem::Update {
                                 old: (k, old),
                                 new: (k, v),

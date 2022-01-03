@@ -15,22 +15,26 @@
 //!
 //! [1]: https://en.wikipedia.org/wiki/B-tree
 
-use std::borrow::Borrow;
-use std::cmp::Ordering;
-use std::collections;
-use std::fmt::{Debug, Error, Formatter};
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::iter::{FromIterator, IntoIterator, Sum};
-use std::ops::{Add, Deref, Mul, RangeBounds};
-
-use crate::hashset::HashSet;
-use crate::nodes::btree::{
-    BTreeValue, ConsumingIter as ConsumingNodeIter, DiffIter as NodeDiffIter, Insert,
-    Iter as NodeIter, Node, Remove,
+use std::{
+    borrow::Borrow,
+    cmp::Ordering,
+    collections,
+    fmt::{Debug, Error, Formatter},
+    hash::{BuildHasher, Hash, Hasher},
+    iter::{FromIterator, IntoIterator, Sum},
+    ops::{Add, Deref, Mul, RangeBounds},
 };
+
 #[cfg(has_specialisation)]
 use crate::util::linear_search_by;
-use crate::util::{Pool, PoolRef};
+use crate::{
+    hashset::HashSet,
+    nodes::btree::{
+        BTreeValue, ConsumingIter as ConsumingNodeIter,
+        DiffIter as NodeDiffIter, Insert, Iter as NodeIter, Node, Remove,
+    },
+    util::{Pool, PoolRef},
+};
 
 pub use crate::nodes::btree::DiffItem;
 
@@ -66,6 +70,7 @@ struct Value<A>(A);
 
 impl<A> Deref for Value<A> {
     type Target = A;
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -122,7 +127,10 @@ impl<A: Ord> BTreeValue for Value<A> {
         slice.binary_search_by(|value| Self::Key::borrow(value).cmp(key))
     }
 
-    default fn search_value(slice: &[Self], key: &Self) -> Result<usize, usize> {
+    default fn search_value(
+        slice: &[Self],
+        key: &Self,
+    ) -> Result<usize, usize> {
         slice.binary_search_by(|value| value.cmp(key))
     }
 
@@ -492,11 +500,13 @@ where
                 Insert::Added => {
                     self.size += 1;
                     return None;
-                }
-                Insert::Split(left, median, right) => PoolRef::new(
-                    &self.pool.0,
-                    Node::new_from_split(&self.pool.0, left, median, right),
-                ),
+                },
+                Insert::Split(left, median, right) => {
+                    PoolRef::new(
+                        &self.pool.0,
+                        Node::new_from_split(&self.pool.0, left, median, right),
+                    )
+                },
             }
         };
         self.size += 1;
@@ -516,11 +526,13 @@ where
         let (new_root, removed_value) = {
             let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
             match root.remove(&self.pool.0, a) {
-                Remove::Update(value, root) => (PoolRef::new(&self.pool.0, root), Some(value.0)),
+                Remove::Update(value, root) => {
+                    (PoolRef::new(&self.pool.0, root), Some(value.0))
+                },
                 Remove::Removed(value) => {
                     self.size -= 1;
                     return Some(value.0);
-                }
+                },
                 Remove::NoChange => return None,
             }
         };
@@ -790,13 +802,13 @@ where
             match value.borrow().cmp(split) {
                 Ordering::Less => {
                     left.insert(value);
-                }
+                },
                 Ordering::Equal => {
                     present = true;
-                }
+                },
                 Ordering::Greater => {
                     right.insert(value);
-                }
+                },
             }
         }
         (left, present, right)
@@ -844,7 +856,8 @@ impl<A: Ord> PartialEq for OrdSet<A> {
     }
 }
 
-impl<A: Ord + Eq> Eq for OrdSet<A> {}
+impl<A: Ord + Eq> Eq for OrdSet<A> {
+}
 
 impl<A: Ord> PartialOrd for OrdSet<A> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -970,7 +983,9 @@ where
     }
 }
 
-impl<'a, A> ExactSizeIterator for Iter<'a, A> where A: 'a + Ord {}
+impl<'a, A> ExactSizeIterator for Iter<'a, A> where A: 'a + Ord
+{
+}
 
 /// A ranged iterator over the elements of a set.
 ///
@@ -1042,13 +1057,20 @@ where
     ///
     /// Time: O(1)*
     fn next(&mut self) -> Option<Self::Item> {
-        self.it.next().map(|item| match item {
-            DiffItem::Add(v) => DiffItem::Add(v.deref()),
-            DiffItem::Update { old, new } => DiffItem::Update {
-                old: old.deref(),
-                new: new.deref(),
-            },
-            DiffItem::Remove(v) => DiffItem::Remove(v.deref()),
+        self.it.next().map(|item| {
+            match item {
+                DiffItem::Add(v) => DiffItem::Add(v.deref()),
+                DiffItem::Update {
+                    old,
+                    new,
+                } => {
+                    DiffItem::Update {
+                        old: old.deref(),
+                        new: new.deref(),
+                    }
+                },
+                DiffItem::Remove(v) => DiffItem::Remove(v.deref()),
+            }
         })
     }
 }
@@ -1073,8 +1095,8 @@ impl<'a, A> IntoIterator for &'a OrdSet<A>
 where
     A: 'a + Ord,
 {
-    type Item = &'a A;
     type IntoIter = Iter<'a, A>;
+    type Item = &'a A;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -1085,8 +1107,8 @@ impl<A> IntoIterator for OrdSet<A>
 where
     A: Ord + Clone,
 {
-    type Item = A;
     type IntoIter = ConsumingIter<A>;
+    type Item = A;
 
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter {
@@ -1134,7 +1156,9 @@ impl<A: Eq + Hash + Ord + Clone> From<collections::HashSet<A>> for OrdSet<A> {
     }
 }
 
-impl<'a, A: Eq + Hash + Ord + Clone> From<&'a collections::HashSet<A>> for OrdSet<A> {
+impl<'a, A: Eq + Hash + Ord + Clone> From<&'a collections::HashSet<A>>
+    for OrdSet<A>
+{
     fn from(hash_set: &collections::HashSet<A>) -> Self {
         hash_set.iter().cloned().collect()
     }
@@ -1152,13 +1176,17 @@ impl<'a, A: Ord + Clone> From<&'a collections::BTreeSet<A>> for OrdSet<A> {
     }
 }
 
-impl<A: Hash + Eq + Ord + Clone, S: BuildHasher> From<HashSet<A, S>> for OrdSet<A> {
+impl<A: Hash + Eq + Ord + Clone, S: BuildHasher> From<HashSet<A, S>>
+    for OrdSet<A>
+{
     fn from(hashset: HashSet<A, S>) -> Self {
         hashset.into_iter().collect()
     }
 }
 
-impl<'a, A: Hash + Eq + Ord + Clone, S: BuildHasher> From<&'a HashSet<A, S>> for OrdSet<A> {
+impl<'a, A: Hash + Eq + Ord + Clone, S: BuildHasher> From<&'a HashSet<A, S>>
+    for OrdSet<A>
+{
     fn from(hashset: &HashSet<A, S>) -> Self {
         hashset.into_iter().cloned().collect()
     }

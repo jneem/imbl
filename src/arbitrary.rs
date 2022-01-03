@@ -23,7 +23,9 @@ impl<'a, A: Arbitrary<'a> + Clone> Arbitrary<'a> for Vector<A> {
     }
 }
 
-impl<'a, K: Arbitrary<'a> + Ord + Clone, V: Arbitrary<'a> + Clone> Arbitrary<'a> for OrdMap<K, V> {
+impl<'a, K: Arbitrary<'a> + Ord + Clone, V: Arbitrary<'a> + Clone> Arbitrary<'a>
+    for OrdMap<K, V>
+{
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
     }

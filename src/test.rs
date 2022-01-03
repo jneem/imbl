@@ -3,8 +3,10 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use metrohash::MetroHash64;
-use std::hash::{BuildHasher, Hasher};
-use std::marker::PhantomData;
+use std::{
+    hash::{BuildHasher, Hasher},
+    marker::PhantomData,
+};
 use typenum::{Unsigned, U64};
 
 pub(crate) fn is_sorted<A, I>(l: I) -> bool
@@ -25,7 +27,7 @@ where
 pub(crate) struct LolHasher<N: Unsigned = U64> {
     state: u64,
     shift: usize,
-    size: PhantomData<N>,
+    size:  PhantomData<N>,
 }
 
 impl<N: Unsigned> LolHasher<N> {
@@ -59,7 +61,7 @@ impl<N: Unsigned> Default for LolHasher<N> {
         LolHasher {
             state: 0,
             shift: 0,
-            size: PhantomData,
+            size:  PhantomData,
         }
     }
 }
@@ -70,7 +72,9 @@ pub(crate) struct MetroHashBuilder {
 
 impl MetroHashBuilder {
     pub(crate) fn new(seed: u64) -> Self {
-        MetroHashBuilder { seed }
+        MetroHashBuilder {
+            seed,
+        }
     }
 
     pub(crate) fn seed(&self) -> u64 {
@@ -80,6 +84,7 @@ impl MetroHashBuilder {
 
 impl BuildHasher for MetroHashBuilder {
     type Hasher = MetroHash64;
+
     fn build_hasher(&self) -> Self::Hasher {
         MetroHash64::with_seed(self.seed)
     }

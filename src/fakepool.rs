@@ -4,18 +4,18 @@
 
 #![allow(dead_code)]
 
-use std::marker::PhantomData;
-use std::ops::Deref;
-use std::rc::Rc as RRc;
-use std::sync::Arc as RArc;
+use std::{marker::PhantomData, ops::Deref, rc::Rc as RRc, sync::Arc as RArc};
 
 use crate::nodes::chunk::Chunk;
 
 pub(crate) trait PoolDefault: Default {}
 pub(crate) trait PoolClone: Clone {}
 
-impl<A> PoolDefault for Chunk<A> {}
-impl<A> PoolClone for Chunk<A> where A: Clone {}
+impl<A> PoolDefault for Chunk<A> {
+}
+impl<A> PoolClone for Chunk<A> where A: Clone
+{
+}
 
 pub(crate) struct Pool<A>(PhantomData<A>);
 
@@ -28,7 +28,8 @@ impl<A> Pool<A> {
         0
     }
 
-    pub(crate) fn fill(&self) {}
+    pub(crate) fn fill(&self) {
+    }
 }
 
 impl<A> Clone for Pool<A> {
@@ -94,6 +95,7 @@ impl<A> Clone for Rc<A> {
 
 impl<A> Deref for Rc<A> {
     type Target = A;
+
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         self.0.deref()
@@ -110,14 +112,19 @@ where
     }
 }
 
-impl<A> Eq for Rc<A> where A: Eq {}
+impl<A> Eq for Rc<A> where A: Eq
+{
+}
 
 impl<A> std::fmt::Debug for Rc<A>
 where
     A: std::fmt::Debug,
 {
     #[inline(always)]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
         self.0.fmt(f)
     }
 }
@@ -179,6 +186,7 @@ impl<A> Clone for Arc<A> {
 
 impl<A> Deref for Arc<A> {
     type Target = A;
+
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         self.0.deref()
@@ -195,14 +203,19 @@ where
     }
 }
 
-impl<A> Eq for Arc<A> where A: Eq {}
+impl<A> Eq for Arc<A> where A: Eq
+{
+}
 
 impl<A> std::fmt::Debug for Arc<A>
 where
     A: std::fmt::Debug,
 {
     #[inline(always)]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
         self.0.fmt(f)
     }
 }

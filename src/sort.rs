@@ -4,8 +4,7 @@
 
 use crate::vector::FocusMut;
 use rand_core::{RngCore, SeedableRng};
-use std::cmp::Ordering;
-use std::mem;
+use std::{cmp::Ordering, mem};
 
 fn gen_range<R: RngCore>(rng: &mut R, min: usize, max: usize) -> usize {
     let range = max - min;
@@ -49,7 +48,7 @@ where
         match comp {
             Ordering::Less => less_count += 1,
             Ordering::Equal => equal_count += 1,
-            Ordering::Greater => {}
+            Ordering::Greater => {},
         }
     }
 
@@ -80,14 +79,17 @@ where
     }
 
     // Split the vector up into less_than, equal to and greater than parts.
-    let (remaining, mut greater_focus) = rest.split_at(less_count + equal_count);
+    let (remaining, mut greater_focus) =
+        rest.split_at(less_count + equal_count);
     let (mut less_focus, mut equal_focus) = remaining.split_at(less_count);
 
     let mut less_position = 0;
     let mut equal_position = 0;
     let mut greater_position = 0;
 
-    while less_position != less_focus.len() || greater_position != greater_focus.len() {
+    while less_position != less_focus.len()
+        || greater_position != greater_focus.len()
+    {
         // At start of this loop, equal_position always points to an equal item
         let mut equal_swap_side = None;
         let equal_item = equal_focus.index(equal_position);
@@ -99,11 +101,11 @@ where
                 Ordering::Equal => {
                     equal_swap_side = Some(Ordering::Less);
                     break;
-                }
+                },
                 Ordering::Greater => {
                     break;
-                }
-                _ => {}
+                },
+                _ => {},
             }
             less_position += 1;
         }
@@ -116,8 +118,8 @@ where
                 Ordering::Equal => {
                     equal_swap_side = Some(Ordering::Greater);
                     break;
-                }
-                _ => {}
+                },
+                _ => {},
             }
             greater_position += 1;
         }
@@ -131,14 +133,18 @@ where
             };
 
             // We are guaranteed not to hit the end of the equal focus
-            while cmp(item, equal_focus.index(equal_position)) == Ordering::Equal {
+            while cmp(item, equal_focus.index(equal_position))
+                == Ordering::Equal
+            {
                 equal_position += 1;
             }
 
             // Swap the equal position and the desired side, it's important to note that only the
             // equals focus is guaranteed to have made progress so we don't advance the side's index
             mem::swap(item, equal_focus.index_mut(equal_position));
-        } else if less_position != less_focus.len() && greater_position != greater_focus.len() {
+        } else if less_position != less_focus.len()
+            && greater_position != greater_focus.len()
+        {
             // Both sides are out of place and not equal to the pivot, this can only happen if there
             // is a greater item in the lesser zone and a lesser item in the greater zone. The
             // solution is to swap both sides and advance both side's indices.
@@ -184,10 +190,8 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test::is_sorted;
-    use crate::vector::proptest::vector;
-    use ::proptest::num::i32;
-    use ::proptest::proptest;
+    use crate::{test::is_sorted, vector::proptest::vector};
+    use ::proptest::{num::i32, proptest};
 
     proptest! {
         #[test]

@@ -2,18 +2,22 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use std::mem::{replace, swap};
-use std::ops::{Range, RangeBounds};
-use std::ptr::null;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::{
+    mem::{replace, swap},
+    ops::{Range, RangeBounds},
+    ptr::null,
+    sync::atomic::{AtomicPtr, Ordering},
+};
 
-use crate::nodes::chunk::Chunk;
-use crate::sync::Lock;
-use crate::util::{to_range, PoolRef, Ref};
-use crate::vector::{
-    Iter, IterMut, RRBPool, Vector,
-    VectorInner::{Full, Inline, Single},
-    RRB,
+use crate::{
+    nodes::chunk::Chunk,
+    sync::Lock,
+    util::{to_range, PoolRef, Ref},
+    vector::{
+        Iter, IterMut, RRBPool, Vector,
+        VectorInner::{Full, Inline, Single},
+        RRB,
+    },
 };
 
 /// Focused indexing over a [`Vector`][Vector].
@@ -225,11 +229,11 @@ where
             Focus::Single(chunk) => {
                 let (left, right) = chunk.split_at(index);
                 (Focus::Single(left), Focus::Single(right))
-            }
+            },
             Focus::Full(tree) => {
                 let (left, right) = tree.split_at(index);
                 (Focus::Full(left), Focus::Full(right))
-            }
+            },
         }
     }
 }
@@ -238,8 +242,8 @@ impl<'a, A> IntoIterator for Focus<'a, A>
 where
     A: Clone + 'a,
 {
-    type Item = &'a A;
     type IntoIter = Iter<'a, A>;
+    type Item = &'a A;
 
     fn into_iter(self) -> Self::IntoIter {
         Iter::from_focus(self)
@@ -261,10 +265,10 @@ where
 pub struct TreeFocus<A> {
     /// A clone of the Vector's internal tree that this focus points to. A clone ensures that we don't require a
     /// reference to the original tree.
-    tree: RRB<A>,
+    tree:         RRB<A>,
     /// The view represents the range of the tree that this TreeFocus can see. The view can be narrowed by calling
     /// either the narrow or split_at methods.
-    view: Range<usize>,
+    view:         Range<usize>,
     /// The tree version of the Vector is represented as the concatenation of 2 chunks, followed by the tree root,
     /// followed by 2 chunks. The middle_range refers to the range of the Vector that the tree covers.
     middle_range: Range<usize>,
@@ -272,7 +276,7 @@ pub struct TreeFocus<A> {
     /// chunks front/back chunks or one of the leaves of the tree. The target_ptr is the pointer to the actual chunk
     /// in question. The target_range is the range that the chunk represents.
     target_range: Range<usize>,
-    target_ptr: *const Chunk<A>,
+    target_ptr:   *const Chunk<A>,
 }
 
 impl<A> Clone for TreeFocus<A> {
@@ -288,8 +292,10 @@ impl<A> Clone for TreeFocus<A> {
     }
 }
 
-unsafe impl<A: Send> Send for TreeFocus<A> {}
-unsafe impl<A: Sync> Sync for TreeFocus<A> {}
+unsafe impl<A: Send> Send for TreeFocus<A> {
+}
+unsafe impl<A: Sync> Sync for TreeFocus<A> {
+}
 
 #[inline]
 fn contains<A: Ord>(range: &Range<A>, index: &A) -> bool {
@@ -302,11 +308,11 @@ impl<A> TreeFocus<A> {
         let middle_start = tree.outer_f.len() + tree.inner_f.len();
         let middle_end = middle_start + tree.middle.len();
         TreeFocus {
-            tree: tree.clone(),
-            view: 0..tree.length,
+            tree:         tree.clone(),
+            view:         0..tree.length,
             middle_range: middle_start..middle_end,
             target_range: 0..0,
-            target_ptr: null(),
+            target_ptr:   null(),
         }
     }
 
@@ -370,12 +376,13 @@ impl<A> TreeFocus<A> {
             }
         } else {
             let tree_index = index - self.middle_range.start;
-            let (range, ptr) = self
-                .tree
-                .middle
-                .lookup_chunk(self.tree.middle_level, 0, tree_index);
-            self.target_range =
-                (range.start + self.middle_range.start)..(range.end + self.middle_range.start);
+            let (range, ptr) = self.tree.middle.lookup_chunk(
+                self.tree.middle_level,
+                0,
+                tree_index,
+            );
+            self.target_range = (range.start + self.middle_range.start)
+                ..(range.end + self.middle_range.start);
             self.target_ptr = ptr;
         }
     }
@@ -414,7 +421,8 @@ impl<A> TreeFocus<A> {
             right = self.target_range.end - self.view.end;
         }
         slice = &slice[left..(slice.len() - right)];
-        let phys_range = (self.target_range.start + left)..(self.target_range.end - right);
+        let phys_range =
+            (self.target_range.start + left)..(self.target_range.end - right);
         (self.logical_range(&phys_range), slice)
     }
 }
@@ -530,7 +538,9 @@ where
             panic!("vector::FocusMut::narrow: range out of bounds");
         }
         match self {
-            FocusMut::Single(pool, chunk) => FocusMut::Single(pool, &mut chunk[r]),
+            FocusMut::Single(pool, chunk) => {
+                FocusMut::Single(pool, &mut chunk[r])
+            },
             FocusMut::Full(pool, tree) => FocusMut::Full(pool, tree.narrow(r)),
         }
     }
@@ -582,14 +592,14 @@ where
                     FocusMut::Single(pool.clone(), left),
                     FocusMut::Single(pool, right),
                 )
-            }
+            },
             FocusMut::Full(pool, tree) => {
                 let (left, right) = tree.split_at(index);
                 (
                     FocusMut::Full(pool.clone(), left),
                     FocusMut::Full(pool, right),
                 )
-            }
+            },
         }
     }
 
@@ -597,16 +607,18 @@ where
     pub fn unmut(self) -> Focus<'a, A> {
         match self {
             FocusMut::Single(_, chunk) => Focus::Single(chunk),
-            FocusMut::Full(_, mut tree) => Focus::Full(TreeFocus {
-                tree: {
-                    let t = tree.tree.lock().unwrap();
-                    (*t).clone()
-                },
-                view: tree.view.clone(),
-                middle_range: tree.middle_range.clone(),
-                target_range: 0..0,
-                target_ptr: null(),
-            }),
+            FocusMut::Full(_, mut tree) => {
+                Focus::Full(TreeFocus {
+                    tree:         {
+                        let t = tree.tree.lock().unwrap();
+                        (*t).clone()
+                    },
+                    view:         tree.view.clone(),
+                    middle_range: tree.middle_range.clone(),
+                    target_range: 0..0,
+                    target_ptr:   null(),
+                })
+            },
         }
     }
 }
@@ -619,11 +631,15 @@ where
     pub fn new(vector: &'a mut Vector<A>) -> Self {
         match &mut vector.vector {
             Inline(pool, chunk) => FocusMut::Single(pool.clone(), chunk),
-            Single(pool, chunk) => FocusMut::Single(
-                pool.clone(),
-                PoolRef::make_mut(&pool.value_pool, chunk).as_mut_slice(),
-            ),
-            Full(pool, tree) => FocusMut::Full(pool.clone(), TreeFocusMut::new(tree)),
+            Single(pool, chunk) => {
+                FocusMut::Single(
+                    pool.clone(),
+                    PoolRef::make_mut(&pool.value_pool, chunk).as_mut_slice(),
+                )
+            },
+            Full(pool, tree) => {
+                FocusMut::Full(pool.clone(), TreeFocusMut::new(tree))
+            },
         }
     }
 
@@ -748,7 +764,7 @@ where
             FocusMut::Full(pool, tree) => {
                 let (range, chunk) = tree.get_chunk(pool, index);
                 (range, chunk)
-            }
+            },
         }
     }
 }
@@ -757,8 +773,8 @@ impl<'a, A> IntoIterator for FocusMut<'a, A>
 where
     A: Clone + 'a,
 {
-    type Item = &'a mut A;
     type IntoIter = IterMut<'a, A>;
+    type Item = &'a mut A;
 
     fn into_iter(self) -> Self::IntoIter {
         IterMut::from_focus(self)
@@ -780,10 +796,10 @@ pub struct TreeFocusMut<'a, A> {
     /// The tree that this TreeFocusMut refers to. Unlike the non-mutable version, TreeFocusMut needs to store a
     /// mutable reference. Additionally, there may be multiple TreeFocusMuts that refer to the same tree so we need a
     /// Lock to synchronise the changes.
-    tree: Lock<&'a mut RRB<A>>,
+    tree:         Lock<&'a mut RRB<A>>,
     /// The view represents the range of the tree that this TreeFocusMut can see. The view can be narrowed by calling
     /// either the narrow or split_at methods.
-    view: Range<usize>,
+    view:         Range<usize>,
     /// The tree version of the Vector is represented as the concatenation of 2 chunks, followed by the tree root,
     /// followed by 2 chunks. The middle_range refers to the range of the Vector that the tree covers.
     middle_range: Range<usize>,
@@ -793,7 +809,7 @@ pub struct TreeFocusMut<'a, A> {
     target_range: Range<usize>,
     /// Not actually sure why this needs to be an atomic, it seems like it is unneccessary. This is just a pointer to
     /// the chunk referred to above.
-    target_ptr: AtomicPtr<Chunk<A>>,
+    target_ptr:   AtomicPtr<Chunk<A>>,
 }
 
 impl<'a, A> TreeFocusMut<'a, A>
@@ -805,11 +821,11 @@ where
         let middle_start = tree.outer_f.len() + tree.inner_f.len();
         let middle_end = middle_start + tree.middle.len();
         TreeFocusMut {
-            view: 0..tree.length,
-            tree: Lock::new(tree),
+            view:         0..tree.length,
+            tree:         Lock::new(tree),
             middle_range: middle_start..middle_end,
             target_range: 0..0,
-            target_ptr: AtomicPtr::default(),
+            target_ptr:   AtomicPtr::default(),
         }
     }
 
@@ -837,18 +853,18 @@ where
         let len = self.len();
         debug_assert!(index <= len);
         let left = TreeFocusMut {
-            view: self.view.start..(self.view.start + index),
+            view:         self.view.start..(self.view.start + index),
             middle_range: self.middle_range.clone(),
             target_range: 0..0,
-            target_ptr: AtomicPtr::default(),
-            tree: self.tree.clone(),
+            target_ptr:   AtomicPtr::default(),
+            tree:         self.tree.clone(),
         };
         let right = TreeFocusMut {
-            view: (self.view.start + index)..(self.view.start + len),
+            view:         (self.view.start + index)..(self.view.start + len),
             middle_range: self.middle_range.clone(),
             target_range: 0..0,
-            target_ptr: AtomicPtr::default(),
-            tree: self.tree,
+            target_ptr:   AtomicPtr::default(),
+            tree:         self.tree,
         };
         (left, right)
     }
@@ -876,10 +892,10 @@ where
 {
     /// Sets the internal chunk to the one that contains the given absolute index.
     fn set_focus(&mut self, pool: &RRBPool<A>, index: usize) {
-        let mut tree = self
-            .tree
-            .lock()
-            .expect("imbl::vector::Focus::set_focus: unable to acquire exclusive lock on Vector");
+        let mut tree = self.tree.lock().expect(
+            "imbl::vector::Focus::set_focus: unable to acquire exclusive lock \
+             on Vector",
+        );
         if index < self.middle_range.start {
             let outer_len = tree.outer_f.len();
             if index < outer_len {
@@ -914,9 +930,10 @@ where
             let tree_index = index - self.middle_range.start;
             let level = tree.middle_level;
             let middle = Ref::make_mut(&mut tree.middle);
-            let (range, ptr) = middle.lookup_chunk_mut(pool, level, 0, tree_index);
-            self.target_range =
-                (range.start + self.middle_range.start)..(range.end + self.middle_range.start);
+            let (range, ptr) =
+                middle.lookup_chunk_mut(pool, level, 0, tree_index);
+            self.target_range = (range.start + self.middle_range.start)
+                ..(range.end + self.middle_range.start);
             self.target_ptr.store(ptr, Ordering::Relaxed);
         }
     }
@@ -935,7 +952,11 @@ where
     }
 
     /// Gets the chunk for an index as a slice and its corresponding range within the TreeFocusMut.
-    pub fn get_chunk(&mut self, pool: &RRBPool<A>, index: usize) -> (Range<usize>, &mut [A]) {
+    pub fn get_chunk(
+        &mut self,
+        pool: &RRBPool<A>,
+        index: usize,
+    ) -> (Range<usize>, &mut [A]) {
         let phys_index = self.physical_index(index);
         if !contains(&self.target_range, &phys_index) {
             self.set_focus(pool, phys_index);
@@ -948,10 +969,12 @@ where
         if self.target_range.end > self.view.end {
             right = self.target_range.end - self.view.end;
         }
-        let phys_range = (self.target_range.start + left)..(self.target_range.end - right);
+        let phys_range =
+            (self.target_range.start + left)..(self.target_range.end - right);
         let log_range = self.logical_range(&phys_range);
         let slice_len = self.get_focus().len();
-        let slice = &mut (self.get_focus().as_mut_slice())[left..(slice_len - right)];
+        let slice =
+            &mut (self.get_focus().as_mut_slice())[left..(slice_len - right)];
         (log_range, slice)
     }
 }

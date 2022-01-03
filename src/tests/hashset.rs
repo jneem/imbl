@@ -1,8 +1,10 @@
 #![allow(clippy::unit_arg)]
 
-use std::collections::HashSet as NatSet;
-use std::fmt::{Debug, Error, Formatter, Write};
-use std::hash::Hash;
+use std::{
+    collections::HashSet as NatSet,
+    fmt::{Debug, Error, Formatter, Write},
+    hash::Hash,
+};
 
 use crate::HashSet;
 
@@ -33,11 +35,11 @@ where
                 Action::Insert(ref value) => {
                     expected.insert(value.clone());
                     writeln!(out, "set.insert({:?});", value)?;
-                }
+                },
                 Action::Remove(ref value) => {
                     expected.remove(value);
                     writeln!(out, "set.remove({:?});", value)?;
-                }
+                },
             }
         }
         writeln!(
