@@ -1418,6 +1418,7 @@ where
 
     /// Call the provided function to modify the value if the value
     /// exists.
+    #[must_use]
     pub fn and_modify<F>(mut self, f: F) -> Self
     where
         F: FnOnce(&mut V),

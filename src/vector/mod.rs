@@ -1147,7 +1147,7 @@ impl<A: Clone> Vector<A> {
             }
         }
         if del > 0 {
-            self.split_off(len - del);
+            let _ = self.split_off(len - del);
         }
     }
 
@@ -1192,6 +1192,7 @@ impl<A: Clone> Vector<A> {
     /// assert_eq!(vector![1, 2, 3], left);
     /// assert_eq!(vector![7, 8, 9], right);
     /// ```
+    #[must_use]
     pub fn split_off(&mut self, index: usize) -> Self {
         assert!(index <= self.len());
 
@@ -1350,7 +1351,7 @@ impl<A: Clone> Vector<A> {
     pub fn take(&self, count: usize) -> Self {
         // FIXME can be made more efficient by dropping the unwanted side without constructing it
         let mut left = self.clone();
-        left.split_off(count);
+        let _ = left.split_off(count);
         left
     }
 
@@ -1363,7 +1364,7 @@ impl<A: Clone> Vector<A> {
     /// Time: O(log n)
     pub fn truncate(&mut self, len: usize) {
         // FIXME can be made more efficient by dropping the unwanted side without constructing it
-        self.split_off(len);
+        let _ = self.split_off(len);
     }
 
     /// Extract a slice from a vector.
@@ -1373,6 +1374,7 @@ impl<A: Clone> Vector<A> {
     /// vector.
     ///
     /// Time: O(log n)
+    #[must_use]
     pub fn slice<R>(&mut self, range: R) -> Self
     where
         R: RangeBounds<usize>,
@@ -2438,7 +2440,7 @@ mod test {
         assert_eq!(Some(&4098), l.get(1));
         assert_eq!(Some(&4097), l.get(2));
         let len = l.len();
-        l.slice(2..len);
+        let _ = l.slice(2..len);
     }
 
     #[test]
