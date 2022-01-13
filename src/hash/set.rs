@@ -1075,7 +1075,7 @@ mod test {
         use crate::test::MetroHashBuilder;
         for i in 0..1000 {
             let mut lhs = vec![0, 1, 2];
-            lhs.sort();
+            lhs.sort_unstable();
 
             let hasher = Ref::from(MetroHashBuilder::new(i));
             let mut iset: HashSet<_, MetroHashBuilder> = HashSet::with_hasher(hasher.clone());
@@ -1084,7 +1084,7 @@ mod test {
             }
 
             let mut rhs: Vec<_> = iset.clone().into_iter().collect();
-            rhs.sort();
+            rhs.sort_unstable();
 
             if lhs != rhs {
                 println!("iteration: {}", i);

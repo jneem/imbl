@@ -2353,15 +2353,15 @@ mod test {
     #[test]
     fn entry_api() {
         let mut map = ordmap! {"bar" => 5};
-        map.entry(&"foo").and_modify(|v| *v += 5).or_insert(1);
+        map.entry("foo").and_modify(|v| *v += 5).or_insert(1);
         assert_eq!(1, map[&"foo"]);
-        map.entry(&"foo").and_modify(|v| *v += 5).or_insert(1);
+        map.entry("foo").and_modify(|v| *v += 5).or_insert(1);
         assert_eq!(6, map[&"foo"]);
-        map.entry(&"bar").and_modify(|v| *v += 5).or_insert(1);
+        map.entry("bar").and_modify(|v| *v += 5).or_insert(1);
         assert_eq!(10, map[&"bar"]);
         assert_eq!(
             10,
-            match map.entry(&"bar") {
+            match map.entry("bar") {
                 Entry::Occupied(entry) => entry.remove(),
                 _ => panic!(),
             }
@@ -2440,10 +2440,10 @@ mod test {
         let mut map = OrdMap::new();
         let contents = include_str!("test-fixtures/issue_124.txt");
         for line in contents.lines() {
-            if line.starts_with("insert ") {
-                map.insert(line[7..].parse::<u32>().unwrap(), 0);
-            } else if line.starts_with("remove ") {
-                map.remove(&line[7..].parse::<u32>().unwrap());
+            if let Some(tail) = line.strip_prefix("insert ") {
+                map.insert(tail.parse::<u32>().unwrap(), 0);
+            } else if let Some(tail) = line.strip_prefix("remove ") {
+                map.remove(&tail.parse::<u32>().unwrap());
             }
         }
     }
@@ -2643,9 +2643,9 @@ mod test {
             let diff: Vec<_> = a.diff(&b).collect();
             let union = b.clone().union(a.clone());
             let expected: Vec<_> = union.iter().filter_map(|(k, v)| {
-                if a.contains_key(&k) {
-                    if b.contains_key(&k) {
-                        let old = a.get(&k).unwrap();
+                if a.contains_key(k) {
+                    if b.contains_key(k) {
+                        let old = a.get(k).unwrap();
                         if old != v	{
                             Some(DiffItem::Update {
                                 old: (k, old),

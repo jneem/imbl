@@ -2183,15 +2183,15 @@ mod test {
     #[test]
     fn entry_api() {
         let mut map = hashmap! {"bar" => 5};
-        map.entry(&"foo").and_modify(|v| *v += 5).or_insert(1);
+        map.entry("foo").and_modify(|v| *v += 5).or_insert(1);
         assert_eq!(1, map[&"foo"]);
-        map.entry(&"foo").and_modify(|v| *v += 5).or_insert(1);
+        map.entry("foo").and_modify(|v| *v += 5).or_insert(1);
         assert_eq!(6, map[&"foo"]);
-        map.entry(&"bar").and_modify(|v| *v += 5).or_insert(1);
+        map.entry("bar").and_modify(|v| *v += 5).or_insert(1);
         assert_eq!(10, map[&"bar"]);
         assert_eq!(
             10,
-            match map.entry(&"bar") {
+            match map.entry("bar") {
                 Entry::Occupied(entry) => entry.remove(),
                 _ => panic!(),
             }
