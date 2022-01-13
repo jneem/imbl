@@ -175,6 +175,7 @@ where
     ///
     /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
     /// [Vector::split_at]: enum.Vector.html#method.split_at
+    #[must_use]
     pub fn narrow<R>(self, range: R) -> Self
     where
         R: RangeBounds<usize>,
@@ -521,6 +522,7 @@ where
     ///
     /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
     /// [Vector::split_at]: enum.Vector.html#method.split_at
+    #[must_use]
     pub fn narrow<R>(self, range: R) -> Self
     where
         R: RangeBounds<usize>,
