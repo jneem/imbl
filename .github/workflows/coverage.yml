@@ -8,6 +8,7 @@ name: Code Coverage
 
 jobs:
   lint:
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
