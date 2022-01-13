@@ -515,11 +515,7 @@ impl<A> Node<A> {
                 // Parent nodes should never occur at level 0.
                 assert_ne!(0, level);
                 let mut lengths = Vec::new();
-                let should_be_dense = if let Size::Size(_) = size {
-                    true
-                } else {
-                    false
-                };
+                let should_be_dense = size.is_size();
                 for (index, child) in children.iter().enumerate() {
                     let len = child.assert_invariants(level - 1);
                     if should_be_dense && index < children.len() - 1 {
