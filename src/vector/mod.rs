@@ -2019,6 +2019,15 @@ where
     }
 }
 
+impl<A, const N: usize> From<[A; N]> for Vector<A>
+where
+    A: Clone,
+{
+    fn from(arr: [A; N]) -> Self {
+        IntoIterator::into_iter(arr).collect()
+    }
+}
+
 impl<'a, A: Clone> From<&'a [A]> for Vector<A> {
     fn from(slice: &[A]) -> Self {
         slice.iter().cloned().collect()
