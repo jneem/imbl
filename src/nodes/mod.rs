@@ -7,10 +7,8 @@ pub(crate) mod hamt;
 pub(crate) mod rrb;
 
 pub(crate) mod chunk {
-    use crate::config::VectorChunkSize;
-    use sized_chunks as sc;
-    use typenum::Unsigned;
+    pub(crate) use crate::config::VECTOR_CHUNK_SIZE as CHUNK_SIZE;
+    use imbl_sized_chunks as sc;
 
-    pub(crate) type Chunk<A> = sc::sized_chunk::Chunk<A, VectorChunkSize>;
-    pub(crate) const CHUNK_SIZE: usize = VectorChunkSize::USIZE;
+    pub(crate) type Chunk<A> = sc::sized_chunk::Chunk<A, CHUNK_SIZE>;
 }

@@ -7,17 +7,16 @@ use std::cmp::Ordering;
 use std::mem;
 use std::ops::{Bound, RangeBounds};
 
-use sized_chunks::Chunk;
-use typenum::{Add1, Unsigned};
+use imbl_sized_chunks::Chunk;
 
-use crate::config::OrdChunkSize as NodeSize;
+pub(crate) use crate::config::ORD_CHUNK_SIZE as NODE_SIZE;
 use crate::util::{Pool, PoolClone, PoolDefault, PoolRef};
 
 use self::Insert::*;
 use self::InsertAction::*;
 
-pub(crate) const NODE_SIZE: usize = NodeSize::USIZE;
 const MEDIAN: usize = (NODE_SIZE + 1) >> 1;
+const NUM_CHILDREN: usize = NODE_SIZE + 1;
 
 pub trait BTreeValue {
     type Key;
@@ -45,8 +44,8 @@ pub trait BTreeValue {
 /// The `children` array is never empty, and always has exactly one more element than `keys`. The
 /// empty tree has no keys, and a single `None` child.
 pub(crate) struct Node<A> {
-    keys: Chunk<A, NodeSize>,
-    children: Chunk<Option<PoolRef<Node<A>>>, Add1<NodeSize>>,
+    keys: Chunk<A, NODE_SIZE>,
+    children: Chunk<Option<PoolRef<Node<A>>>, NUM_CHILDREN>,
 }
 
 #[cfg(feature = "pool")]

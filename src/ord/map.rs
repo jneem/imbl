@@ -2205,6 +2205,8 @@ mod test {
     assert_impl_all!(OrdMap<i32, i32>: Send, Sync);
     assert_not_impl_any!(OrdMap<i32, *const i32>: Send, Sync);
     assert_not_impl_any!(OrdMap<*const i32, i32>: Send, Sync);
+    assert_covariant!(OrdMap<T, i32> in T);
+    assert_covariant!(OrdMap<i32, T> in T);
 
     #[test]
     fn iterates_in_order() {

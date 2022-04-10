@@ -1041,6 +1041,7 @@ mod test {
 
     assert_impl_all!(HashSet<i32>: Send, Sync);
     assert_not_impl_any!(HashSet<*const i32>: Send, Sync);
+    assert_covariant!(HashSet<T> in T);
 
     #[test]
     fn insert_failing() {

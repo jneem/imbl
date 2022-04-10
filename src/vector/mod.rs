@@ -54,7 +54,7 @@ use std::iter::{FromIterator, FusedIterator};
 use std::mem::{replace, swap};
 use std::ops::{Add, Index, IndexMut, RangeBounds};
 
-use sized_chunks::InlineArray;
+use imbl_sized_chunks::InlineArray;
 
 use crate::nodes::chunk::{Chunk, CHUNK_SIZE};
 use crate::nodes::rrb::{Node, PopResult, PushResult, SplitResult};
@@ -2374,6 +2374,7 @@ mod test {
 
     assert_impl_all!(Vector<i32>: Send, Sync);
     assert_not_impl_any!(Vector<*const i32>: Send, Sync);
+    assert_covariant!(Vector<T> in T);
 
     #[test]
     fn macro_allows_trailing_comma() {
