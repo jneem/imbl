@@ -1184,6 +1184,7 @@ mod test {
 
     assert_impl_all!(OrdSet<i32>: Send, Sync);
     assert_not_impl_any!(OrdSet<*const i32>: Send, Sync);
+    assert_covariant!(OrdSet<T> in T);
 
     #[test]
     fn match_strings_with_string_slices() {

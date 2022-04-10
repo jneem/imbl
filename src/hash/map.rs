@@ -2093,6 +2093,8 @@ mod test {
     assert_impl_all!(HashMap<i32, i32>: Send, Sync);
     assert_not_impl_any!(HashMap<i32, *const i32>: Send, Sync);
     assert_not_impl_any!(HashMap<*const i32, i32>: Send, Sync);
+    assert_covariant!(HashMap<T, i32> in T);
+    assert_covariant!(HashMap<i32, T> in T);
 
     #[test]
     fn safe_mutation() {

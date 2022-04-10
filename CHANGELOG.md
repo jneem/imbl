@@ -10,6 +10,7 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 ### Fixed
 -   Fixed several critical bugs in `Vector` (see PRs #34 and #37).
 -   Removed `Hash` and `PartialOrd` impls for `HashMap` and `HashSet`.
+-   Made all container types covariant in their type parameters.
 
 ### Added
 -   Added `Vector::insert_ord_by` and `Vector::insert_ord_by_key`
