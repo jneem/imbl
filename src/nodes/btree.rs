@@ -1028,6 +1028,17 @@ pub struct Iter<'a, A> {
     pub(crate) remaining: usize,
 }
 
+// We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
+impl<'a, A> Clone for Iter<'a, A> {
+    fn clone(&self) -> Self {
+        Iter {
+            fwd_path: self.fwd_path.clone(),
+            back_path: self.back_path.clone(),
+            remaining: self.remaining,
+        }
+    }
+}
+
 impl<'a, A: BTreeValue> Iter<'a, A> {
     pub(crate) fn new<R, BK>(root: &'a Node<A>, size: usize, range: R) -> Self
     where

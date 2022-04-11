@@ -1858,6 +1858,15 @@ pub struct Iter<'a, K, V> {
     it: RangedIter<'a, (K, V)>,
 }
 
+// We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
+impl<'a, K, V> Clone for Iter<'a, K, V> {
+    fn clone(&self) -> Self {
+        Iter {
+            it: self.it.clone(),
+        }
+    }
+}
+
 impl<'a, K, V> Iterator for Iter<'a, K, V>
 where
     (K, V): 'a + BTreeValue,

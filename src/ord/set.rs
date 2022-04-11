@@ -943,6 +943,15 @@ pub struct Iter<'a, A> {
     it: NodeIter<'a, Value<A>>,
 }
 
+// We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
+impl<'a, A> Clone for Iter<'a, A> {
+    fn clone(&self) -> Self {
+        Iter {
+            it: self.it.clone(),
+        }
+    }
+}
+
 impl<'a, A> Iterator for Iter<'a, A>
 where
     A: 'a + Ord,
