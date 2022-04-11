@@ -465,6 +465,18 @@ pub(crate) struct Iter<'a, A> {
     collision: Option<(HashBits, SliceIter<'a, A>)>,
 }
 
+// We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
+impl<'a, A> Clone for Iter<'a, A> {
+    fn clone(&self) -> Self {
+        Self {
+            count: self.count,
+            stack: self.stack.clone(),
+            current: self.current.clone(),
+            collision: self.collision.clone(),
+        }
+    }
+}
+
 impl<'a, A> Iter<'a, A>
 where
     A: 'a,

@@ -88,7 +88,7 @@ pub enum Focus<'a, A> {
     /// The Single variant is a focus of a simple Vector that can be represented as a single slice.
     Single(&'a [A]),
     #[doc(hidden)]
-    /// The Full variant is a focus of a more complex Vector that cannot be represented as a single slcice.
+    /// The Full variant is a focus of a more complex Vector that cannot be represented as a single slice.
     Full(TreeFocus<A>),
 }
 
