@@ -674,6 +674,10 @@ where
     /// ```
     ///
     /// [symmetric_difference]: #method.symmetric_difference
+    #[deprecated(
+        since = "2.0.1",
+        note = "to avoid conflicting behaviors between std and imbl, the `difference` alias for `symmetric_difference` will be removed."
+    )]
     #[must_use]
     pub fn difference(self, other: Self) -> Self {
         self.symmetric_difference(other)

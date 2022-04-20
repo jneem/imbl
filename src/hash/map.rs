@@ -1112,6 +1112,10 @@ where
     /// ```
     ///
     /// [symmetric_difference]: #method.symmetric_difference
+    #[deprecated(
+        since = "2.0.1",
+        note = "to avoid conflicting behaviors between std and imbl, the `difference` alias for `symmetric_difference` will be removed."
+    )]
     #[inline]
     #[must_use]
     pub fn difference(self, other: Self) -> Self {
@@ -1148,6 +1152,10 @@ where
     /// Time: O(n log n)
     ///
     /// [symmetric_difference_with]: #method.symmetric_difference_with
+    #[deprecated(
+        since = "2.0.1",
+        note = "to avoid conflicting behaviors between std and imbl, the `difference_with` alias for `symmetric_difference_with` will be removed."
+    )]
     #[inline]
     #[must_use]
     pub fn difference_with<F>(self, other: Self, f: F) -> Self
@@ -1195,6 +1203,10 @@ where
     /// ```
     ///
     /// [symmetric_difference_with_key]: #method.symmetric_difference_with_key
+    #[deprecated(
+        since = "2.0.1",
+        note = "to avoid conflicting behaviors between std and imbl, the `difference_with_key` alias for `symmetric_difference_with_key` will be removed."
+    )]
     #[must_use]
     pub fn difference_with_key<F>(self, other: Self, f: F) -> Self
     where
