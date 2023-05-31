@@ -701,9 +701,12 @@ where
         if a == b {
             panic!("vector::FocusMut::pair: indices cannot be equal!");
         }
-        let pa: *mut A = self.index_mut(a);
-        let pb: *mut A = self.index_mut(b);
-        unsafe { f(&mut *pa, &mut *pb) }
+
+        let (ra, rb) = match self {
+            FocusMut::Single(_, chunk) => array_get_pair(chunk, a, b),
+            FocusMut::Full(pool, tree) => tree.get_pair(pool, a, b).unwrap(),
+        };
+        f(ra, rb)
     }
 
     /// Lookup three indices simultaneously and run a function over them.
@@ -752,6 +755,16 @@ where
                 (range, chunk)
             }
         }
+    }
+}
+
+fn array_get_pair<A>(chunk: &mut [A], a: usize, b: usize) -> (&mut A, &mut A) {
+    if a < b {
+        let (left, right) = chunk.split_at_mut(b);
+        (&mut left[a], &mut right[0])
+    } else {
+        let (left, right) = chunk.split_at_mut(a);
+        (&mut right[0], &mut left[b])
     }
 }
 
@@ -934,6 +947,14 @@ where
         }
         let target_phys_index = phys_index - self.target_range.start;
         Some(&mut self.get_focus()[target_phys_index])
+    }
+
+    fn get_pair(&mut self, pool: &RRBPool<A>, a: usize, b: usize) -> Option<(&mut A, &mut A)> {
+        if a >= self.len() || b >= self.len() {
+            return None;
+        }
+
+        todo!()
     }
 
     /// Gets the chunk for an index as a slice and its corresponding range within the TreeFocusMut.
