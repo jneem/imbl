@@ -450,7 +450,7 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        self.root.lookup(key).map(|&(ref k, ref v)| (k, v))
+        self.root.lookup(key).map(|(k, v)| (k, v))
     }
 
     /// Get the closest smaller entry in a map to a given key
@@ -914,7 +914,7 @@ where
         F: FnOnce(Option<V>) -> Option<V>,
     {
         let pop = self.extract_with_key(&k);
-        match (f(pop.as_ref().map(|&(_, ref v, _)| v.clone())), pop) {
+        match (f(pop.as_ref().map(|(_, v, _)| v.clone())), pop) {
             (None, None) => self.clone(),
             (Some(v), None) => self.update(k, v),
             (None, Some((_, _, m))) => m,
@@ -1829,7 +1829,7 @@ where
     fn index(&self, key: &BK) -> &Self::Output {
         match self.root.lookup(key) {
             None => panic!("OrdMap::index: invalid key"),
-            Some(&(_, ref value)) => value,
+            Some((_, value)) => value,
         }
     }
 }
@@ -2104,7 +2104,7 @@ where
 {
     fn from(m: &'a [(RK, RV)]) -> OrdMap<K, V> {
         m.iter()
-            .map(|&(ref k, ref v)| (k.to_owned(), v.to_owned()))
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
     }
 }
@@ -2130,7 +2130,7 @@ where
 {
     fn from(m: &'a Vec<(RK, RV)>) -> OrdMap<K, V> {
         m.iter()
-            .map(|&(ref k, ref v)| (k.to_owned(), v.to_owned()))
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
     }
 }

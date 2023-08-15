@@ -294,7 +294,7 @@ fn vector_get_seq_focus_mut(b: &mut Bencher, count: usize) {
     let mut focus = vec.focus_mut();
     b.iter(|| {
         for i in 0..count {
-            let _ = focus.get(i as usize);
+            let _ = focus.get(i);
         }
     })
 }
