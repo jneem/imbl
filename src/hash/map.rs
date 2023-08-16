@@ -367,7 +367,6 @@ where
 {
     fn test_eq(&self, other: &Self) -> bool
     where
-        K: Hash + Eq,
         V: PartialEq,
     {
         if self.len() != other.len() {
@@ -1736,9 +1735,8 @@ where
 #[cfg(not(has_specialisation))]
 impl<K, V, S> Debug for HashMap<K, V, S>
 where
-    K: Hash + Eq + Debug,
+    K: Debug,
     V: Debug,
-    S: BuildHasher,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         let mut d = f.debug_map();
@@ -1752,9 +1750,8 @@ where
 #[cfg(has_specialisation)]
 impl<K, V, S> Debug for HashMap<K, V, S>
 where
-    K: Hash + Eq + Debug,
+    K: Debug,
     V: Debug,
-    S: BuildHasher,
 {
     default fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         let mut d = f.debug_map();
@@ -1768,9 +1765,8 @@ where
 #[cfg(has_specialisation)]
 impl<K, V, S> Debug for HashMap<K, V, S>
 where
-    K: Hash + Eq + Ord + Debug,
+    K: Ord + Debug,
     V: Debug,
-    S: BuildHasher,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         let mut keys = collections::BTreeSet::new();
@@ -1920,11 +1916,7 @@ impl<'a, K, V> ExactSizeIterator for Values<'a, K, V> {}
 
 impl<'a, K, V> FusedIterator for Values<'a, K, V> {}
 
-impl<'a, K, V, S> IntoIterator for &'a HashMap<K, V, S>
-where
-    K: Hash + Eq,
-    S: BuildHasher,
-{
+impl<'a, K, V, S> IntoIterator for &'a HashMap<K, V, S> {
     type Item = (&'a K, &'a V);
     type IntoIter = Iter<'a, K, V>;
 

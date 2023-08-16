@@ -626,10 +626,7 @@ impl<'a, A> FusedIterator for IterMut<'a, A> where A: Clone + 'a {}
 
 // Consuming iterator
 
-pub(crate) struct Drain<A>
-where
-    A: HashValue,
-{
+pub(crate) struct Drain<A> {
     count: usize,
     pool: Pool<Node<A>>,
     stack: Vec<PoolRef<Node<A>>>,
@@ -637,10 +634,7 @@ where
     collision: Option<CollisionNode<A>>,
 }
 
-impl<A> Drain<A>
-where
-    A: HashValue,
-{
+impl<A> Drain<A> {
     pub(crate) fn new(pool: &Pool<Node<A>>, root: PoolRef<Node<A>>, size: usize) -> Self {
         Drain {
             count: size,
@@ -654,7 +648,7 @@ where
 
 impl<A> Iterator for Drain<A>
 where
-    A: HashValue + Clone,
+    A: Clone,
 {
     type Item = (A, HashBits);
 
@@ -701,11 +695,11 @@ where
     }
 }
 
-impl<A: HashValue> ExactSizeIterator for Drain<A> where A: Clone {}
+impl<A> ExactSizeIterator for Drain<A> where A: Clone {}
 
-impl<A: HashValue> FusedIterator for Drain<A> where A: Clone {}
+impl<A> FusedIterator for Drain<A> where A: Clone {}
 
-impl<A: HashValue + fmt::Debug> fmt::Debug for Node<A> {
+impl<A: fmt::Debug> fmt::Debug for Node<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "Node[ ")?;
         for i in self.data.indices() {
