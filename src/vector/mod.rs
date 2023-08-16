@@ -2822,7 +2822,7 @@ mod test {
             let output: Vector<_> = input.leaves().flatten().cloned().collect();
             assert_eq!(input, &output);
             let rev_in: Vector<_> = input.iter().rev().cloned().collect();
-            let rev_out: Vector<_> = input.leaves().rev().map(|c| c.iter().rev()).flatten().cloned().collect();
+            let rev_out: Vector<_> = input.leaves().rev().flat_map(|c| c.iter().rev()).cloned().collect();
             assert_eq!(rev_in, rev_out);
         }
 
@@ -2833,7 +2833,7 @@ mod test {
             let output: Vector<_> = input.leaves_mut().flatten().map(|v| *v).collect();
             assert_eq!(input, output);
             let rev_in: Vector<_> = input.iter().rev().cloned().collect();
-            let rev_out: Vector<_> = input.leaves_mut().rev().map(|c| c.iter().rev()).flatten().cloned().collect();
+            let rev_out: Vector<_> = input.leaves_mut().rev().flat_map(|c| c.iter().rev()).cloned().collect();
             assert_eq!(rev_in, rev_out);
         }
 

@@ -411,7 +411,7 @@ where
     {
         self.root
             .get(hash_key(&*self.hasher, key), 0, key)
-            .map(|&(_, ref v)| v)
+            .map(|(_, v)| v)
     }
 
     /// Get the key/value pair for a key from a hash map.
@@ -437,7 +437,7 @@ where
     {
         self.root
             .get(hash_key(&*self.hasher, key), 0, key)
-            .map(|&(ref k, ref v)| (k, v))
+            .map(|(k, v)| (k, v))
     }
 
     /// Test for the presence of a key in a hash map.
@@ -830,7 +830,7 @@ where
         F: FnOnce(Option<V>) -> Option<V>,
     {
         let pop = self.extract_with_key(&k);
-        match (f(pop.as_ref().map(|&(_, ref v, _)| v.clone())), pop) {
+        match (f(pop.as_ref().map(|(_, v, _)| v.clone())), pop) {
             (None, None) => self.clone(),
             (Some(v), None) => self.update(k, v),
             (None, Some((_, _, m))) => m,
@@ -1712,7 +1712,7 @@ where
     fn index(&self, key: &BK) -> &Self::Output {
         match self.root.get(hash_key(&*self.hasher, key), 0, key) {
             None => panic!("HashMap::index: invalid key"),
-            Some(&(_, ref value)) => value,
+            Some((_, value)) => value,
         }
     }
 }
@@ -2147,7 +2147,7 @@ mod test {
         let pairs = [(1469, 0), (-67, 0)];
         let mut m: collections::HashMap<i16, i16, _> =
             collections::HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
-        for &(ref k, ref v) in &pairs {
+        for (k, v) in &pairs {
             m.insert(*k, *v);
         }
         let mut map: HashMap<i16, i16, _> =
@@ -2283,7 +2283,7 @@ mod test {
         fn without(ref pairs in collection::vec((i16::ANY, i16::ANY), 0..100)) {
             let mut m: collections::HashMap<i16, i16, _> =
                 collections::HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
-            for &(ref k, ref v) in pairs {
+            for (k, v) in pairs {
                 m.insert(*k, *v);
             }
             let mut map: HashMap<i16, i16, _> = HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
@@ -2316,7 +2316,7 @@ mod test {
         fn remove(ref pairs in collection::vec((i16::ANY, i16::ANY), 0..100)) {
             let mut m: collections::HashMap<i16, i16, _> =
                 collections::HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
-            for &(ref k, ref v) in pairs {
+            for (k, v) in pairs {
                 m.insert(*k, *v);
             }
             let mut map: HashMap<i16, i16, _> = HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());

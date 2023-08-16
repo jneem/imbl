@@ -402,12 +402,9 @@ impl<A: HashValue> CollisionNode<A> {
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
     {
-        for entry in &self.data {
-            if key == entry.extract_key().borrow() {
-                return Some(entry);
-            }
-        }
-        None
+        self.data
+            .iter()
+            .find(|&entry| key == entry.extract_key().borrow())
     }
 
     fn get_mut<BK>(&mut self, key: &BK) -> Option<&mut A>
@@ -415,12 +412,9 @@ impl<A: HashValue> CollisionNode<A> {
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
     {
-        for entry in &mut self.data {
-            if key == entry.extract_key().borrow() {
-                return Some(entry);
-            }
-        }
-        None
+        self.data
+            .iter_mut()
+            .find(|entry| key == entry.extract_key().borrow())
     }
 
     fn insert(&mut self, value: A) -> Option<A> {

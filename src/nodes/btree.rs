@@ -317,7 +317,7 @@ impl<A: BTreeValue> Node<A> {
         }
     }
 
-    pub(crate) fn lookup_prev<'a, BK>(&'a self, key: &BK) -> Option<&A>
+    pub(crate) fn lookup_prev<BK>(&self, key: &BK) -> Option<&A>
     where
         BK: Ord + ?Sized,
         A::Key: Borrow<BK>,
@@ -337,7 +337,7 @@ impl<A: BTreeValue> Node<A> {
         }
     }
 
-    pub(crate) fn lookup_next<'a, BK>(&'a self, key: &BK) -> Option<&A>
+    pub(crate) fn lookup_next<BK>(&self, key: &BK) -> Option<&A>
     where
         BK: Ord + ?Sized,
         A::Key: Borrow<BK>,
@@ -356,11 +356,7 @@ impl<A: BTreeValue> Node<A> {
         }
     }
 
-    pub(crate) fn lookup_prev_mut<'a, BK>(
-        &'a mut self,
-        pool: &Pool<Node<A>>,
-        key: &BK,
-    ) -> Option<&mut A>
+    pub(crate) fn lookup_prev_mut<BK>(&mut self, pool: &Pool<Node<A>>, key: &BK) -> Option<&mut A>
     where
         A: Clone,
         BK: Ord + ?Sized,
@@ -379,11 +375,7 @@ impl<A: BTreeValue> Node<A> {
         }
     }
 
-    pub(crate) fn lookup_next_mut<'a, BK>(
-        &'a mut self,
-        pool: &Pool<Node<A>>,
-        key: &BK,
-    ) -> Option<&mut A>
+    pub(crate) fn lookup_next_mut<BK>(&mut self, pool: &Pool<Node<A>>, key: &BK) -> Option<&mut A>
     where
         A: Clone,
         BK: Ord + ?Sized,
@@ -761,7 +753,7 @@ impl<A: BTreeValue> Node<A> {
                     (&None, &None) => RemoveAction::DeleteAt(index),
                     // First consider pulling either predecessor (from left) or successor (from right).
                     // otherwise just merge the two small children.
-                    (&Some(ref left), &Some(ref right)) => {
+                    (Some(left), Some(right)) => {
                         if !left.too_small() {
                             RemoveAction::PullUp(Boundary::Highest, index, index)
                         } else if !right.too_small() {
@@ -792,11 +784,11 @@ impl<A: BTreeValue> Node<A> {
                     }; // index is usize and can't be negative, best make sure it never is.
                     match (left, self.children.get(index + 1)) {
                         // If it has a left sibling with capacity, steal a key from it.
-                        (Some(&Some(ref old_left)), _) if !old_left.too_small() => {
+                        (Some(Some(old_left)), _) if !old_left.too_small() => {
                             RemoveAction::StealFromLeft(index)
                         }
                         // If it has a right sibling with capacity, same as above.
-                        (_, Some(&Some(ref old_right))) if !old_right.too_small() => {
+                        (_, Some(Some(old_right))) if !old_right.too_small() => {
                             RemoveAction::StealFromRight(index)
                         }
                         // If it has neither, we'll have to merge it with a sibling.
@@ -844,7 +836,7 @@ impl<A: BTreeValue> Node<A> {
             }
             RemoveAction::Merge(index) => {
                 let left = self.children.remove(index).unwrap();
-                let right = mem::replace(&mut self.children[index], None).unwrap();
+                let right = self.children[index].take().unwrap();
                 let value = self.keys.remove(index);
                 let mut merged_child = Node::merge(
                     value,
@@ -955,7 +947,7 @@ impl<A: BTreeValue> Node<A> {
                     }
                 }
                 let left = self.children.remove(index).unwrap();
-                let right = mem::replace(&mut self.children[index], None).unwrap();
+                let right = self.children[index].take().unwrap();
                 let middle = self.keys.remove(index);
                 let mut merged = Node::merge(
                     middle,

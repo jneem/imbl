@@ -138,7 +138,7 @@ impl<A: Ord + Clone + Serialize> Serialize for OrdSet<A> {
     {
         let mut s = ser.serialize_seq(Some(self.len()))?;
         for i in self.iter() {
-            s.serialize_element(i.deref())?;
+            s.serialize_element(i)?;
         }
         s.end()
     }
@@ -164,7 +164,7 @@ impl<K: Serialize + Ord + Clone, V: Serialize + Clone> Serialize for OrdMap<K, V
     {
         let mut s = ser.serialize_map(Some(self.len()))?;
         for (k, v) in self.iter() {
-            s.serialize_entry(k.deref(), v.deref())?;
+            s.serialize_entry(k, v)?;
         }
         s.end()
     }
@@ -198,7 +198,7 @@ where
     {
         let mut s = ser.serialize_map(Some(self.len()))?;
         for (k, v) in self.iter() {
-            s.serialize_entry(k.deref(), v.deref())?;
+            s.serialize_entry(k, v)?;
         }
         s.end()
     }
@@ -224,7 +224,7 @@ impl<A: Serialize + Hash + Eq + Clone, S: BuildHasher + Default> Serialize for H
     {
         let mut s = ser.serialize_seq(Some(self.len()))?;
         for i in self.iter() {
-            s.serialize_element(i.deref())?;
+            s.serialize_element(i)?;
         }
         s.end()
     }
@@ -248,7 +248,7 @@ impl<A: Clone + Serialize> Serialize for Vector<A> {
     {
         let mut s = ser.serialize_seq(Some(self.len()))?;
         for i in self.iter() {
-            s.serialize_element(i.deref())?;
+            s.serialize_element(i)?;
         }
         s.end()
     }
