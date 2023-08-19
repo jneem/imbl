@@ -3,3 +3,5 @@ dist/
 **/*.rs.bk
 Cargo.lock
 /im-rc
+flake.nix
+flake.lock
