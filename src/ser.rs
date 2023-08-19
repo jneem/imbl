@@ -7,7 +7,6 @@ use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use std::fmt;
 use std::hash::{BuildHasher, Hash};
 use std::marker::PhantomData;
-use std::ops::Deref;
 
 use crate::hashmap::HashMap;
 use crate::hashset::HashSet;
