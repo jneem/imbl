@@ -1358,13 +1358,14 @@ impl<A: Clone> Vector<A> {
     /// Truncate a vector to the given size.
     ///
     /// Discards all elements in the vector beyond the given length.
-    ///
-    /// Panics if the new length is greater than the current length.
+    /// Does nothing if `len` is greater or equal to the length of the vector.
     ///
     /// Time: O(log n)
     pub fn truncate(&mut self, len: usize) {
-        // FIXME can be made more efficient by dropping the unwanted side without constructing it
-        let _ = self.split_off(len);
+        if len < self.len() {
+            // FIXME can be made more efficient by dropping the unwanted side without constructing it
+            let _ = self.split_off(len);
+        }
     }
 
     /// Extract a slice from a vector.
