@@ -3,5 +3,13 @@ dist/
 **/*.rs.bk
 Cargo.lock
 /im-rc
-flake.nix
-flake.lock
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml

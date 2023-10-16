@@ -852,7 +852,7 @@ impl<A: Ord + Eq> Eq for OrdSet<A> {}
 
 impl<A: Ord> PartialOrd for OrdSet<A> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.iter().partial_cmp(other.iter())
+        Some(self.cmp(other))
     }
 }
 
