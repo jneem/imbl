@@ -392,6 +392,47 @@ where
         self.root.lookup(a).is_some()
     }
 
+    /// Returns a reference to the element in the set, if any, that is equal to the value.
+    /// The value may be any borrowed form of the set’s element type, but the ordering on
+    /// the borrowed form must match the ordering on the element type.
+    ///
+    /// This is useful when the elements in the set are unique by for example an id,
+    /// and you want to get the element out of the set by using the id.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[macro_use] extern crate imbl;
+    /// # use std::borrow::Borrow;
+    /// # use std::cmp::Ordering;
+    /// # use imbl::ordset::OrdSet;
+    /// # #[derive(Clone)]
+    /// // Implements Eq and ord by delegating to id
+    /// struct FancyItem {
+    ///     id: u32,
+    ///     data: String,
+    /// }
+    /// # impl Eq for FancyItem {}
+    /// # impl PartialEq<Self> for FancyItem {fn eq(&self, other: &Self) -> bool { self.id.eq(&other.id)}}
+    /// # impl PartialOrd<Self> for FancyItem {fn partial_cmp(&self, other: &Self) -> Option<Ordering> {self.id.partial_cmp(&other.id)}}
+    /// # impl Ord for FancyItem {fn cmp(&self, other: &Self) -> Ordering {self.id.cmp(&other.id)}}
+    /// # impl Borrow<u32> for FancyItem {fn borrow(&self) -> &u32 {&self.id}}
+    /// let mut set = ordset!{
+    ///     FancyItem {id: 0, data: String::from("Hello")},
+    ///     FancyItem {id: 1, data: String::from("Test")}
+    /// };
+    /// assert_eq!(set.get(&1).unwrap().data, "Test");
+    /// assert_eq!(set.get(&0).unwrap().data, "Hello");
+    ///
+    /// ```
+    pub fn get<BK>(&self, k: &BK) -> Option<&A>
+    where
+        BK: Ord + ?Sized,
+        A: Borrow<BK>,
+    {
+        self.root.lookup(k).map(|v| &v.0)
+    }
+
     /// Get the closest smaller value in a set to a given value.
     ///
     /// If the set contains the given value, this is returned.

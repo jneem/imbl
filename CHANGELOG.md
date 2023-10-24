@@ -10,6 +10,8 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 ### Changed
 - `Vector::truncate` no longer panics if the `len` argument is larger than the
   vector's length (instead it does nothing)
+- Added `OrdSet::get` to align with `std::collections::BTreeSet` and make it possible
+  to get values in the set by using a borrowed form of the element.
 
 ## [2.0.2] - 2023-08-19
 
