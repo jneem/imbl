@@ -14,21 +14,13 @@ use crate::ordmap::OrdMap;
 use crate::ordset::OrdSet;
 use crate::vector::Vector;
 
-struct SeqVisitor<'de, S, A>
-where
-    S: From<Vec<A>>,
-    A: Deserialize<'de>,
-{
+struct SeqVisitor<'de, S, A> {
     phantom_s: PhantomData<S>,
     phantom_a: PhantomData<A>,
     phantom_lifetime: PhantomData<&'de ()>,
 }
 
-impl<'de, S, A> SeqVisitor<'de, S, A>
-where
-    S: From<Vec<A>>,
-    A: Deserialize<'de>,
-{
+impl<'de, S, A> SeqVisitor<'de, S, A> {
     pub(crate) fn new() -> SeqVisitor<'de, S, A> {
         SeqVisitor {
             phantom_s: PhantomData,
@@ -64,24 +56,14 @@ where
     }
 }
 
-struct MapVisitor<'de, S, K, V>
-where
-    S: From<Vec<(K, V)>>,
-    K: Deserialize<'de>,
-    V: Deserialize<'de>,
-{
+struct MapVisitor<'de, S, K, V> {
     phantom_s: PhantomData<S>,
     phantom_k: PhantomData<K>,
     phantom_v: PhantomData<V>,
     phantom_lifetime: PhantomData<&'de ()>,
 }
 
-impl<'de, S, K, V> MapVisitor<'de, S, K, V>
-where
-    S: From<Vec<(K, V)>>,
-    K: Deserialize<'de>,
-    V: Deserialize<'de>,
-{
+impl<'de, S, K, V> MapVisitor<'de, S, K, V> {
     pub(crate) fn new() -> MapVisitor<'de, S, K, V> {
         MapVisitor {
             phantom_s: PhantomData,
