@@ -112,7 +112,7 @@ impl<'de, A: Deserialize<'de> + Ord + Clone> Deserialize<'de> for OrdSet<A> {
     }
 }
 
-impl<A: Ord + Clone + Serialize> Serialize for OrdSet<A> {
+impl<A: Ord + Serialize> Serialize for OrdSet<A> {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -138,7 +138,7 @@ impl<'de, K: Deserialize<'de> + Ord + Clone, V: Deserialize<'de> + Clone> Deseri
     }
 }
 
-impl<K: Serialize + Ord + Clone, V: Serialize + Clone> Serialize for OrdMap<K, V> {
+impl<K: Serialize + Ord, V: Serialize> Serialize for OrdMap<K, V> {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -169,8 +169,8 @@ where
 
 impl<K, V, S> Serialize for HashMap<K, V, S>
 where
-    K: Serialize + Hash + Eq + Clone,
-    V: Serialize + Clone,
+    K: Serialize + Hash + Eq,
+    V: Serialize,
     S: BuildHasher + Default,
 {
     fn serialize<Ser>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error>
@@ -198,7 +198,7 @@ impl<'de, A: Deserialize<'de> + Hash + Eq + Clone, S: BuildHasher + Default> Des
     }
 }
 
-impl<A: Serialize + Hash + Eq + Clone, S: BuildHasher + Default> Serialize for HashSet<A, S> {
+impl<A: Serialize + Hash + Eq, S: BuildHasher + Default> Serialize for HashSet<A, S> {
     fn serialize<Ser>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error>
     where
         Ser: Serializer,
@@ -222,7 +222,7 @@ impl<'de, A: Clone + Deserialize<'de>> Deserialize<'de> for Vector<A> {
     }
 }
 
-impl<A: Clone + Serialize> Serialize for Vector<A> {
+impl<A: Serialize> Serialize for Vector<A> {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
