@@ -13,10 +13,18 @@ pub(crate) use refpool::{PoolClone, PoolDefault};
 // The `Ref` type is an alias for either `Rc` or `Arc`, user's choice.
 // FIXME: we have temporarily disabled `Rc`, so this is always `Arc`.
 // `Arc` without refpool
-pub(crate) use crate::fakepool::{Arc as PoolRef, Pool, PoolClone, PoolDefault};
+pub(crate) use crate::fakepool::{Pool, PoolClone, PoolDefault};
 
+#[cfg(feature = "triomphe")]
+pub(crate) type Ref<A> = ::triomphe::Arc<A>;
 // `Ref` == `Arc` when threadsafe
+#[cfg(not(feature = "triomphe"))]
 pub(crate) type Ref<A> = std::sync::Arc<A>;
+
+#[cfg(feature = "triomphe")]
+pub(crate) use crate::fakepool::triomphe::Arc as PoolRef;
+#[cfg(not(feature = "triomphe"))]
+pub(crate) use crate::fakepool::Arc as PoolRef;
 
 pub(crate) fn clone_ref<A>(r: Ref<A>) -> A
 where
