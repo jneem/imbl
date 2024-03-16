@@ -10,7 +10,7 @@ extern crate test;
 
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use std::iter::FromIterator;
-use test::Bencher;
+use test::{black_box, Bencher};
 
 use imbl::hashmap::HashMap;
 
@@ -18,7 +18,7 @@ fn random_keys(size: usize) -> Vec<i64> {
     let mut gen = SmallRng::from_entropy();
     let mut set = Vec::new();
     while set.len() < size {
-        let next = gen.gen::<i64>() % 10000;
+        let next = gen.gen::<i64>();
         if !set.contains(&next) {
             set.push(next);
         }
@@ -252,4 +252,34 @@ fn hashmap_lookup_once_1000(b: &mut Bencher) {
 #[bench]
 fn hashmap_lookup_once_10000(b: &mut Bencher) {
     hashmap_lookup_once_n(10000, b)
+}
+
+fn hashmap_iter_n(size: usize, b: &mut Bencher) {
+    let keys = random_keys(size);
+    let map: HashMap<i64, i64> = HashMap::from_iter(keys.into_iter().map(|i| (i, i)));
+    b.iter(|| {
+        for i in map.iter() {
+            black_box(i);
+        }
+    })
+}
+
+#[bench]
+fn hashmap_iter_10(b: &mut Bencher) {
+    hashmap_iter_n(10, b)
+}
+
+#[bench]
+fn hashmap_iter_100(b: &mut Bencher) {
+    hashmap_iter_n(100, b)
+}
+
+#[bench]
+fn hashmap_iter_1000(b: &mut Bencher) {
+    hashmap_iter_n(1000, b)
+}
+
+#[bench]
+fn hashmap_iter_10000(b: &mut Bencher) {
+    hashmap_iter_n(10000, b)
 }
