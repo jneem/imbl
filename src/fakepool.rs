@@ -206,3 +206,92 @@ where
         self.0.fmt(f)
     }
 }
+
+// Triomphe Arc
+#[cfg(feature = "triomphe")]
+pub(crate) mod triomphe {
+    use super::*;
+
+    #[derive(Default)]
+    pub(crate) struct Arc<A>(::triomphe::Arc<A>);
+
+    impl<A> Arc<A> {
+        #[inline(always)]
+        pub(crate) fn default(_pool: &Pool<A>) -> Self
+        where
+            A: PoolDefault,
+        {
+            Self(Default::default())
+        }
+
+        #[inline(always)]
+        pub(crate) fn new(_pool: &Pool<A>, value: A) -> Self {
+            Self(::triomphe::Arc::new(value))
+        }
+
+        #[inline(always)]
+        pub(crate) fn clone_from(_pool: &Pool<A>, value: &A) -> Self
+        where
+            A: PoolClone,
+        {
+            Self(::triomphe::Arc::new(value.clone()))
+        }
+
+        #[inline(always)]
+        pub(crate) fn make_mut<'a>(_pool: &Pool<A>, this: &'a mut Self) -> &'a mut A
+        where
+            A: PoolClone,
+        {
+            ::triomphe::Arc::make_mut(&mut this.0)
+        }
+
+        #[inline(always)]
+        pub(crate) fn ptr_eq(left: &Self, right: &Self) -> bool {
+            ::triomphe::Arc::ptr_eq(&left.0, &right.0)
+        }
+
+        pub(crate) fn unwrap_or_clone(this: Self) -> A
+        where
+            A: PoolClone,
+        {
+            ::triomphe::Arc::try_unwrap(this.0).unwrap_or_else(|r| (*r).clone())
+        }
+    }
+
+    impl<A> Clone for Arc<A> {
+        #[inline(always)]
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+
+    impl<A> Deref for Arc<A> {
+        type Target = A;
+        #[inline(always)]
+        fn deref(&self) -> &Self::Target {
+            self.0.deref()
+        }
+    }
+
+    impl<A> PartialEq for Arc<A>
+    where
+        A: PartialEq,
+    {
+        #[inline(always)]
+        fn eq(&self, other: &Self) -> bool {
+            **self == **other
+        }
+    }
+
+    impl<A> Eq for Arc<A> where A: Eq {}
+
+    impl<A> std::fmt::Debug for Arc<A>
+    where
+        A: std::fmt::Debug,
+    {
+        #[inline(always)]
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+            self.0.fmt(f)
+        }
+    }
+}
