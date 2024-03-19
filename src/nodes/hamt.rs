@@ -455,7 +455,6 @@ impl<A: HashValue> CollisionNode<A> {
 pub(crate) struct Iter<'a, A> {
     count: usize,
     stack: Vec<ChunkIter<'a, Entry<A>, HASH_WIDTH>>,
-    current: ChunkIter<'a, Entry<A>, HASH_WIDTH>,
     collision: Option<(HashBits, SliceIter<'a, A>)>,
 }
 
@@ -465,7 +464,6 @@ impl<'a, A> Clone for Iter<'a, A> {
         Self {
             count: self.count,
             stack: self.stack.clone(),
-            current: self.current.clone(),
             collision: self.collision.clone(),
         }
     }
@@ -476,12 +474,13 @@ where
     A: 'a,
 {
     pub(crate) fn new(root: &'a Node<A>, size: usize) -> Self {
-        Iter {
+        let mut result = Iter {
             count: size,
             stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
-            current: root.data.iter(),
             collision: None,
-        }
+        };
+        result.stack.push(root.data.iter());
+        result
     }
 }
 
@@ -492,43 +491,36 @@ where
     type Item = (&'a A, HashBits);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.count == 0 {
-            return None;
-        }
-        if self.collision.is_some() {
+        'outer: loop {
             if let Some((hash, ref mut coll)) = self.collision {
                 match coll.next() {
-                    None => {}
+                    None => self.collision = None,
                     Some(value) => {
                         self.count -= 1;
                         return Some((value, hash));
                     }
+                };
+            }
+
+            while let Some(current) = self.stack.last_mut() {
+                match current.next() {
+                    Some(Entry::Value(value, hash)) => {
+                        self.count -= 1;
+                        return Some((value, *hash));
+                    }
+                    Some(Entry::Node(child)) => {
+                        self.stack.push(child.data.iter());
+                    }
+                    Some(Entry::Collision(coll)) => {
+                        self.collision = Some((coll.hash, coll.data.iter()));
+                        continue 'outer;
+                    }
+                    None => {
+                        self.stack.pop();
+                    }
                 }
             }
-            self.collision = None;
-            return self.next();
-        }
-        match self.current.next() {
-            Some(Entry::Value(value, hash)) => {
-                self.count -= 1;
-                Some((value, *hash))
-            }
-            Some(Entry::Node(child)) => {
-                let current = mem::replace(&mut self.current, child.data.iter());
-                self.stack.push(current);
-                self.next()
-            }
-            Some(Entry::Collision(coll)) => {
-                self.collision = Some((coll.hash, coll.data.iter()));
-                self.next()
-            }
-            None => match self.stack.pop() {
-                None => None,
-                Some(iter) => {
-                    self.current = iter;
-                    self.next()
-                }
-            },
+            return None;
         }
     }
 
@@ -547,7 +539,6 @@ pub(crate) struct IterMut<'a, A> {
     count: usize,
     pool: Pool<Node<A>>,
     stack: Vec<ChunkIterMut<'a, Entry<A>, HASH_WIDTH>>,
-    current: ChunkIterMut<'a, Entry<A>, HASH_WIDTH>,
     collision: Option<(HashBits, SliceIterMut<'a, A>)>,
 }
 
@@ -556,13 +547,14 @@ where
     A: 'a,
 {
     pub(crate) fn new(pool: &Pool<Node<A>>, root: &'a mut Node<A>, size: usize) -> Self {
-        IterMut {
+        let mut result = IterMut {
             count: size,
             pool: pool.clone(),
             stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
-            current: root.data.iter_mut(),
             collision: None,
-        }
+        };
+        result.stack.push(root.data.iter_mut());
+        result
     }
 }
 
@@ -573,45 +565,38 @@ where
     type Item = (&'a mut A, HashBits);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.count == 0 {
-            return None;
-        }
-        if self.collision.is_some() {
+        'outer: loop {
             if let Some((hash, ref mut coll)) = self.collision {
                 match coll.next() {
-                    None => {}
+                    None => self.collision = None,
                     Some(value) => {
                         self.count -= 1;
                         return Some((value, hash));
                     }
+                };
+            }
+
+            while let Some(current) = self.stack.last_mut() {
+                match current.next() {
+                    Some(Entry::Value(value, hash)) => {
+                        self.count -= 1;
+                        return Some((value, *hash));
+                    }
+                    Some(Entry::Node(child_ref)) => {
+                        let child = PoolRef::make_mut(&self.pool, child_ref);
+                        self.stack.push(child.data.iter_mut());
+                    }
+                    Some(Entry::Collision(coll_ref)) => {
+                        let coll = Ref::make_mut(coll_ref);
+                        self.collision = Some((coll.hash, coll.data.iter_mut()));
+                        continue 'outer;
+                    }
+                    None => {
+                        self.stack.pop();
+                    }
                 }
             }
-            self.collision = None;
-            return self.next();
-        }
-        match self.current.next() {
-            Some(Entry::Value(value, hash)) => {
-                self.count -= 1;
-                Some((value, *hash))
-            }
-            Some(Entry::Node(child_ref)) => {
-                let child = PoolRef::make_mut(&self.pool, child_ref);
-                let current = mem::replace(&mut self.current, child.data.iter_mut());
-                self.stack.push(current);
-                self.next()
-            }
-            Some(Entry::Collision(coll_ref)) => {
-                let coll = Ref::make_mut(coll_ref);
-                self.collision = Some((coll.hash, coll.data.iter_mut()));
-                self.next()
-            }
-            None => match self.stack.pop() {
-                None => None,
-                Some(iter) => {
-                    self.current = iter;
-                    self.next()
-                }
-            },
+            return None;
         }
     }
 
@@ -630,19 +615,19 @@ pub(crate) struct Drain<A> {
     count: usize,
     pool: Pool<Node<A>>,
     stack: Vec<PoolRef<Node<A>>>,
-    current: PoolRef<Node<A>>,
     collision: Option<CollisionNode<A>>,
 }
 
 impl<A> Drain<A> {
     pub(crate) fn new(pool: &Pool<Node<A>>, root: PoolRef<Node<A>>, size: usize) -> Self {
-        Drain {
+        let mut result = Drain {
             count: size,
             pool: pool.clone(),
-            stack: vec![],
-            current: root,
+            stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
             collision: None,
-        }
+        };
+        result.stack.push(root);
+        result
     }
 }
 
@@ -653,40 +638,36 @@ where
     type Item = (A, HashBits);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.count == 0 {
+        'outer: loop {
+            if let Some(coll) = &mut self.collision {
+                match coll.data.pop() {
+                    None => self.collision = None,
+                    Some(value) => {
+                        self.count -= 1;
+                        return Some((value, coll.hash));
+                    }
+                };
+            }
+
+            while let Some(current) = self.stack.last_mut() {
+                match PoolRef::make_mut(&self.pool, current).data.pop() {
+                    Some(Entry::Value(value, hash)) => {
+                        self.count -= 1;
+                        return Some((value, hash));
+                    }
+                    Some(Entry::Node(child)) => {
+                        self.stack.push(child);
+                    }
+                    Some(Entry::Collision(coll)) => {
+                        self.collision = Some(clone_ref(coll));
+                        continue 'outer;
+                    }
+                    None => {
+                        self.stack.pop();
+                    }
+                }
+            }
             return None;
-        }
-        if self.collision.is_some() {
-            if let Some(ref mut coll) = self.collision {
-                if let Some(value) = coll.data.pop() {
-                    self.count -= 1;
-                    return Some((value, coll.hash));
-                }
-            }
-            self.collision = None;
-            return self.next();
-        }
-        match PoolRef::make_mut(&self.pool, &mut self.current).data.pop() {
-            Some(Entry::Value(value, hash)) => {
-                self.count -= 1;
-                Some((value, hash))
-            }
-            Some(Entry::Collision(coll_ref)) => {
-                self.collision = Some(clone_ref(coll_ref));
-                self.next()
-            }
-            Some(Entry::Node(child)) => {
-                let parent = mem::replace(&mut self.current, child);
-                self.stack.push(parent);
-                self.next()
-            }
-            None => match self.stack.pop() {
-                None => None,
-                Some(parent) => {
-                    self.current = parent;
-                    self.next()
-                }
-            },
         }
     }
 
