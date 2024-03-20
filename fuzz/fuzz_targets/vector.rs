@@ -30,7 +30,7 @@ fn cap_index(len: usize, index: usize) -> usize {
     }
 }
 
-fuzz_target!(|actions: Vec<Action<u64>>| {
+fuzz_target!(|actions: Vec<Action<u32>>| {
     let mut vec = Vector::new();
     let mut nat = Vec::new();
     vec.assert_invariants();
@@ -121,8 +121,11 @@ fuzz_target!(|actions: Vec<Action<u64>>| {
                 nat = nat_right;
             }
         }
-        vec.assert_invariants();
         assert_eq!(nat.len(), vec.len());
-        assert_eq!(Vector::from_iter(nat.iter().cloned()), vec);
     }
+    vec.assert_invariants();
+    assert_eq!(Vector::from_iter(nat.iter().cloned()), vec);
+    assert_eq!(Vec::from_iter(vec.iter().cloned()), nat);
+    assert_eq!(Vec::from_iter(vec.clone().into_iter()), nat);
+    assert_eq!(Vec::from_iter(vec.iter().rev()), Vec::from_iter(nat.iter().rev()));
 });
