@@ -26,8 +26,7 @@ use std::collections::hash_map::RandomState;
 use std::collections::{self, BTreeSet};
 use std::fmt::{Debug, Error, Formatter};
 use std::hash::{BuildHasher, Hash};
-use std::iter::FusedIterator;
-use std::iter::{FromIterator, IntoIterator, Sum};
+use std::iter::{FromIterator, FusedIterator, Sum};
 use std::ops::{Add, Deref, Mul};
 
 use crate::nodes::hamt::{hash_key, Drain as NodeDrain, HashValue, Iter as NodeIter, Node};
