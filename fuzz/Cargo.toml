@@ -3,14 +3,18 @@ name = "im-fuzz"
 version = "0.0.0"
 authors = ["Automatically generated"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [package.metadata]
 cargo-fuzz = true
 
+[features]
+default = ["small-chunks"]
+small-chunks = ["imbl/small-chunks"]
+
 [dependencies]
-libfuzzer-sys = "0.2"
-arbitrary = { version = "0.3", features = ["derive"] }
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
 
 [dependencies.imbl]
 path = ".."

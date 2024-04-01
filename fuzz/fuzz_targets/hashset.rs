@@ -2,6 +2,7 @@
 
 use std::collections::HashSet as NatSet;
 use std::fmt::Debug;
+use std::iter::FromIterator;
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
@@ -14,10 +15,7 @@ enum Action<A> {
     Remove(A),
 }
 
-#[derive(Arbitrary)]
-struct Actions<A>(Vec<Action<A>>);
-
-fuzz_target!(|actions: Vec<Action<u64>>| {
+fuzz_target!(|actions: Vec<Action<u32>>| {
     let mut set = HashSet::new();
     let mut nat = NatSet::new();
     for action in actions {
@@ -36,6 +34,9 @@ fuzz_target!(|actions: Vec<Action<u64>>| {
             }
         }
         assert_eq!(nat.len(), set.len());
-        assert_eq!(HashSet::from(nat.clone()), set);
     }
+    assert_eq!(HashSet::from(nat.clone()), set);
+    assert_eq!(NatSet::from_iter(set.iter().cloned()), nat);
+    assert_eq!(set.iter().count(), nat.len());
+    assert_eq!(set.into_iter().count(), nat.len());
 });
