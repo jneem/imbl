@@ -4,7 +4,9 @@
 
 #![allow(dead_code)]
 
+use std::cell::UnsafeCell;
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::ops::Deref;
 use std::rc::Rc as RRc;
 use std::sync::Arc as RArc;
@@ -54,6 +56,11 @@ impl<A> Rc<A> {
     #[inline(always)]
     pub(crate) fn new(_pool: &Pool<A>, value: A) -> Self {
         Rc(RRc::new(value))
+    }
+
+    #[inline(always)]
+    pub(crate) fn new_uninit(_pool: &Pool<A>) -> Rc<UnsafeCell<MaybeUninit<A>>> {
+        Rc(RRc::new(UnsafeCell::new(MaybeUninit::uninit())))
     }
 
     #[inline(always)]
@@ -142,6 +149,11 @@ impl<A> Arc<A> {
     }
 
     #[inline(always)]
+    pub(crate) fn new_uninit(_pool: &Pool<A>) -> Arc<UnsafeCell<MaybeUninit<A>>> {
+        Arc(RArc::new(UnsafeCell::new(MaybeUninit::uninit())))
+    }
+
+    #[inline(always)]
     pub(crate) fn clone_from(_pool: &Pool<A>, value: &A) -> Self
     where
         A: PoolClone,
@@ -210,6 +222,8 @@ where
 // Triomphe Arc
 #[cfg(feature = "triomphe")]
 pub(crate) mod triomphe {
+    use std::cell::UnsafeCell;
+
     use super::*;
 
     #[derive(Default)]
@@ -227,6 +241,11 @@ pub(crate) mod triomphe {
         #[inline(always)]
         pub(crate) fn new(_pool: &Pool<A>, value: A) -> Self {
             Self(::triomphe::Arc::new(value))
+        }
+
+        #[inline(always)]
+        pub(crate) fn new_uninit(_pool: &Pool<A>) -> Arc<UnsafeCell<MaybeUninit<A>>> {
+            Arc(::triomphe::Arc::new(UnsafeCell::new(MaybeUninit::uninit())))
         }
 
         #[inline(always)]

@@ -20,7 +20,7 @@ use std::cmp::Ordering;
 use std::collections;
 use std::fmt::{Debug, Error, Formatter};
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::iter::{FromIterator, IntoIterator, Sum};
+use std::iter::{FromIterator, Sum};
 use std::ops::{Add, Deref, Mul, RangeBounds};
 
 use crate::hashset::HashSet;

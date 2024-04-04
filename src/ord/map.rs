@@ -22,7 +22,7 @@ use std::cmp::Ordering;
 use std::collections;
 use std::fmt::{Debug, Error, Formatter};
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::iter::{FromIterator, Iterator, Sum};
+use std::iter::{FromIterator, Sum};
 use std::mem;
 use std::ops::{Add, Index, IndexMut, RangeBounds};
 

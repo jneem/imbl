@@ -3,6 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use std::borrow::Borrow;
+use std::cell::UnsafeCell;
 use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::iter::FusedIterator;
@@ -104,10 +105,6 @@ impl<A> Entry<A> {
             _ => panic!("nodes::hamt::Entry::unwrap_value: unwrapped a non-value"),
         }
     }
-
-    fn from_node(pool: &Pool<Node<A>>, node: Node<A>) -> Self {
-        Entry::Node(PoolRef::new(pool, node))
-    }
 }
 
 impl<A> From<CollisionNode<A>> for Entry<A> {
@@ -123,10 +120,28 @@ impl<A> Default for Node<A> {
 }
 
 impl<A> Node<A> {
-    #[inline]
+    #[inline(always)]
     pub(crate) fn new() -> Self {
         Node {
             data: SparseChunk::new(),
+        }
+    }
+
+    /// Special constructor to allow initializing Nodes w/o incurring multiple memory copies.
+    /// These copies really slow things down once Node crosses a certain size threshold and copies become calls to memcopy.
+    #[inline]
+    fn with(pool: &Pool<Self>, with: impl FnOnce(&mut Self)) -> PoolRef<Self> {
+        let result: PoolRef<UnsafeCell<mem::MaybeUninit<Node<A>>>> = PoolRef::new_uninit(pool);
+        #[allow(unsafe_code)]
+        unsafe {
+            // Initialize the MaybeUninit node
+            (&mut *result.get()).write(Node::new());
+            // Safety: UnsafeCell<Self> and UnsafeCell<MaybeUninit<Self>> have the same memory representation
+            let result: PoolRef<UnsafeCell<Self>> = mem::transmute(result);
+            let mut_ptr = UnsafeCell::raw_get(&*result);
+            with(&mut *mut_ptr);
+            // Safety UnsafeCell<Self> and Self have the same memory representation
+            mem::transmute(result)
         }
     }
 
@@ -136,24 +151,33 @@ impl<A> Node<A> {
     }
 
     #[inline]
-    pub(crate) fn unit(index: usize, value: Entry<A>) -> Self {
-        Node {
-            data: SparseChunk::unit(index, value),
-        }
+    fn unit(pool: &Pool<Node<A>>, index: usize, value: Entry<A>) -> PoolRef<Self> {
+        Self::with(pool, |this| {
+            this.data.insert(index, value);
+        })
     }
 
     #[inline]
-    pub(crate) fn pair(index1: usize, value1: Entry<A>, index2: usize, value2: Entry<A>) -> Self {
-        Node {
-            data: SparseChunk::pair(index1, value1, index2, value2),
-        }
+    fn pair(
+        pool: &Pool<Node<A>>,
+        index1: usize,
+        value1: Entry<A>,
+        index2: usize,
+        value2: Entry<A>,
+    ) -> PoolRef<Self> {
+        Self::with(pool, |this| {
+            this.data.insert(index1, value1);
+            this.data.insert(index2, value2);
+        })
     }
 
     #[inline]
-    pub(crate) fn single_child(pool: &Pool<Node<A>>, index: usize, node: Self) -> Self {
-        Node {
-            data: SparseChunk::unit(index, Entry::from_node(pool, node)),
-        }
+    pub(crate) fn single_child(
+        pool: &Pool<Node<A>>,
+        index: usize,
+        node: PoolRef<Self>,
+    ) -> PoolRef<Self> {
+        Self::unit(pool, index, Entry::Node(node))
     }
 
     fn pop(&mut self) -> Entry<A> {
@@ -169,12 +193,13 @@ impl<A: HashValue> Node<A> {
         value2: A,
         hash2: HashBits,
         shift: usize,
-    ) -> Self {
+    ) -> PoolRef<Self> {
         let index1 = mask(hash1, shift) as usize;
         let index2 = mask(hash2, shift) as usize;
         if index1 != index2 {
             // Both values fit on the same level.
             Node::pair(
+                pool,
                 index1,
                 Entry::Value(value1, hash1),
                 index2,
@@ -183,6 +208,7 @@ impl<A: HashValue> Node<A> {
         } else if shift + HASH_SHIFT >= HASH_WIDTH {
             // If we're at the bottom, we've got a collision.
             Node::unit(
+                pool,
                 index1,
                 Entry::from(CollisionNode::new(hash1, value1, value2)),
             )
@@ -307,7 +333,7 @@ impl<A: HashValue> Node<A> {
                         hash,
                         shift + HASH_SHIFT,
                     );
-                    unsafe { ptr::write(entry, Entry::from_node(pool, node)) };
+                    unsafe { ptr::write(entry, Entry::Node(node)) };
                 } else {
                     unreachable!()
                 }
