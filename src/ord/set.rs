@@ -449,8 +449,12 @@ where
     /// assert_eq!(Some(&5), set.get_prev(&6));
     /// ```
     #[must_use]
-    pub fn get_prev(&self, key: &A) -> Option<&A> {
-        self.root.lookup_prev(key).map(|v| &v.0)
+    pub fn get_prev<BK>(&self, k: &BK) -> Option<&A>
+    where
+        BK: Ord + ?Sized,
+        A: Borrow<BK>,
+    {
+        self.root.lookup_prev(k).map(|v| &v.0)
     }
 
     /// Get the closest larger value in a set to a given value.
@@ -469,8 +473,12 @@ where
     /// assert_eq!(Some(&5), set.get_next(&4));
     /// ```
     #[must_use]
-    pub fn get_next(&self, key: &A) -> Option<&A> {
-        self.root.lookup_next(key).map(|v| &v.0)
+    pub fn get_next<BK>(&self, k: &BK) -> Option<&A>
+    where
+        BK: Ord + ?Sized,
+        A: Borrow<BK>,
+    {
+        self.root.lookup_next(k).map(|v| &v.0)
     }
 
     /// Test whether a set is a subset of another set, meaning that
