@@ -1986,6 +1986,14 @@ impl<'a, A> IntoIterator for &'a Vector<A> {
     }
 }
 
+impl<'a, A: Clone> IntoIterator for &'a mut Vector<A> {
+    type Item = &'a mut A;
+    type IntoIter = IterMut<'a, A>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
 impl<A: Clone> IntoIterator for Vector<A> {
     type Item = A;
     type IntoIter = ConsumingIter<A>;
