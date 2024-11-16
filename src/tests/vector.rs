@@ -119,6 +119,7 @@ fn cap_index(len: usize, index: usize) -> usize {
 }
 
 proptest! {
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn comprehensive(actions: Actions<u8>) {
         let mut vec = Vector::new();
@@ -220,7 +221,7 @@ proptest! {
 
 #[test]
 fn test_inserts() {
-    const N: usize = 2000;
+    const N: usize = if cfg!(miri) { 100 } else { 2000 };
     let mut v = Vector::new();
     for i in 0..N {
         v.insert(v.len() / 2, i);
