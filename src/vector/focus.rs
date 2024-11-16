@@ -2,10 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use std::mem::{replace, swap};
+use std::mem::{replace, swap, MaybeUninit};
 use std::ops::{Range, RangeBounds};
 use std::ptr::null;
 use std::sync::atomic::{AtomicPtr, Ordering};
+use std::{mem, ptr};
 
 use crate::nodes::chunk::Chunk;
 use crate::sync::Lock;
@@ -15,6 +16,18 @@ use crate::vector::{
     VectorInner::{Full, Inline, Single},
     RRB,
 };
+
+fn check_indices<const N: usize>(len: usize, indices: &[usize; N]) -> Option<()> {
+    let mut seen = [None; N];
+    for idx in indices {
+        if *idx > len || seen.contains(&Some(*idx)) {
+            return None;
+        }
+        let empty = seen.iter_mut().find(|a| a.is_none()).unwrap();
+        *empty = Some(*idx);
+    }
+    Some(())
+}
 
 /// Focused indexing over a [`Vector`][Vector].
 ///
@@ -642,6 +655,22 @@ where
         }
     }
 
+    fn get_many_mut<const N: usize>(&mut self, indices: [usize; N]) -> Option<[&mut A; N]> {
+        check_indices(self.len(), &indices)?;
+        match self {
+            FocusMut::Single(_, chunk) => {
+                // FIXME: Stable polyfill for std `get_many_mut`
+                let chunk: *mut A = ptr::from_mut(*chunk).cast();
+                let mut arr = [const { MaybeUninit::uninit() }; N];
+                for idx in 0..N {
+                    arr[idx].write(unsafe { &mut *chunk.add(indices[idx]) });
+                }
+                unsafe { mem::transmute_copy(&arr) }
+            }
+            FocusMut::Full(pool, tree) => tree.get_many(pool, indices),
+        }
+    }
+
     /// Get a reference to the value at a given index.
     ///
     /// Panics if the index is out of bounds.
@@ -655,6 +684,11 @@ where
     #[allow(clippy::should_implement_trait)] // would if I could
     pub fn index_mut(&mut self, index: usize) -> &mut A {
         self.get_mut(index).expect("index out of bounds")
+    }
+
+    pub fn index_many_mut<const N: usize>(&mut self, indices: [usize; N]) -> [&mut A; N] {
+        self.get_many_mut(indices)
+            .expect("index out of bounds or overlapping")
     }
 
     /// Update the value at a given index.
@@ -701,9 +735,8 @@ where
         if a == b {
             panic!("vector::FocusMut::pair: indices cannot be equal!");
         }
-        let pa: *mut A = self.index_mut(a);
-        let pb: *mut A = self.index_mut(b);
-        unsafe { f(&mut *pa, &mut *pb) }
+        let [pa, pb] = self.index_many_mut([a, b]);
+        f(pa, pb)
     }
 
     /// Lookup three indices simultaneously and run a function over them.
@@ -730,10 +763,8 @@ where
         if a == b || b == c || a == c {
             panic!("vector::FocusMut::triplet: indices cannot be equal!");
         }
-        let pa: *mut A = self.index_mut(a);
-        let pb: *mut A = self.index_mut(b);
-        let pc: *mut A = self.index_mut(c);
-        unsafe { f(&mut *pa, &mut *pb, &mut *pc) }
+        let [pa, pb, pc] = self.index_many_mut([a, b, c]);
+        f(pa, pb, pc)
     }
 
     /// Get the chunk for the given index.
@@ -870,6 +901,10 @@ where
     fn get_focus(&mut self) -> &mut Chunk<A> {
         unsafe { &mut *self.target_ptr.load(Ordering::Relaxed) }
     }
+
+    fn get_focus_ptr(&mut self) -> *mut Chunk<A> {
+        self.target_ptr.load(Ordering::Relaxed)
+    }
 }
 
 impl<'a, A> TreeFocusMut<'a, A>
@@ -936,6 +971,26 @@ where
         Some(&mut self.get_focus()[target_phys_index])
     }
 
+    pub fn get_many<const N: usize>(
+        &mut self,
+        pool: &RRBPool<A>,
+        indices: [usize; N],
+    ) -> Option<[&mut A; N]> {
+        check_indices(self.len(), &indices)?;
+        let mut arr = [const { MaybeUninit::uninit() }; N];
+        for idx in 0..N {
+            let phys_idx = self.physical_index(indices[idx]);
+            if !contains(&self.target_range, &phys_idx) {
+                self.set_focus(pool, phys_idx);
+            }
+            let target_idx = phys_idx - self.target_range.start;
+            let chunk = self.get_focus_ptr();
+            let ptr = unsafe { Chunk::as_mut_slice_ptr(chunk) };
+            arr[idx].write(unsafe { &mut *ptr.cast::<A>().add(target_idx) });
+        }
+        unsafe { mem::transmute_copy(&arr) }
+    }
+
     /// Gets the chunk for an index as a slice and its corresponding range within the TreeFocusMut.
     pub fn get_chunk(&mut self, pool: &RRBPool<A>, index: usize) -> (Range<usize>, &mut [A]) {
         let phys_index = self.physical_index(index);
@@ -953,7 +1008,7 @@ where
         let phys_range = (self.target_range.start + left)..(self.target_range.end - right);
         let log_range = self.logical_range(&phys_range);
         let slice_len = self.get_focus().len();
-        let slice = &mut (self.get_focus().as_mut_slice())[left..(slice_len - right)];
+        let slice = &mut self.get_focus().as_mut_slice()[left..(slice_len - right)];
         (log_range, slice)
     }
 }
