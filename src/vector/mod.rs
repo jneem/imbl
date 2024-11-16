@@ -2412,6 +2412,7 @@ mod test {
         assert_eq!(0, vec[0]);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn large_vector_focus() {
         let input = Vector::from_iter(0..100_000);
@@ -2425,6 +2426,7 @@ mod test {
         assert_eq!(expected, sum);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn large_vector_focus_mut() {
         let input = Vector::from_iter(0..100_000);
@@ -2440,6 +2442,7 @@ mod test {
         assert_eq!(expected, vec);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn issue_55_fwd() {
         let mut l = Vector::new();
@@ -2451,6 +2454,7 @@ mod test {
         assert_eq!(Some(&4096), l.get(4096));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn issue_55_back() {
         let mut l = Vector::unit(0);
@@ -2515,6 +2519,7 @@ mod test {
         for _ in x.iter() {}
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn issue_67() {
         let mut l = Vector::unit(4100);
@@ -2595,6 +2600,7 @@ mod test {
         x.insert(514, 0);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn issue_105() {
         let mut v = Vector::new();
@@ -2608,6 +2614,7 @@ mod test {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn issue_107_split_off_causes_overflow() {
         let mut vec = Vector::from_iter(0..4289);
@@ -2622,6 +2629,7 @@ mod test {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn collect_crash() {
         let _vector: Vector<i32> = (0..5953).collect();
@@ -2652,7 +2660,8 @@ mod test {
 
     #[test]
     fn ptr_eq() {
-        for len in 32..256 {
+        const MAX: usize = if cfg!(miri) { 64 } else { 256 };
+        for len in 32..MAX {
             let input = std::iter::repeat(42).take(len).collect::<Vector<_>>();
             let mut inp2 = input.clone();
             assert!(input.ptr_eq(&inp2));
@@ -2662,7 +2671,18 @@ mod test {
         }
     }
 
+    #[test]
+    fn full_retain() {
+        let mut a = Vector::from_iter(0..128);
+        let b = Vector::from_iter(128..256);
+        a.append(b);
+        assert!(matches!(a.vector, Full(_, _)));
+        a.retain(|i| *i % 2 == 0);
+        assert_eq!(a.len(), 128);
+    }
+
     proptest! {
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn iter(ref vec in vec(i32::ANY, 0..1000)) {
             let seq: Vector<i32> = Vector::from_iter(vec.iter().cloned());
@@ -2672,6 +2692,7 @@ mod test {
             assert_eq!(vec.len(), seq.len());
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn push_front_mut(ref input in vec(i32::ANY, 0..1000)) {
             let mut vector = Vector::new();
@@ -2684,6 +2705,7 @@ mod test {
             assert_eq!(input2, Vec::from_iter(vector.iter().cloned()));
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn push_back_mut(ref input in vec(i32::ANY, 0..1000)) {
             let mut vector = Vector::new();
@@ -2695,6 +2717,7 @@ mod test {
             assert_eq!(input, &Vec::from_iter(vector.iter().cloned()));
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn pop_back_mut(ref input in vec(i32::ANY, 0..1000)) {
             let mut vector = Vector::from_iter(input.iter().cloned());
@@ -2711,6 +2734,7 @@ mod test {
             assert_eq!(0, vector.len());
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn pop_front_mut(ref input in vec(i32::ANY, 0..1000)) {
             let mut vector = Vector::from_iter(input.iter().cloned());
@@ -2747,6 +2771,7 @@ mod test {
         //     assert_eq!(true, vector.is_empty());
         // }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn split(ref vec in vec(i32::ANY, 1..2000), split_pos in usize::ANY) {
             let split_index = split_pos % (vec.len() + 1);
@@ -2762,6 +2787,7 @@ mod test {
             }
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn append(ref vec1 in vec(i32::ANY, 0..1000), ref vec2 in vec(i32::ANY, 0..1000)) {
             let mut seq1 = Vector::from_iter(vec1.iter().cloned());
@@ -2777,6 +2803,7 @@ mod test {
             }
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn iter_mut(ref input in vector(i32::ANY, 0..10000)) {
             let mut vec = input.clone();
@@ -2789,6 +2816,7 @@ mod test {
             assert_eq!(expected, vec);
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn focus(ref input in vector(i32::ANY, 0..10000)) {
             let mut vec = input.clone();
@@ -2803,6 +2831,7 @@ mod test {
             assert_eq!(expected, vec);
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn focus_mut_split(ref input in vector(i32::ANY, 0..10000)) {
             let mut vec = input.clone();
@@ -2826,6 +2855,7 @@ mod test {
             assert_eq!(expected, vec);
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn chunks(ref input in vector(i32::ANY, 0..10000)) {
             let output: Vector<_> = input.leaves().flatten().cloned().collect();
@@ -2835,6 +2865,7 @@ mod test {
             assert_eq!(rev_in, rev_out);
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn chunks_mut(ref mut input_src in vector(i32::ANY, 0..10000)) {
             let mut input = input_src.clone();
