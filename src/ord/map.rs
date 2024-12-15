@@ -1910,8 +1910,6 @@ impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> where (K, V): 'a + BTreeValu
 
 /// An iterator over a range of key/value pairs in a map.
 pub struct RangeIter<'a, K, V> {
-    // This uses a `RangedIter` internally, but we only construct it when the range is
-    // full, meaning that we can override `size_hint` and implement `ExactSizeIterator`.
     it: RangedIter<'a, (K, V)>,
 }
 
