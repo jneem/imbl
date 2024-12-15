@@ -364,13 +364,13 @@ where
 
     /// Create an iterator over a range of key/value pairs.
     #[must_use]
-    pub fn range<R, BK>(&self, range: R) -> Iter<'_, K, V>
+    pub fn range<R, BK>(&self, range: R) -> RangeIter<'_, K, V>
     where
         R: RangeBounds<BK>,
         K: Borrow<BK>,
         BK: Ord + ?Sized,
     {
-        Iter {
+        RangeIter {
             it: RangedIter::new(&self.root, self.size, range),
         }
     }
@@ -1868,6 +1868,8 @@ where
 
 /// An iterator over the key/value pairs of a map.
 pub struct Iter<'a, K, V> {
+    // This uses a `RangedIter` internally, but we only construct it when the range is
+    // full, meaning that we can override `size_hint` and implement `ExactSizeIterator`.
     it: RangedIter<'a, (K, V)>,
 }
 
@@ -1905,6 +1907,46 @@ where
 }
 
 impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> where (K, V): 'a + BTreeValue {}
+
+/// An iterator over a range of key/value pairs in a map.
+pub struct RangeIter<'a, K, V> {
+    // This uses a `RangedIter` internally, but we only construct it when the range is
+    // full, meaning that we can override `size_hint` and implement `ExactSizeIterator`.
+    it: RangedIter<'a, (K, V)>,
+}
+
+// We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
+impl<'a, K, V> Clone for RangeIter<'a, K, V> {
+    fn clone(&self) -> Self {
+        RangeIter {
+            it: self.it.clone(),
+        }
+    }
+}
+
+impl<'a, K, V> Iterator for RangeIter<'a, K, V>
+where
+    (K, V): 'a + BTreeValue,
+{
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.it.next().map(|(k, v)| (k, v))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.it.size_hint()
+    }
+}
+
+impl<'a, K, V> DoubleEndedIterator for RangeIter<'a, K, V>
+where
+    (K, V): 'a + BTreeValue,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.it.next_back().map(|(k, v)| (k, v))
+    }
+}
 
 /// An iterator over the differences between two maps.
 pub struct DiffIter<'a, 'b, K, V> {
@@ -2431,6 +2473,11 @@ mod test {
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], range);
         let range: Vec<(i32, i32)> = map.range(..=6).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], range);
+
+        assert_eq!(map.range(2..5).size_hint(), (0, Some(6)));
+        let mut iter = map.range(2..5);
+        iter.next();
+        assert_eq!(iter.size_hint(), (0, Some(5)));
     }
 
     #[test]
