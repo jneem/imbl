@@ -27,14 +27,12 @@ use std::mem;
 use std::ops::{Add, Index, IndexMut, RangeBounds};
 
 use crate::hashmap::HashMap;
-use crate::nodes::btree::{BTreeValue, Insert, Node, Remove};
+use crate::nodes::btree::{BTreeValue, Insert, Iter as NodeIter, Node, Remove};
 #[cfg(has_specialisation)]
 use crate::util::linear_search_by;
 use crate::util::{Pool, PoolRef};
 
-pub use crate::nodes::btree::{
-    ConsumingIter, DiffItem as NodeDiffItem, DiffIter as NodeDiffIter, Iter as RangedIter,
-};
+pub use crate::nodes::btree::{ConsumingIter, DiffItem as NodeDiffItem, DiffIter as NodeDiffIter};
 
 /// Construct a map from a sequence of key/value pairs.
 ///
@@ -358,20 +356,20 @@ where
     #[must_use]
     pub fn iter(&self) -> Iter<'_, K, V> {
         Iter {
-            it: RangedIter::new(&self.root, self.size, ..),
+            it: NodeIter::new(&self.root, self.size, ..),
         }
     }
 
     /// Create an iterator over a range of key/value pairs.
     #[must_use]
-    pub fn range<R, BK>(&self, range: R) -> RangeIter<'_, K, V>
+    pub fn range<R, BK>(&self, range: R) -> RangedIter<'_, K, V>
     where
         R: RangeBounds<BK>,
         K: Borrow<BK>,
         BK: Ord + ?Sized,
     {
-        RangeIter {
-            it: RangedIter::new(&self.root, self.size, range),
+        RangedIter {
+            it: NodeIter::new(&self.root, self.size, range),
         }
     }
 
@@ -1868,9 +1866,7 @@ where
 
 /// An iterator over the key/value pairs of a map.
 pub struct Iter<'a, K, V> {
-    // This uses a `RangedIter` internally, but we only construct it when the range is
-    // full, meaning that we can override `size_hint` and implement `ExactSizeIterator`.
-    it: RangedIter<'a, (K, V)>,
+    it: NodeIter<'a, (K, V)>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
@@ -1892,6 +1888,8 @@ where
         self.it.next().map(|(k, v)| (k, v))
     }
 
+    // We only construct an `Iter` when the range is full, meaning that we can
+    // override `size_hint` and implement `ExactSizeIterator`.
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.it.remaining, Some(self.it.remaining))
     }
@@ -1909,20 +1907,20 @@ where
 impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> where (K, V): 'a + BTreeValue {}
 
 /// An iterator over a range of key/value pairs in a map.
-pub struct RangeIter<'a, K, V> {
-    it: RangedIter<'a, (K, V)>,
+pub struct RangedIter<'a, K, V> {
+    it: NodeIter<'a, (K, V)>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
-impl<'a, K, V> Clone for RangeIter<'a, K, V> {
+impl<'a, K, V> Clone for RangedIter<'a, K, V> {
     fn clone(&self) -> Self {
-        RangeIter {
+        RangedIter {
             it: self.it.clone(),
         }
     }
 }
 
-impl<'a, K, V> Iterator for RangeIter<'a, K, V>
+impl<'a, K, V> Iterator for RangedIter<'a, K, V>
 where
     (K, V): 'a + BTreeValue,
 {
@@ -1937,7 +1935,7 @@ where
     }
 }
 
-impl<'a, K, V> DoubleEndedIterator for RangeIter<'a, K, V>
+impl<'a, K, V> DoubleEndedIterator for RangedIter<'a, K, V>
 where
     (K, V): 'a + BTreeValue,
 {
