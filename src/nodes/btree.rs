@@ -1192,8 +1192,7 @@ impl<'a, A: 'a + BTreeValue> Iterator for Iter<'a, A> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        // (0, Some(self.remaining))
-        (0, None)
+        (0, Some(self.remaining))
     }
 }
 
