@@ -686,7 +686,10 @@ where
         self.get_mut(index).expect("index out of bounds")
     }
 
-    pub fn index_many_mut<const N: usize>(&mut self, indices: [usize; N]) -> [&mut A; N] {
+    /// Gets mutable references for a non-overlapping collection of indices.
+    ///
+    /// Panics if any indices are non-unique.
+    fn index_many_mut<const N: usize>(&mut self, indices: [usize; N]) -> [&mut A; N] {
         self.get_many_mut(indices)
             .expect("index out of bounds or overlapping")
     }
@@ -971,7 +974,7 @@ where
         Some(&mut self.get_focus()[target_phys_index])
     }
 
-    pub fn get_many<const N: usize>(
+    fn get_many<const N: usize>(
         &mut self,
         pool: &RRBPool<A>,
         indices: [usize; N],
