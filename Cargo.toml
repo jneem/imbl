@@ -34,7 +34,7 @@ small-chunks = []
 
 [dependencies]
 bitmaps = "3"
-imbl-sized-chunks = "0.1.1"
+imbl-sized-chunks = "0.1.3"
 rand_core = "0.6.3"
 rand_xoshiro = "0.6"
 triomphe = { version = "0.1.11", optional = true }
