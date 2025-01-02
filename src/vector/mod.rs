@@ -2682,6 +2682,9 @@ mod test {
     }
 
     proptest! {
+        // Miri is slow, so we ignore long-ish tests to keep the test
+        // time manageable. For some property tests, it may be worthwhile
+        // enabling them in miri with reduced iteration counts.
         #[cfg_attr(miri, ignore)]
         #[test]
         fn iter(ref vec in vec(i32::ANY, 0..1000)) {
