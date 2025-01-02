@@ -193,11 +193,13 @@ mod test {
     use ::rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 
     proptest! {
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn par_iter(ref mut input in vector(i32::ANY, 0..10000)) {
             assert_eq!(input.iter().max(), input.par_iter().max())
         }
 
+        #[cfg_attr(miri, ignore)]
         #[test]
         fn par_mut_iter(ref mut input in vector(i32::ANY, 0..10000)) {
             let mut vec = input.clone();
