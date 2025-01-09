@@ -451,8 +451,8 @@ where
         self.root.lookup(key).map(|(k, v)| (k, v))
     }
 
-    /// Get the closest smaller entry in a map to a given key
-    /// as a mutable reference.
+    /// Get a reference to the closest smaller entry in a map
+    /// to a given key.
     ///
     /// If the map contains the given key, this is returned.
     /// Otherwise, the closest key in the map smaller than the
@@ -476,8 +476,8 @@ where
         self.root.lookup_prev(key).map(|(k, v)| (k, v))
     }
 
-    /// Get the closest larger entry in a map to a given key
-    /// as a mutable reference.
+    /// Get a reference to the closest larger entry in a map
+    /// to a given key.
     ///
     /// If the set contains the given value, this is returned.
     /// Otherwise, the closest value in the set larger than the
