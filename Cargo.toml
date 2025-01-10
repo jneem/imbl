@@ -1,6 +1,6 @@
 [package]
 name = "imbl"
-version = "3.0.0"
+version = "4.0.0"
 authors = ["Bodil Stokke <bodil@bodil.org>", "Joe Neeman <joeneeman@gmail.com>"]
 edition = "2018"
 license = "MPL-2.0+"
