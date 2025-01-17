@@ -2412,6 +2412,70 @@ mod test {
         assert_eq!(0, vec[0]);
     }
 
+    #[test]
+    fn test_vector_focus_split_at() {
+        for (data, split_points) in [
+            (0..0, vec![0]),
+            (0..3, vec![0, 1, 2, 3]),
+            (0..128, vec![0, 1, 64, 127, 128]),
+            #[cfg(not(miri))]
+            (0..100_000, vec![0, 1, 50_000, 99_999, 100_000]),
+        ] {
+            let imbl_vec = Vector::from_iter(data.clone());
+            let vec = Vec::from_iter(data);
+            let focus = imbl_vec.focus();
+            for split_point in split_points {
+                let (left, right) = focus.clone().split_at(split_point);
+                let (expected_left, expected_right) = vec.split_at(split_point);
+                assert_eq!(
+                    left.clone().into_iter().copied().collect::<Vec<_>>(),
+                    expected_left
+                );
+                assert_eq!(
+                    right.clone().into_iter().copied().collect::<Vec<_>>(),
+                    expected_right
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "range out of bounds")]
+    fn test_vector_focus_narrow_out_of_range() {
+        let vec = Vector::from_iter(0..100);
+        _ = vec.focus().narrow(..1000);
+    }
+
+    #[test]
+    fn test_vector_focus_narrow() {
+        macro_rules! testcase {
+            ($data:expr, $range:expr) => {{
+                let imbl_vector = Vector::from_iter($data);
+                let vec = Vec::from_iter($data);
+                let focus = imbl_vector.focus();
+                assert_eq!(
+                    focus
+                        .narrow($range)
+                        .into_iter()
+                        .copied()
+                        .collect::<Vec<_>>(),
+                    vec[$range]
+                );
+            }};
+        }
+        // exhaustively test small cases
+        for len in 0..=3 {
+            testcase!(0..len, ..);
+            for start in 0..=len {
+                testcase!(0..len, start..);
+                testcase!(0..len, ..start);
+                for end in start..=len {
+                    testcase!(0..len, start..end);
+                }
+            }
+        }
+    }
+
     #[cfg_attr(miri, ignore)]
     #[test]
     fn large_vector_focus() {

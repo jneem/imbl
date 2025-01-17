@@ -194,7 +194,7 @@ where
         R: RangeBounds<usize>,
     {
         let r = to_range(&range, self.len());
-        if r.start >= r.end || r.start >= self.len() {
+        if r.start > r.end || r.end > self.len() {
             panic!("vector::Focus::narrow: range out of bounds");
         }
         match self {
@@ -232,7 +232,7 @@ where
     /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
     /// [Vector::split_at]: enum.Vector.html#method.split_at
     pub fn split_at(self, index: usize) -> (Self, Self) {
-        if index >= self.len() {
+        if index > self.len() {
             panic!("vector::Focus::split_at: index out of bounds");
         }
         match self {
