@@ -10,10 +10,11 @@ use std::iter::FusedIterator;
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::{mem, ptr};
 
+use archery::{SharedPointer, SharedPointerKind};
 use bitmaps::{Bits, BitsImpl};
 use imbl_sized_chunks::sparse_chunk::{Iter as ChunkIter, IterMut as ChunkIterMut, SparseChunk};
 
-use crate::util::{clone_ref, Pool, PoolClone, PoolDefault, PoolRef, Ref};
+use crate::util::{clone_ref, Pool, PoolClone, PoolDefault};
 
 pub(crate) use crate::config::HASH_LEVEL_SIZE as HASH_SHIFT;
 pub(crate) const HASH_WIDTH: usize = 2_usize.pow(HASH_SHIFT as u32);
@@ -38,12 +39,19 @@ pub trait HashValue {
     fn ptr_eq(&self, other: &Self) -> bool;
 }
 
-#[derive(Clone)]
-pub(crate) struct Node<A> {
-    data: SparseChunk<Entry<A>, HASH_WIDTH>,
+pub(crate) struct Node<A, P: SharedPointerKind> {
+    data: SparseChunk<Entry<A, P>, HASH_WIDTH>,
 }
 
-impl<A> PoolDefault for Node<A> {
+impl<A: Clone, P: SharedPointerKind> Clone for Node<A, P> {
+    fn clone(&self) -> Self {
+        Self {
+            data: self.data.clone(),
+        }
+    }
+}
+
+impl<A, P: SharedPointerKind> PoolDefault for Node<A, P> {
     #[cfg(feature = "pool")]
     unsafe fn default_uninit(target: &mut mem::MaybeUninit<Self>) {
         SparseChunk::default_uninit(
@@ -56,9 +64,10 @@ impl<A> PoolDefault for Node<A> {
     }
 }
 
-impl<A> PoolClone for Node<A>
+impl<A, P> PoolClone for Node<A, P>
 where
     A: Clone,
+    P: SharedPointerKind + Clone,
 {
     #[cfg(feature = "pool")]
     unsafe fn clone_uninit(&self, target: &mut mem::MaybeUninit<Self>) {
@@ -78,13 +87,13 @@ pub(crate) struct CollisionNode<A> {
     data: Vec<A>,
 }
 
-pub(crate) enum Entry<A> {
+pub(crate) enum Entry<A, P: SharedPointerKind> {
     Value(A, HashBits),
-    Collision(Ref<CollisionNode<A>>),
-    Node(PoolRef<Node<A>>),
+    Collision(SharedPointer<CollisionNode<A>, P>),
+    Node(SharedPointer<Node<A, P>, P>),
 }
 
-impl<A: Clone> Clone for Entry<A> {
+impl<A: Clone, P: SharedPointerKind> Clone for Entry<A, P> {
     fn clone(&self) -> Self {
         match self {
             Entry::Value(value, hash) => Entry::Value(value.clone(), *hash),
@@ -94,7 +103,7 @@ impl<A: Clone> Clone for Entry<A> {
     }
 }
 
-impl<A> Entry<A> {
+impl<A, P: SharedPointerKind> Entry<A, P> {
     fn is_value(&self) -> bool {
         matches!(self, Entry::Value(_, _))
     }
@@ -107,19 +116,19 @@ impl<A> Entry<A> {
     }
 }
 
-impl<A> From<CollisionNode<A>> for Entry<A> {
+impl<A, P: SharedPointerKind> From<CollisionNode<A>> for Entry<A, P> {
     fn from(node: CollisionNode<A>) -> Self {
-        Entry::Collision(Ref::new(node))
+        Entry::Collision(SharedPointer::new(node))
     }
 }
 
-impl<A> Default for Node<A> {
+impl<A, P: SharedPointerKind> Default for Node<A, P> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<A> Node<A> {
+impl<A, P: SharedPointerKind> Node<A, P> {
     #[inline(always)]
     pub(crate) fn new() -> Self {
         Node {
@@ -130,18 +139,21 @@ impl<A> Node<A> {
     /// Special constructor to allow initializing Nodes w/o incurring multiple memory copies.
     /// These copies really slow things down once Node crosses a certain size threshold and copies become calls to memcopy.
     #[inline]
-    fn with(pool: &Pool<Self>, with: impl FnOnce(&mut Self)) -> PoolRef<Self> {
-        let result: PoolRef<UnsafeCell<mem::MaybeUninit<Node<A>>>> = PoolRef::new_uninit(pool);
+    fn with(_pool: &Pool<Self>, with: impl FnOnce(&mut Self)) -> SharedPointer<Self, P> {
+        let result: UnsafeCell<mem::MaybeUninit<Node<A, P>>> =
+            UnsafeCell::new(mem::MaybeUninit::uninit());
+        // Seems there's no need to use unsafe?
         #[allow(unsafe_code)]
         unsafe {
             // Initialize the MaybeUninit node
             (&mut *result.get()).write(Node::new());
             // Safety: UnsafeCell<Self> and UnsafeCell<MaybeUninit<Self>> have the same memory representation
-            let result: PoolRef<UnsafeCell<Self>> = mem::transmute(result);
-            let mut_ptr = UnsafeCell::raw_get(&*result);
+            // Using ManuallyDrop to get around with mem::transumte requirement
+            let result: UnsafeCell<Self> = mem::transmute_copy(&mem::ManuallyDrop::new(result));
+            let mut_ptr = UnsafeCell::raw_get(&result);
             with(&mut *mut_ptr);
             // Safety UnsafeCell<Self> and Self have the same memory representation
-            mem::transmute(result)
+            SharedPointer::new(mem::transmute_copy(&mem::ManuallyDrop::new(result)))
         }
     }
 
@@ -151,7 +163,7 @@ impl<A> Node<A> {
     }
 
     #[inline]
-    fn unit(pool: &Pool<Node<A>>, index: usize, value: Entry<A>) -> PoolRef<Self> {
+    fn unit(pool: &Pool<Node<A, P>>, index: usize, value: Entry<A, P>) -> SharedPointer<Self, P> {
         Self::with(pool, |this| {
             this.data.insert(index, value);
         })
@@ -159,12 +171,12 @@ impl<A> Node<A> {
 
     #[inline]
     fn pair(
-        pool: &Pool<Node<A>>,
+        pool: &Pool<Node<A, P>>,
         index1: usize,
-        value1: Entry<A>,
+        value1: Entry<A, P>,
         index2: usize,
-        value2: Entry<A>,
-    ) -> PoolRef<Self> {
+        value2: Entry<A, P>,
+    ) -> SharedPointer<Self, P> {
         Self::with(pool, |this| {
             this.data.insert(index1, value1);
             this.data.insert(index2, value2);
@@ -173,27 +185,27 @@ impl<A> Node<A> {
 
     #[inline]
     pub(crate) fn single_child(
-        pool: &Pool<Node<A>>,
+        pool: &Pool<Node<A, P>>,
         index: usize,
-        node: PoolRef<Self>,
-    ) -> PoolRef<Self> {
+        node: SharedPointer<Self, P>,
+    ) -> SharedPointer<Self, P> {
         Self::unit(pool, index, Entry::Node(node))
     }
 
-    fn pop(&mut self) -> Entry<A> {
+    fn pop(&mut self) -> Entry<A, P> {
         self.data.pop().unwrap()
     }
 }
 
-impl<A: HashValue> Node<A> {
+impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
     fn merge_values(
-        pool: &Pool<Node<A>>,
+        pool: &Pool<Node<A, P>>,
         value1: A,
         hash1: HashBits,
         value2: A,
         hash2: HashBits,
         shift: usize,
-    ) -> PoolRef<Self> {
+    ) -> SharedPointer<Self, P> {
         let index1 = mask(hash1, shift) as usize;
         let index2 = mask(hash2, shift) as usize;
         if index1 != index2 {
@@ -244,7 +256,7 @@ impl<A: HashValue> Node<A> {
 
     pub(crate) fn get_mut<BK>(
         &mut self,
-        pool: &Pool<Node<A>>,
+        pool: &Pool<Node<A, P>>,
         hash: HashBits,
         shift: usize,
         key: &BK,
@@ -265,11 +277,11 @@ impl<A: HashValue> Node<A> {
                     }
                 }
                 Entry::Collision(ref mut coll_ref) => {
-                    let coll = Ref::make_mut(coll_ref);
+                    let coll = SharedPointer::make_mut(coll_ref);
                     coll.get_mut(key)
                 }
                 Entry::Node(ref mut child_ref) => {
-                    let child = PoolRef::make_mut(pool, child_ref);
+                    let child = SharedPointer::make_mut(child_ref);
                     child.get_mut(pool, hash, shift + HASH_SHIFT, key)
                 }
             }
@@ -280,7 +292,7 @@ impl<A: HashValue> Node<A> {
 
     pub(crate) fn insert(
         &mut self,
-        pool: &Pool<Node<A>>,
+        pool: &Pool<Node<A, P>>,
         hash: HashBits,
         shift: usize,
         value: A,
@@ -305,12 +317,12 @@ impl<A: HashValue> Node<A> {
                 }
                 // There's already a collision here.
                 Entry::Collision(ref mut collision) => {
-                    let coll = Ref::make_mut(collision);
+                    let coll = SharedPointer::make_mut(collision);
                     return coll.insert(value);
                 }
                 Entry::Node(ref mut child_ref) => {
                     // Child node
-                    let child = PoolRef::make_mut(pool, child_ref);
+                    let child = SharedPointer::make_mut(child_ref);
                     return child.insert(pool, hash, shift + HASH_SHIFT, value);
                 }
             }
@@ -350,7 +362,7 @@ impl<A: HashValue> Node<A> {
 
     pub(crate) fn remove<BK>(
         &mut self,
-        pool: &Pool<Node<A>>,
+        pool: &Pool<Node<A, P>>,
         hash: HashBits,
         shift: usize,
         key: &BK,
@@ -372,7 +384,7 @@ impl<A: HashValue> Node<A> {
                     } // Otherwise, fall through to the removal.
                 }
                 Entry::Collision(ref mut coll_ref) => {
-                    let coll = Ref::make_mut(coll_ref);
+                    let coll = SharedPointer::make_mut(coll_ref);
                     removed = coll.remove(key);
                     if coll.len() == 1 {
                         new_node = Some(coll.pop());
@@ -381,7 +393,7 @@ impl<A: HashValue> Node<A> {
                     }
                 }
                 Entry::Node(ref mut child_ref) => {
-                    let child = PoolRef::make_mut(pool, child_ref);
+                    let child = SharedPointer::make_mut(child_ref);
                     match child.remove(pool, hash, shift + HASH_SHIFT, key) {
                         None => {
                             return None;
@@ -471,21 +483,21 @@ impl<A: HashValue> CollisionNode<A> {
         }
     }
 
-    fn pop(&mut self) -> Entry<A> {
+    fn pop<P: SharedPointerKind>(&mut self) -> Entry<A, P> {
         Entry::Value(self.data.pop().unwrap(), self.hash)
     }
 }
 
 // Ref iterator
 
-pub(crate) struct Iter<'a, A> {
+pub(crate) struct Iter<'a, A, P: SharedPointerKind> {
     count: usize,
-    stack: Vec<ChunkIter<'a, Entry<A>, HASH_WIDTH>>,
+    stack: Vec<ChunkIter<'a, Entry<A, P>, HASH_WIDTH>>,
     collision: Option<(HashBits, SliceIter<'a, A>)>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
-impl<'a, A> Clone for Iter<'a, A> {
+impl<'a, A, P: SharedPointerKind> Clone for Iter<'a, A, P> {
     fn clone(&self) -> Self {
         Self {
             count: self.count,
@@ -495,11 +507,12 @@ impl<'a, A> Clone for Iter<'a, A> {
     }
 }
 
-impl<'a, A> Iter<'a, A>
+impl<'a, A, P> Iter<'a, A, P>
 where
     A: 'a,
+    P: SharedPointerKind,
 {
-    pub(crate) fn new(root: &'a Node<A>, size: usize) -> Self {
+    pub(crate) fn new(root: &'a Node<A, P>, size: usize) -> Self {
         let mut result = Iter {
             count: size,
             stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
@@ -510,9 +523,10 @@ where
     }
 }
 
-impl<'a, A> Iterator for Iter<'a, A>
+impl<'a, A, P> Iterator for Iter<'a, A, P>
 where
     A: 'a,
+    P: SharedPointerKind,
 {
     type Item = (&'a A, HashBits);
 
@@ -555,27 +569,28 @@ where
     }
 }
 
-impl<'a, A> ExactSizeIterator for Iter<'a, A> where A: 'a {}
+impl<'a, A, P: SharedPointerKind> ExactSizeIterator for Iter<'a, A, P> where A: 'a {}
 
-impl<'a, A> FusedIterator for Iter<'a, A> where A: 'a {}
+impl<'a, A, P: SharedPointerKind> FusedIterator for Iter<'a, A, P> where A: 'a {}
 
 // Mut ref iterator
 
-pub(crate) struct IterMut<'a, A> {
+pub(crate) struct IterMut<'a, A, P: SharedPointerKind> {
     count: usize,
-    pool: Pool<Node<A>>,
-    stack: Vec<ChunkIterMut<'a, Entry<A>, HASH_WIDTH>>,
+    _pool: Pool<Node<A, P>>,
+    stack: Vec<ChunkIterMut<'a, Entry<A, P>, HASH_WIDTH>>,
     collision: Option<(HashBits, SliceIterMut<'a, A>)>,
 }
 
-impl<'a, A> IterMut<'a, A>
+impl<'a, A, P> IterMut<'a, A, P>
 where
     A: 'a,
+    P: SharedPointerKind,
 {
-    pub(crate) fn new(pool: &Pool<Node<A>>, root: &'a mut Node<A>, size: usize) -> Self {
+    pub(crate) fn new(pool: &Pool<Node<A, P>>, root: &'a mut Node<A, P>, size: usize) -> Self {
         let mut result = IterMut {
             count: size,
-            pool: pool.clone(),
+            _pool: pool.clone(),
             stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
             collision: None,
         };
@@ -584,9 +599,10 @@ where
     }
 }
 
-impl<'a, A> Iterator for IterMut<'a, A>
+impl<'a, A, P> Iterator for IterMut<'a, A, P>
 where
     A: Clone + 'a,
+    P: SharedPointerKind,
 {
     type Item = (&'a mut A, HashBits);
 
@@ -609,11 +625,11 @@ where
                         return Some((value, *hash));
                     }
                     Some(Entry::Node(child_ref)) => {
-                        let child = PoolRef::make_mut(&self.pool, child_ref);
+                        let child = SharedPointer::make_mut(child_ref);
                         self.stack.push(child.data.iter_mut());
                     }
                     Some(Entry::Collision(coll_ref)) => {
-                        let coll = Ref::make_mut(coll_ref);
+                        let coll = SharedPointer::make_mut(coll_ref);
                         self.collision = Some((coll.hash, coll.data.iter_mut()));
                         continue 'outer;
                     }
@@ -631,24 +647,28 @@ where
     }
 }
 
-impl<'a, A> ExactSizeIterator for IterMut<'a, A> where A: Clone + 'a {}
+impl<'a, A, P: SharedPointerKind> ExactSizeIterator for IterMut<'a, A, P> where A: Clone + 'a {}
 
-impl<'a, A> FusedIterator for IterMut<'a, A> where A: Clone + 'a {}
+impl<'a, A, P: SharedPointerKind> FusedIterator for IterMut<'a, A, P> where A: Clone + 'a {}
 
 // Consuming iterator
 
-pub(crate) struct Drain<A> {
+pub(crate) struct Drain<A, P: SharedPointerKind> {
     count: usize,
-    pool: Pool<Node<A>>,
-    stack: Vec<PoolRef<Node<A>>>,
+    _pool: Pool<Node<A, P>>,
+    stack: Vec<SharedPointer<Node<A, P>, P>>,
     collision: Option<CollisionNode<A>>,
 }
 
-impl<A> Drain<A> {
-    pub(crate) fn new(pool: &Pool<Node<A>>, root: PoolRef<Node<A>>, size: usize) -> Self {
+impl<A, P: SharedPointerKind> Drain<A, P> {
+    pub(crate) fn new(
+        pool: &Pool<Node<A, P>>,
+        root: SharedPointer<Node<A, P>, P>,
+        size: usize,
+    ) -> Self {
         let mut result = Drain {
             count: size,
-            pool: pool.clone(),
+            _pool: pool.clone(),
             stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
             collision: None,
         };
@@ -657,7 +677,7 @@ impl<A> Drain<A> {
     }
 }
 
-impl<A> Iterator for Drain<A>
+impl<A, P: SharedPointerKind> Iterator for Drain<A, P>
 where
     A: Clone,
 {
@@ -676,7 +696,7 @@ where
             }
 
             while let Some(current) = self.stack.last_mut() {
-                match PoolRef::make_mut(&self.pool, current).data.pop() {
+                match SharedPointer::make_mut(current).data.pop() {
                     Some(Entry::Value(value, hash)) => {
                         self.count -= 1;
                         return Some((value, hash));
@@ -702,11 +722,11 @@ where
     }
 }
 
-impl<A> ExactSizeIterator for Drain<A> where A: Clone {}
+impl<A, P: SharedPointerKind> ExactSizeIterator for Drain<A, P> where A: Clone {}
 
-impl<A> FusedIterator for Drain<A> where A: Clone {}
+impl<A, P: SharedPointerKind> FusedIterator for Drain<A, P> where A: Clone {}
 
-impl<A: fmt::Debug> fmt::Debug for Node<A> {
+impl<A: fmt::Debug, P: SharedPointerKind> fmt::Debug for Node<A, P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "Node[ ")?;
         for i in self.data.indices() {

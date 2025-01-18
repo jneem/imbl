@@ -30,11 +30,14 @@ use std::iter::{FromIterator, FusedIterator, Sum};
 use std::mem;
 use std::ops::{Add, Index, IndexMut};
 
+use archery::{SharedPointer, SharedPointerKind};
+
 use crate::nodes::hamt::{
     hash_key, Drain as NodeDrain, HashBits, HashValue, Iter as NodeIter, IterMut as NodeIterMut,
     Node,
 };
-use crate::util::{Pool, PoolRef, Ref};
+use crate::shared_ptr::DefaultSharedPtr;
+use crate::util::Pool;
 
 /// Construct a hash map from a sequence of key/value pairs.
 ///
@@ -42,7 +45,7 @@ use crate::util::{Pool, PoolRef, Ref};
 ///
 /// ```
 /// # #[macro_use] extern crate imbl;
-/// # use imbl::hashmap::HashMap;
+/// # type HashMap<K, V> = imbl::HashMap<K, V, std::hash::RandomState, archery::ArcK>;
 /// # fn main() {
 /// assert_eq!(
 ///   hashmap!{
@@ -75,7 +78,7 @@ macro_rules! hashmap {
     }};
 }
 
-def_pool!(HashMapPool<K,V>, Node<(K,V)>);
+def_pool!(HashMapPool<K, V>, Node<(K,V), P>);
 
 /// An unordered map.
 ///
@@ -96,11 +99,11 @@ def_pool!(HashMapPool<K,V>, Node<(K,V)>);
 /// [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
 /// [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 
-pub struct HashMap<K, V, S = RandomState> {
+pub struct HashMap<K, V, S = RandomState, P: SharedPointerKind = DefaultSharedPtr> {
     size: usize,
-    pool: HashMapPool<K, V>,
-    root: PoolRef<Node<(K, V)>>,
-    hasher: Ref<S>,
+    pool: HashMapPool<K, V, P>,
+    root: SharedPointer<Node<(K, V), P>, P>,
+    hasher: SharedPointer<S, P>,
 }
 
 impl<K, V> HashValue for (K, V)
@@ -130,7 +133,7 @@ impl<K, V> HashMap<K, V, RandomState> {
     #[cfg(feature = "pool")]
     #[must_use]
     pub fn with_pool(pool: &HashMapPool<K, V>) -> Self {
-        let root = PoolRef::default(&pool.0);
+        let root = SharedPointer::default();
         Self {
             size: 0,
             hasher: Default::default(),
@@ -140,10 +143,11 @@ impl<K, V> HashMap<K, V, RandomState> {
     }
 }
 
-impl<K, V> HashMap<K, V, RandomState>
+impl<K, V, P> HashMap<K, V, RandomState, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
     /// Construct a hash map with a single mapping.
     ///
@@ -151,7 +155,7 @@ where
     ///
     /// ```
     /// # #[macro_use] extern crate imbl;
-    /// # use imbl::hashmap::HashMap;
+    /// # type HashMap<K, V> = imbl::HashMap<K, V, std::hash::RandomState, archery::ArcK>;
     /// let map = HashMap::unit(123, "onetwothree");
     /// assert_eq!(
     ///   map.get(&123),
@@ -165,7 +169,7 @@ where
     }
 }
 
-impl<K, V, S> HashMap<K, V, S> {
+impl<K, V, S, P: SharedPointerKind> HashMap<K, V, S, P> {
     /// Test whether a hash map is empty.
     ///
     /// Time: O(1)
@@ -219,7 +223,7 @@ impl<K, V, S> HashMap<K, V, S> {
     ///
     /// Time: O(1)
     pub fn ptr_eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other) || PoolRef::ptr_eq(&self.root, &other.root)
+        std::ptr::eq(self, other) || SharedPointer::ptr_eq(&self.root, &other.root)
     }
 
     /// Get a reference to the memory pool used by this map.
@@ -236,16 +240,26 @@ impl<K, V, S> HashMap<K, V, S> {
     #[must_use]
     pub fn with_hasher<RS>(hasher: RS) -> Self
     where
-        Ref<S>: From<RS>,
+        SharedPointer<S, P>: From<RS>,
     {
         let pool = HashMapPool::default();
-        let root = PoolRef::default(&pool.0);
+        let root = SharedPointer::default();
         HashMap {
             size: 0,
             hasher: hasher.into(),
             pool,
             root,
         }
+    }
+
+    /// Construct an empty hash map using the given pointer type.
+    #[inline]
+    #[must_use]
+    pub fn with_ptr_kind() -> Self
+    where
+        S: Default,
+    {
+        Self::default()
     }
 
     /// Construct an empty hash map using a specific memory pool and hasher.
@@ -255,7 +269,7 @@ impl<K, V, S> HashMap<K, V, S> {
     where
         Ref<S>: From<RS>,
     {
-        let root = PoolRef::default(&pool.0);
+        let root = SharedPointer::default();
         Self {
             size: 0,
             hasher: hasher.into(),
@@ -268,7 +282,7 @@ impl<K, V, S> HashMap<K, V, S> {
     ///
     /// [BuildHasher]: https://doc.rust-lang.org/std/hash/trait.BuildHasher.html
     #[must_use]
-    pub fn hasher(&self) -> &Ref<S> {
+    pub fn hasher(&self) -> &SharedPointer<S, P> {
         &self.hasher
     }
 
@@ -276,13 +290,13 @@ impl<K, V, S> HashMap<K, V, S> {
     /// current hash map.
     #[inline]
     #[must_use]
-    pub fn new_from<K1, V1>(&self) -> HashMap<K1, V1, S>
+    pub fn new_from<K1, V1>(&self) -> HashMap<K1, V1, S, P>
     where
         K1: Hash + Eq + Clone,
         V1: Clone,
     {
         let pool = HashMapPool::default();
-        let root = PoolRef::default(&pool.0);
+        let root = SharedPointer::default();
         HashMap {
             size: 0,
             pool,
@@ -300,7 +314,7 @@ impl<K, V, S> HashMap<K, V, S> {
     /// the same map.
     #[inline]
     #[must_use]
-    pub fn iter(&self) -> Iter<'_, K, V> {
+    pub fn iter(&self) -> Iter<'_, K, V, P> {
         Iter {
             it: NodeIter::new(&self.root, self.size),
         }
@@ -315,7 +329,7 @@ impl<K, V, S> HashMap<K, V, S> {
     /// the same map.
     #[inline]
     #[must_use]
-    pub fn keys(&self) -> Keys<'_, K, V> {
+    pub fn keys(&self) -> Keys<'_, K, V, P> {
         Keys {
             it: NodeIter::new(&self.root, self.size),
         }
@@ -330,7 +344,7 @@ impl<K, V, S> HashMap<K, V, S> {
     /// the same map.
     #[inline]
     #[must_use]
-    pub fn values(&self) -> Values<'_, K, V> {
+    pub fn values(&self) -> Values<'_, K, V, P> {
         Values {
             it: NodeIter::new(&self.root, self.size),
         }
@@ -354,18 +368,19 @@ impl<K, V, S> HashMap<K, V, S> {
     /// ```
     pub fn clear(&mut self) {
         if !self.is_empty() {
-            self.root = PoolRef::default(&self.pool.0);
+            self.root = SharedPointer::default();
             self.size = 0;
         }
     }
 }
 
-impl<K, V, S> HashMap<K, V, S>
+impl<K, V, S, P> HashMap<K, V, S, P>
 where
     K: Hash + Eq,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
-    fn test_eq(&self, other: &Self) -> bool
+    fn test_eq<S2: BuildHasher, P2: SharedPointerKind>(&self, other: &HashMap<K, V, S2, P2>) -> bool
     where
         V: PartialEq,
     {
@@ -474,10 +489,10 @@ where
     ///
     /// Time: O(n log n)
     #[must_use]
-    pub fn is_submap_by<B, RM, F>(&self, other: RM, mut cmp: F) -> bool
+    pub fn is_submap_by<B, RM, F, P2: SharedPointerKind>(&self, other: RM, mut cmp: F) -> bool
     where
         F: FnMut(&V, &B) -> bool,
-        RM: Borrow<HashMap<K, B, S>>,
+        RM: Borrow<HashMap<K, B, S, P2>>,
     {
         self.iter()
             .all(|(k, v)| other.borrow().get(k).map(|ov| cmp(v, ov)).unwrap_or(false))
@@ -492,10 +507,10 @@ where
     ///
     /// Time: O(n log n)
     #[must_use]
-    pub fn is_proper_submap_by<B, RM, F>(&self, other: RM, cmp: F) -> bool
+    pub fn is_proper_submap_by<B, RM, F, P2: SharedPointerKind>(&self, other: RM, cmp: F) -> bool
     where
         F: FnMut(&V, &B) -> bool,
-        RM: Borrow<HashMap<K, B, S>>,
+        RM: Borrow<HashMap<K, B, S, P2>>,
     {
         self.len() != other.borrow().len() && self.is_submap_by(other, cmp)
     }
@@ -556,11 +571,12 @@ where
     }
 }
 
-impl<K, V, S> HashMap<K, V, S>
+impl<K, V, S, P> HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     /// Get a mutable iterator over the values of a hash map.
     ///
@@ -571,8 +587,8 @@ where
     /// the same map.
     #[inline]
     #[must_use]
-    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V, P> {
+        let root = SharedPointer::make_mut(&mut self.root);
         IterMut {
             it: NodeIterMut::new(&self.pool.0, root, self.size),
         }
@@ -603,7 +619,7 @@ where
         BK: Hash + Eq + ?Sized,
         K: Borrow<BK>,
     {
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+        let root = SharedPointer::make_mut(&mut self.root);
         match root.get_mut(&self.pool.0, hash_key(&*self.hasher, key), 0, key) {
             None => None,
             Some(&mut (_, ref mut value)) => Some(value),
@@ -633,7 +649,7 @@ where
     #[inline]
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
         let hash = hash_key(&*self.hasher, &k);
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+        let root = SharedPointer::make_mut(&mut self.root);
         let result = root.insert(&self.pool.0, hash, 0, (k, v));
         if result.is_none() {
             self.size += 1;
@@ -690,7 +706,7 @@ where
         BK: Hash + Eq + ?Sized,
         K: Borrow<BK>,
     {
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+        let root = SharedPointer::make_mut(&mut self.root);
         let result = root.remove(&self.pool.0, hash_key(&*self.hasher, k), 0, k);
         if result.is_some() {
             self.size -= 1;
@@ -704,7 +720,7 @@ where
     ///
     /// [Entry]: enum.Entry.html
     #[must_use]
-    pub fn entry(&mut self, key: K) -> Entry<'_, K, V, S> {
+    pub fn entry(&mut self, key: K) -> Entry<'_, K, V, S, P> {
         let hash = hash_key(&*self.hasher, &key);
         if self.root.get(hash, 0, &key).is_some() {
             Entry::Occupied(OccupiedEntry {
@@ -879,7 +895,7 @@ where
         F: FnMut(&K, &V) -> bool,
     {
         let old_root = self.root.clone();
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+        let root = SharedPointer::make_mut(&mut self.root);
         for ((key, value), hash) in NodeIter::new(&old_root, self.size) {
             if !f(key, value) && root.remove(&self.pool.0, hash, 0, key).is_some() {
                 self.size -= 1;
@@ -1263,10 +1279,10 @@ where
     ///
     /// ```
     /// # #[macro_use] extern crate imbl;
-    /// # use imbl::ordmap::OrdMap;
-    /// let map1 = ordmap!{1 => 1, 3 => 4};
-    /// let map2 = ordmap!{2 => 2, 3 => 5};
-    /// let expected = ordmap!{1 => 1};
+    /// # use imbl::hashmap::HashMap;
+    /// let map1 = hashmap!{1 => 1, 3 => 4};
+    /// let map2 = hashmap!{2 => 2, 3 => 5};
+    /// let expected = hashmap!{1 => 1};
     /// assert_eq!(expected, map1.relative_complement(map2));
     /// ```
     #[inline]
@@ -1306,7 +1322,11 @@ where
     /// Time: O(n log n)
     #[inline]
     #[must_use]
-    pub fn intersection_with<B, C, F>(self, other: HashMap<K, B, S>, mut f: F) -> HashMap<K, C, S>
+    pub fn intersection_with<B, C, F>(
+        self,
+        other: HashMap<K, B, S, P>,
+        mut f: F,
+    ) -> HashMap<K, C, S, P>
     where
         B: Clone,
         C: Clone,
@@ -1337,9 +1357,9 @@ where
     #[must_use]
     pub fn intersection_with_key<B, C, F>(
         mut self,
-        other: HashMap<K, B, S>,
+        other: HashMap<K, B, S, P>,
         mut f: F,
-    ) -> HashMap<K, C, S>
+    ) -> HashMap<K, C, S, P>
     where
         B: Clone,
         C: Clone,
@@ -1372,23 +1392,25 @@ where
 /// `Entry::or_insert()`) would need to hash the key once for the
 /// `contains_key` and again for the `insert`. The operations
 /// generally perform similarly otherwise.
-pub enum Entry<'a, K, V, S>
+pub enum Entry<'a, K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     /// An entry which exists in the map.
-    Occupied(OccupiedEntry<'a, K, V, S>),
+    Occupied(OccupiedEntry<'a, K, V, S, P>),
     /// An entry which doesn't exist in the map.
-    Vacant(VacantEntry<'a, K, V, S>),
+    Vacant(VacantEntry<'a, K, V, S, P>),
 }
 
-impl<'a, K, V, S> Entry<'a, K, V, S>
+impl<'a, K, V, S, P> Entry<'a, K, V, S, P>
 where
     K: 'a + Hash + Eq + Clone,
     V: 'a + Clone,
     S: 'a + BuildHasher,
+    P: SharedPointerKind,
 {
     /// Insert the default value provided if there was no value
     /// already, and return a mutable reference to the value.
@@ -1444,22 +1466,24 @@ where
 }
 
 /// An entry for a mapping that already exists in the map.
-pub struct OccupiedEntry<'a, K, V, S>
+pub struct OccupiedEntry<'a, K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
-    map: &'a mut HashMap<K, V, S>,
+    map: &'a mut HashMap<K, V, S, P>,
     hash: HashBits,
     key: K,
 }
 
-impl<'a, K, V, S> OccupiedEntry<'a, K, V, S>
+impl<'a, K, V, S, P> OccupiedEntry<'a, K, V, S, P>
 where
     K: 'a + Hash + Eq + Clone,
     V: 'a + Clone,
     S: 'a + BuildHasher,
+    P: SharedPointerKind,
 {
     /// Get the key for this entry.
     #[must_use]
@@ -1469,7 +1493,7 @@ where
 
     /// Remove this entry from the map and return the removed mapping.
     pub fn remove_entry(self) -> (K, V) {
-        let root = PoolRef::make_mut(&self.map.pool.0, &mut self.map.root);
+        let root = SharedPointer::make_mut(&mut self.map.root);
         let result = root.remove(&self.map.pool.0, self.hash, 0, &self.key);
         self.map.size -= 1;
         result.unwrap()
@@ -1484,7 +1508,7 @@ where
     /// Get a mutable reference to the current value.
     #[must_use]
     pub fn get_mut(&mut self) -> &mut V {
-        let root = PoolRef::make_mut(&self.map.pool.0, &mut self.map.root);
+        let root = SharedPointer::make_mut(&mut self.map.root);
         &mut root
             .get_mut(&self.map.pool.0, self.hash, 0, &self.key)
             .unwrap()
@@ -1494,7 +1518,7 @@ where
     /// Convert this entry into a mutable reference.
     #[must_use]
     pub fn into_mut(self) -> &'a mut V {
-        let root = PoolRef::make_mut(&self.map.pool.0, &mut self.map.root);
+        let root = SharedPointer::make_mut(&mut self.map.root);
         &mut root
             .get_mut(&self.map.pool.0, self.hash, 0, &self.key)
             .unwrap()
@@ -1513,22 +1537,24 @@ where
 }
 
 /// An entry for a mapping that does not already exist in the map.
-pub struct VacantEntry<'a, K, V, S>
+pub struct VacantEntry<'a, K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
-    map: &'a mut HashMap<K, V, S>,
+    map: &'a mut HashMap<K, V, S, P>,
     hash: HashBits,
     key: K,
 }
 
-impl<'a, K, V, S> VacantEntry<'a, K, V, S>
+impl<'a, K, V, S, P> VacantEntry<'a, K, V, S, P>
 where
     K: 'a + Hash + Eq + Clone,
     V: 'a + Clone,
     S: 'a + BuildHasher,
+    P: SharedPointerKind,
 {
     /// Get the key for this entry.
     #[must_use]
@@ -1544,7 +1570,7 @@ where
 
     /// Insert a value into this entry.
     pub fn insert(self, value: V) -> &'a mut V {
-        let root = PoolRef::make_mut(&self.map.pool.0, &mut self.map.root);
+        let root = SharedPointer::make_mut(&mut self.map.root);
         if root
             .insert(&self.map.pool.0, self.hash, 0, (self.key.clone(), value))
             .is_none()
@@ -1562,10 +1588,11 @@ where
 
 // Core traits
 
-impl<K, V, S> Clone for HashMap<K, V, S>
+impl<K, V, S, P> Clone for HashMap<K, V, S, P>
 where
     K: Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
     /// Clone a map.
     ///
@@ -1582,100 +1609,110 @@ where
 }
 
 #[cfg(not(has_specialisation))]
-impl<K, V, S> PartialEq for HashMap<K, V, S>
+impl<K, V, S, P1, P2> PartialEq<HashMap<K, V, S, P2>> for HashMap<K, V, S, P1>
 where
     K: Hash + Eq,
     V: PartialEq,
     S: BuildHasher,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, other: &HashMap<K, V, S, P2>) -> bool {
         self.test_eq(other)
     }
 }
 
 #[cfg(has_specialisation)]
-impl<K, V, S> PartialEq for HashMap<K, V, S>
+impl<K, V, S, P1, P2> PartialEq<HashMap<K, V, S, P2>> for HashMap<K, V, S, P1>
 where
     K: Hash + Eq,
     V: PartialEq,
     S: BuildHasher,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    default fn eq(&self, other: &Self) -> bool {
+    default fn eq(&self, other: &HashMap<K, V, S, P2>) -> bool {
         self.test_eq(other)
     }
 }
 
 #[cfg(has_specialisation)]
-impl<K, V, S> PartialEq for HashMap<K, V, S>
+impl<K, V, S, P1, P2> PartialEq for HashMap<K, V, S, P>
 where
     K: Hash + Eq,
     V: Eq,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     fn eq(&self, other: &Self) -> bool {
-        if PoolRef::ptr_eq(&self.root, &other.root) {
+        if SharedPointer::ptr_eq(&self.root, &other.root) {
             return true;
         }
         self.test_eq(other)
     }
 }
 
-impl<K, V, S> Eq for HashMap<K, V, S>
+impl<K, V, S, P> Eq for HashMap<K, V, S, P>
 where
     K: Hash + Eq,
     V: Eq,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
 }
 
-impl<K, V, S> Default for HashMap<K, V, S>
+impl<K, V, S, P> Default for HashMap<K, V, S, P>
 where
-    S: BuildHasher + Default,
+    S: Default,
+    P: SharedPointerKind,
 {
     #[inline]
     fn default() -> Self {
         let pool = HashMapPool::default();
-        let root = PoolRef::default(&pool.0);
+        let root = SharedPointer::default();
         HashMap {
             size: 0,
             pool,
             root,
-            hasher: Ref::<S>::default(),
+            hasher: SharedPointer::default(),
         }
     }
 }
 
-impl<K, V, S> Add for HashMap<K, V, S>
+impl<K, V, S, P> Add for HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
-    type Output = HashMap<K, V, S>;
+    type Output = HashMap<K, V, S, P>;
 
     fn add(self, other: Self) -> Self::Output {
         self.union(other)
     }
 }
 
-impl<'a, K, V, S> Add for &'a HashMap<K, V, S>
+impl<'a, K, V, S, P> Add for &'a HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
-    type Output = HashMap<K, V, S>;
+    type Output = HashMap<K, V, S, P>;
 
     fn add(self, other: Self) -> Self::Output {
         self.clone().union(other.clone())
     }
 }
 
-impl<K, V, S> Sum for HashMap<K, V, S>
+impl<K, V, S, P> Sum for HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn sum<I>(it: I) -> Self
     where
@@ -1685,11 +1722,12 @@ where
     }
 }
 
-impl<K, V, S, RK, RV> Extend<(RK, RV)> for HashMap<K, V, S>
+impl<K, V, S, RK, RV, P> Extend<(RK, RV)> for HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone + From<RK>,
     V: Clone + From<RV>,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     fn extend<I>(&mut self, iter: I)
     where
@@ -1701,11 +1739,12 @@ where
     }
 }
 
-impl<'a, BK, K, V, S> Index<&'a BK> for HashMap<K, V, S>
+impl<'a, BK, K, V, S, P> Index<&'a BK> for HashMap<K, V, S, P>
 where
     BK: Hash + Eq + ?Sized,
     K: Hash + Eq + Borrow<BK>,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     type Output = V;
 
@@ -1717,15 +1756,16 @@ where
     }
 }
 
-impl<'a, BK, K, V, S> IndexMut<&'a BK> for HashMap<K, V, S>
+impl<'a, BK, K, V, S, P> IndexMut<&'a BK> for HashMap<K, V, S, P>
 where
     BK: Hash + Eq + ?Sized,
     K: Hash + Eq + Clone + Borrow<BK>,
     V: Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     fn index_mut(&mut self, key: &BK) -> &mut Self::Output {
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+        let root = SharedPointer::make_mut(&mut self.root);
         match root.get_mut(&self.pool.0, hash_key(&*self.hasher, key), 0, key) {
             None => panic!("HashMap::index_mut: invalid key"),
             Some(&mut (_, ref mut value)) => value,
@@ -1734,10 +1774,11 @@ where
 }
 
 #[cfg(not(has_specialisation))]
-impl<K, V, S> Debug for HashMap<K, V, S>
+impl<K, V, S, P> Debug for HashMap<K, V, S, P>
 where
     K: Debug,
     V: Debug,
+    P: SharedPointerKind,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         let mut d = f.debug_map();
@@ -1749,10 +1790,11 @@ where
 }
 
 #[cfg(has_specialisation)]
-impl<K, V, S> Debug for HashMap<K, V, S>
+impl<K, V, S, P> Debug for HashMap<K, V, S, P>
 where
     K: Debug,
     V: Debug,
+    P: SharedPointerKind,
 {
     default fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         let mut d = f.debug_map();
@@ -1764,10 +1806,11 @@ where
 }
 
 #[cfg(has_specialisation)]
-impl<K, V, S> Debug for HashMap<K, V, S>
+impl<K, V, S, P> Debug for HashMap<K, V, S, P>
 where
     K: Ord + Debug,
     V: Debug,
+    P: SharedPointerKind,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         let mut keys = collections::BTreeSet::new();
@@ -1783,12 +1826,12 @@ where
 // // Iterators
 
 /// An iterator over the elements of a map.
-pub struct Iter<'a, K, V> {
-    it: NodeIter<'a, (K, V)>,
+pub struct Iter<'a, K, V, P: SharedPointerKind> {
+    it: NodeIter<'a, (K, V), P>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
-impl<'a, K, V> Clone for Iter<'a, K, V> {
+impl<'a, K, V, P: SharedPointerKind> Clone for Iter<'a, K, V, P> {
     fn clone(&self) -> Self {
         Iter {
             it: self.it.clone(),
@@ -1796,7 +1839,7 @@ impl<'a, K, V> Clone for Iter<'a, K, V> {
     }
 }
 
-impl<'a, K, V> Iterator for Iter<'a, K, V> {
+impl<'a, K, V, P: SharedPointerKind> Iterator for Iter<'a, K, V, P> {
     type Item = (&'a K, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1808,23 +1851,25 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> {}
+impl<'a, K, V, P: SharedPointerKind> ExactSizeIterator for Iter<'a, K, V, P> {}
 
-impl<'a, K, V> FusedIterator for Iter<'a, K, V> {}
+impl<'a, K, V, P: SharedPointerKind> FusedIterator for Iter<'a, K, V, P> {}
 
 /// A mutable iterator over the elements of a map.
-pub struct IterMut<'a, K, V>
+pub struct IterMut<'a, K, V, P>
 where
     K: Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
-    it: NodeIterMut<'a, (K, V)>,
+    it: NodeIterMut<'a, (K, V), P>,
 }
 
-impl<'a, K, V> Iterator for IterMut<'a, K, V>
+impl<'a, K, V, P> Iterator for IterMut<'a, K, V, P>
 where
     K: Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
     type Item = (&'a K, &'a mut V);
 
@@ -1837,26 +1882,28 @@ where
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for IterMut<'a, K, V>
+impl<'a, K, V, P> ExactSizeIterator for IterMut<'a, K, V, P>
 where
     K: Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
 }
 
-impl<'a, K, V> FusedIterator for IterMut<'a, K, V>
+impl<'a, K, V, P> FusedIterator for IterMut<'a, K, V, P>
 where
     K: Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
 }
 
 /// A consuming iterator over the elements of a map.
-pub struct ConsumingIter<A: HashValue> {
-    it: NodeDrain<A>,
+pub struct ConsumingIter<A: HashValue, P: SharedPointerKind> {
+    it: NodeDrain<A, P>,
 }
 
-impl<A> Iterator for ConsumingIter<A>
+impl<A, P: SharedPointerKind> Iterator for ConsumingIter<A, P>
 where
     A: HashValue + Clone,
 {
@@ -1871,16 +1918,26 @@ where
     }
 }
 
-impl<A> ExactSizeIterator for ConsumingIter<A> where A: HashValue + Clone {}
-
-impl<A> FusedIterator for ConsumingIter<A> where A: HashValue + Clone {}
-
-/// An iterator over the keys of a map.
-pub struct Keys<'a, K, V> {
-    it: NodeIter<'a, (K, V)>,
+impl<A, P> ExactSizeIterator for ConsumingIter<A, P>
+where
+    A: HashValue + Clone,
+    P: SharedPointerKind,
+{
 }
 
-impl<'a, K, V> Iterator for Keys<'a, K, V> {
+impl<A, P> FusedIterator for ConsumingIter<A, P>
+where
+    A: HashValue + Clone,
+    P: SharedPointerKind,
+{
+}
+
+/// An iterator over the keys of a map.
+pub struct Keys<'a, K, V, P: SharedPointerKind> {
+    it: NodeIter<'a, (K, V), P>,
+}
+
+impl<'a, K, V, P: SharedPointerKind> Iterator for Keys<'a, K, V, P> {
     type Item = &'a K;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1892,16 +1949,16 @@ impl<'a, K, V> Iterator for Keys<'a, K, V> {
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for Keys<'a, K, V> {}
+impl<'a, K, V, P: SharedPointerKind> ExactSizeIterator for Keys<'a, K, V, P> {}
 
-impl<'a, K, V> FusedIterator for Keys<'a, K, V> {}
+impl<'a, K, V, P: SharedPointerKind> FusedIterator for Keys<'a, K, V, P> {}
 
 /// An iterator over the values of a map.
-pub struct Values<'a, K, V> {
-    it: NodeIter<'a, (K, V)>,
+pub struct Values<'a, K, V, P: SharedPointerKind> {
+    it: NodeIter<'a, (K, V), P>,
 }
 
-impl<'a, K, V> Iterator for Values<'a, K, V> {
+impl<'a, K, V, P: SharedPointerKind> Iterator for Values<'a, K, V, P> {
     type Item = &'a V;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1913,13 +1970,13 @@ impl<'a, K, V> Iterator for Values<'a, K, V> {
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for Values<'a, K, V> {}
+impl<'a, K, V, P: SharedPointerKind> ExactSizeIterator for Values<'a, K, V, P> {}
 
-impl<'a, K, V> FusedIterator for Values<'a, K, V> {}
+impl<'a, K, V, P: SharedPointerKind> FusedIterator for Values<'a, K, V, P> {}
 
-impl<'a, K, V, S> IntoIterator for &'a HashMap<K, V, S> {
+impl<'a, K, V, S, P: SharedPointerKind> IntoIterator for &'a HashMap<K, V, S, P> {
     type Item = (&'a K, &'a V);
-    type IntoIter = Iter<'a, K, V>;
+    type IntoIter = Iter<'a, K, V, P>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -1927,14 +1984,15 @@ impl<'a, K, V, S> IntoIterator for &'a HashMap<K, V, S> {
     }
 }
 
-impl<K, V, S> IntoIterator for HashMap<K, V, S>
+impl<K, V, S, P> IntoIterator for HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     type Item = (K, V);
-    type IntoIter = ConsumingIter<(K, V)>;
+    type IntoIter = ConsumingIter<(K, V), P>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -1946,11 +2004,12 @@ where
 
 // Conversions
 
-impl<K, V, S> FromIterator<(K, V)> for HashMap<K, V, S>
+impl<K, V, S, P> FromIterator<(K, V)> for HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from_iter<T>(i: T) -> Self
     where
@@ -1964,14 +2023,15 @@ where
     }
 }
 
-impl<K, V, S> AsRef<HashMap<K, V, S>> for HashMap<K, V, S> {
+impl<K, V, S, P: SharedPointerKind> AsRef<HashMap<K, V, S, P>> for HashMap<K, V, S, P> {
     #[inline]
     fn as_ref(&self) -> &Self {
         self
     }
 }
 
-impl<'m, 'k, 'v, K, V, OK, OV, SA, SB> From<&'m HashMap<&'k K, &'v V, SA>> for HashMap<OK, OV, SB>
+impl<'m, 'k, 'v, K, V, OK, OV, SA, SB, P1, P2> From<&'m HashMap<&'k K, &'v V, SA, P1>>
+    for HashMap<OK, OV, SB, P2>
 where
     K: Hash + Eq + ToOwned<Owned = OK> + ?Sized,
     V: ToOwned<Owned = OV> + ?Sized,
@@ -1979,85 +2039,96 @@ where
     OV: Borrow<V> + Clone,
     SA: BuildHasher,
     SB: BuildHasher + Default,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    fn from(m: &HashMap<&K, &V, SA>) -> Self {
+    fn from(m: &HashMap<&K, &V, SA, P1>) -> Self {
         m.iter()
             .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
             .collect()
     }
 }
 
-impl<'a, K, V, S> From<&'a [(K, V)]> for HashMap<K, V, S>
+impl<'a, K, V, S, P> From<&'a [(K, V)]> for HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(m: &'a [(K, V)]) -> Self {
         m.iter().cloned().collect()
     }
 }
 
-impl<K, V, S> From<Vec<(K, V)>> for HashMap<K, V, S>
+impl<K, V, S, P> From<Vec<(K, V)>> for HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(m: Vec<(K, V)>) -> Self {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K, V, S> From<&'a Vec<(K, V)>> for HashMap<K, V, S>
+impl<'a, K, V, S, P> From<&'a Vec<(K, V)>> for HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(m: &'a Vec<(K, V)>) -> Self {
         m.iter().cloned().collect()
     }
 }
 
-impl<K, V, S> From<collections::HashMap<K, V>> for HashMap<K, V, S>
+impl<K, V, S1, S2, P> From<collections::HashMap<K, V, S2>> for HashMap<K, V, S1, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
-    S: BuildHasher + Default,
+    S1: BuildHasher + Default,
+    S2: BuildHasher,
+    P: SharedPointerKind,
 {
-    fn from(m: collections::HashMap<K, V>) -> Self {
+    fn from(m: collections::HashMap<K, V, S2>) -> Self {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K, V, S> From<&'a collections::HashMap<K, V>> for HashMap<K, V, S>
+impl<'a, K, V, S1, S2, P> From<&'a collections::HashMap<K, V, S2>> for HashMap<K, V, S1, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
-    S: BuildHasher + Default,
+    S1: BuildHasher + Default,
+    S2: BuildHasher,
+    P: SharedPointerKind,
 {
-    fn from(m: &'a collections::HashMap<K, V>) -> Self {
+    fn from(m: &'a collections::HashMap<K, V, S2>) -> Self {
         m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 }
 
-impl<K, V, S> From<collections::BTreeMap<K, V>> for HashMap<K, V, S>
+impl<K, V, S, P> From<collections::BTreeMap<K, V>> for HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(m: collections::BTreeMap<K, V>) -> Self {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K, V, S> From<&'a collections::BTreeMap<K, V>> for HashMap<K, V, S>
+impl<'a, K, V, S, P> From<&'a collections::BTreeMap<K, V>> for HashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(m: &'a collections::BTreeMap<K, V>) -> Self {
         m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
@@ -2121,15 +2192,16 @@ mod test {
 
     #[test]
     fn index_operator() {
-        let mut map = hashmap![1 => 2, 3 => 4, 5 => 6];
+        let mut map: HashMap<usize, usize> = hashmap![1 => 2, 3 => 4, 5 => 6];
         assert_eq!(4, map[&3]);
         map[&3] = 8;
-        assert_eq!(hashmap![1 => 2, 3 => 8, 5 => 6], map);
+        let target_map: HashMap<usize, usize> = hashmap![1 => 2, 3 => 8, 5 => 6];
+        assert_eq!(target_map, map);
     }
 
     #[test]
     fn proper_formatting() {
-        let map = hashmap![1 => 2];
+        let map: HashMap<usize, usize> = hashmap![1 => 2];
         assert_eq!("{1: 2}", format!("{:?}", map));
 
         assert_eq!("{}", format!("{:?}", HashMap::<(), ()>::new()));
@@ -2159,8 +2231,8 @@ mod test {
 
     #[test]
     fn match_string_keys_with_string_slices() {
-        let mut map: HashMap<String, i32> =
-            From::from(&hashmap! { "foo" => &1, "bar" => &2, "baz" => &3 });
+        let tmp_map: HashMap<&str, &i32> = hashmap! { "foo" => &1, "bar" => &2, "baz" => &3 };
+        let mut map: HashMap<String, i32> = From::from(&tmp_map);
         assert_eq!(Some(&1), map.get("foo"));
         map = map.without("foo");
         assert_eq!(Some(3), map.remove("baz"));
@@ -2170,8 +2242,8 @@ mod test {
 
     #[test]
     fn macro_allows_trailing_comma() {
-        let map1 = hashmap! {"x" => 1, "y" => 2};
-        let map2 = hashmap! {
+        let map1: HashMap<&str, i32> = hashmap! {"x" => 1, "y" => 2};
+        let map2: HashMap<&str, i32> = hashmap! {
             "x" => 1,
             "y" => 2,
         };
@@ -2198,7 +2270,7 @@ mod test {
 
     #[test]
     fn entry_api() {
-        let mut map = hashmap! {"bar" => 5};
+        let mut map: HashMap<&str, i32> = hashmap! {"bar" => 5};
         map.entry("foo").and_modify(|v| *v += 5).or_insert(1);
         assert_eq!(1, map[&"foo"]);
         map.entry("foo").and_modify(|v| *v += 5).or_insert(1);
@@ -2222,7 +2294,7 @@ mod test {
 
     #[test]
     fn large_map() {
-        let mut map = HashMap::new();
+        let mut map = HashMap::<_, _>::new();
         let size = 32769;
         for i in 0..size {
             map.insert(i, i);

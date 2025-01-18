@@ -122,7 +122,7 @@ proptest! {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn comprehensive(actions: Actions<u8>) {
-        let mut vec = Vector::new();
+        let mut vec = Vector::<_>::new();
         let mut nat = Vec::new();
         vec.assert_invariants();
         for action in actions.0 {
@@ -222,7 +222,7 @@ proptest! {
 #[test]
 fn test_inserts() {
     const N: usize = if cfg!(miri) { 100 } else { 2000 };
-    let mut v = Vector::new();
+    let mut v = Vector::<_>::new();
     for i in 0..N {
         v.insert(v.len() / 2, i);
     }

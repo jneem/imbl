@@ -8,12 +8,13 @@ use ::rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
-impl<'a, A> IntoParallelRefIterator<'a> for Vector<A>
+impl<'a, A, P: SharedPointerKind> IntoParallelRefIterator<'a> for Vector<A, P>
 where
     A: Clone + Send + Sync + 'a,
+    P: SharedPointerKind + Send + 'a,
 {
     type Item = &'a A;
-    type Iter = ParIter<'a, A>;
+    type Iter = ParIter<'a, A, P>;
 
     fn par_iter(&'a self) -> Self::Iter {
         ParIter {
@@ -22,12 +23,13 @@ where
     }
 }
 
-impl<'a, A> IntoParallelRefMutIterator<'a> for Vector<A>
+impl<'a, A, P> IntoParallelRefMutIterator<'a> for Vector<A, P>
 where
     A: Clone + Send + Sync + 'a,
+    P: SharedPointerKind + Send + Sync + 'a,
 {
     type Item = &'a mut A;
-    type Iter = ParIterMut<'a, A>;
+    type Iter = ParIterMut<'a, A, P>;
 
     fn par_iter_mut(&'a mut self) -> Self::Iter {
         ParIterMut {
@@ -39,16 +41,17 @@ where
 /// A parallel iterator for [`Vector`][Vector].
 ///
 /// [Vector]: ../struct.Vector.html
-pub struct ParIter<'a, A>
+pub struct ParIter<'a, A, P: SharedPointerKind>
 where
     A: Clone + Send + Sync,
 {
-    focus: Focus<'a, A>,
+    focus: Focus<'a, A, P>,
 }
 
-impl<'a, A> ParallelIterator for ParIter<'a, A>
+impl<'a, A, P> ParallelIterator for ParIter<'a, A, P>
 where
     A: Clone + Send + Sync + 'a,
+    P: SharedPointerKind + Send + 'a,
 {
     type Item = &'a A;
 
@@ -60,9 +63,10 @@ where
     }
 }
 
-impl<'a, A> IndexedParallelIterator for ParIter<'a, A>
+impl<'a, A, P> IndexedParallelIterator for ParIter<'a, A, P>
 where
     A: Clone + Send + Sync + 'a,
+    P: SharedPointerKind + Send + 'a,
 {
     fn drive<C>(self, consumer: C) -> C::Result
     where
@@ -86,16 +90,18 @@ where
 /// A mutable parallel iterator for [`Vector`][Vector].
 ///
 /// [Vector]: ../struct.Vector.html
-pub struct ParIterMut<'a, A>
+pub struct ParIterMut<'a, A, P>
 where
     A: Clone + Send + Sync,
+    P: SharedPointerKind,
 {
-    focus: FocusMut<'a, A>,
+    focus: FocusMut<'a, A, P>,
 }
 
-impl<'a, A> ParallelIterator for ParIterMut<'a, A>
+impl<'a, A, P> ParallelIterator for ParIterMut<'a, A, P>
 where
     A: Clone + Send + Sync + 'a,
+    P: SharedPointerKind + Send + Sync,
 {
     type Item = &'a mut A;
 
@@ -107,9 +113,10 @@ where
     }
 }
 
-impl<'a, A> IndexedParallelIterator for ParIterMut<'a, A>
+impl<'a, A, P> IndexedParallelIterator for ParIterMut<'a, A, P>
 where
     A: Clone + Send + Sync + 'a,
+    P: SharedPointerKind + Send + Sync,
 {
     fn drive<C>(self, consumer: C) -> C::Result
     where
@@ -130,19 +137,21 @@ where
     }
 }
 
-struct VectorProducer<'a, A>
+struct VectorProducer<'a, A, P>
 where
     A: Clone + Send + Sync,
+    P: SharedPointerKind,
 {
-    focus: Focus<'a, A>,
+    focus: Focus<'a, A, P>,
 }
 
-impl<'a, A> Producer for VectorProducer<'a, A>
+impl<'a, A, P> Producer for VectorProducer<'a, A, P>
 where
     A: Clone + Send + Sync + 'a,
+    P: SharedPointerKind + Send + 'a,
 {
     type Item = &'a A;
-    type IntoIter = Iter<'a, A>;
+    type IntoIter = Iter<'a, A, P>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.focus.into_iter()
@@ -157,19 +166,21 @@ where
     }
 }
 
-struct VectorMutProducer<'a, A>
+struct VectorMutProducer<'a, A, P>
 where
     A: Clone + Send + Sync,
+    P: SharedPointerKind,
 {
-    focus: FocusMut<'a, A>,
+    focus: FocusMut<'a, A, P>,
 }
 
-impl<'a, A> Producer for VectorMutProducer<'a, A>
+impl<'a, A, P> Producer for VectorMutProducer<'a, A, P>
 where
     A: Clone + Send + Sync + 'a,
+    P: SharedPointerKind + Send + Sync,
 {
     type Item = &'a mut A;
-    type IntoIter = IterMut<'a, A>;
+    type IntoIter = IterMut<'a, A, P>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.focus.into_iter()

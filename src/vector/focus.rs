@@ -8,9 +8,11 @@ use std::ptr::null;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::{mem, ptr};
 
+use archery::{SharedPointer, SharedPointerKind};
+
 use crate::nodes::chunk::Chunk;
 use crate::sync::Lock;
-use crate::util::{to_range, PoolRef, Ref};
+use crate::util::to_range;
 use crate::vector::{
     Iter, IterMut, RRBPool, Vector,
     VectorInner::{Full, Inline, Single},
@@ -96,23 +98,23 @@ fn check_indices<const N: usize>(len: usize, indices: &[usize; N]) -> Option<()>
 /// [Iter]: struct.Iter.html
 /// [narrow]: #method.narrow
 /// [split_at]: #method.split_at
-pub enum Focus<'a, A> {
+pub enum Focus<'a, A, P: SharedPointerKind> {
     #[doc(hidden)]
     /// The Single variant is a focus of a simple Vector that can be represented as a single slice.
     Single(&'a [A]),
     #[doc(hidden)]
     /// The Full variant is a focus of a more complex Vector that cannot be represented as a single slice.
-    Full(TreeFocus<A>),
+    Full(TreeFocus<A, P>),
 }
 
-impl<'a, A> Focus<'a, A>
+impl<'a, A, P: SharedPointerKind> Focus<'a, A, P>
 where
     A: 'a,
 {
     /// Construct a `Focus` for a [`Vector`][Vector].
     ///
     /// [Vector]: enum.Vector.html
-    pub fn new(vector: &'a Vector<A>) -> Self {
+    pub fn new(vector: &'a Vector<A, P>) -> Self {
         match &vector.vector {
             Inline(_, chunk) => Focus::Single(chunk),
             Single(_, chunk) => Focus::Single(chunk),
@@ -180,9 +182,9 @@ where
     /// # #[macro_use] extern crate imbl;
     /// # use imbl::vector::Vector;
     /// # use std::iter::FromIterator;
-    /// let vec = Vector::from_iter(0..1000);
+    /// let vec: Vector<i64> = Vector::from_iter(0..1000);
     /// let narrowed = vec.focus().narrow(100..200);
-    /// let narrowed_vec = narrowed.into_iter().cloned().collect();
+    /// let narrowed_vec: Vector<i64> = narrowed.into_iter().cloned().collect();
     /// assert_eq!(Vector::from_iter(100..200), narrowed_vec);
     /// ```
     ///
@@ -221,10 +223,10 @@ where
     /// # #[macro_use] extern crate imbl;
     /// # use imbl::vector::Vector;
     /// # use std::iter::FromIterator;
-    /// let vec = Vector::from_iter(0..1000);
+    /// let vec: Vector<i64> = Vector::from_iter(0..1000);
     /// let (left, right) = vec.focus().split_at(500);
-    /// let left_vec = left.into_iter().cloned().collect();
-    /// let right_vec = right.into_iter().cloned().collect();
+    /// let left_vec: Vector<i64> = left.into_iter().cloned().collect();
+    /// let right_vec: Vector<i64> = right.into_iter().cloned().collect();
     /// assert_eq!(Vector::from_iter(0..500), left_vec);
     /// assert_eq!(Vector::from_iter(500..1000), right_vec);
     /// ```
@@ -248,19 +250,19 @@ where
     }
 }
 
-impl<'a, A> IntoIterator for Focus<'a, A>
+impl<'a, A, P: SharedPointerKind + 'a> IntoIterator for Focus<'a, A, P>
 where
     A: Clone + 'a,
 {
     type Item = &'a A;
-    type IntoIter = Iter<'a, A>;
+    type IntoIter = Iter<'a, A, P>;
 
     fn into_iter(self) -> Self::IntoIter {
         Iter::from_focus(self)
     }
 }
 
-impl<'a, A> Clone for Focus<'a, A>
+impl<'a, A, P: SharedPointerKind> Clone for Focus<'a, A, P>
 where
     A: Clone + 'a,
 {
@@ -272,10 +274,10 @@ where
     }
 }
 
-pub struct TreeFocus<A> {
+pub struct TreeFocus<A, P: SharedPointerKind> {
     /// A clone of the Vector's internal tree that this focus points to. A clone ensures that we don't require a
     /// reference to the original tree.
-    tree: RRB<A>,
+    tree: RRB<A, P>,
     /// The view represents the range of the tree that this TreeFocus can see. The view can be narrowed by calling
     /// either the narrow or split_at methods.
     view: Range<usize>,
@@ -289,7 +291,7 @@ pub struct TreeFocus<A> {
     target_ptr: *const Chunk<A>,
 }
 
-impl<A> Clone for TreeFocus<A> {
+impl<A, P: SharedPointerKind> Clone for TreeFocus<A, P> {
     fn clone(&self) -> Self {
         let tree = self.tree.clone();
         TreeFocus {
@@ -302,17 +304,17 @@ impl<A> Clone for TreeFocus<A> {
     }
 }
 
-unsafe impl<A: Send> Send for TreeFocus<A> {}
-unsafe impl<A: Sync> Sync for TreeFocus<A> {}
+unsafe impl<A: Send, P: SharedPointerKind + Send> Send for TreeFocus<A, P> {}
+unsafe impl<A: Sync, P: SharedPointerKind + Sync> Sync for TreeFocus<A, P> {}
 
 #[inline]
 fn contains<A: Ord>(range: &Range<A>, index: &A) -> bool {
     *index >= range.start && *index < range.end
 }
 
-impl<A> TreeFocus<A> {
+impl<A, P: SharedPointerKind> TreeFocus<A, P> {
     /// Creates a new TreeFocus for a Vector's RRB tree.
-    fn new(tree: &RRB<A>) -> Self {
+    fn new(tree: &RRB<A, P>) -> Self {
         let middle_start = tree.outer_f.len() + tree.inner_f.len();
         let middle_end = middle_start + tree.middle.len();
         TreeFocus {
@@ -445,7 +447,7 @@ impl<A> TreeFocus<A> {
 /// # #[macro_use] extern crate imbl;
 /// # use imbl::vector::Vector;
 /// # use std::iter::FromIterator;
-/// let mut vec = Vector::from_iter(0..1000);
+/// let mut vec: Vector<i64> = Vector::from_iter(0..1000);
 /// let focus1 = vec.focus_mut();
 /// // Fails here in 2015 edition because you're creating
 /// // two mutable references to the same thing.
@@ -462,7 +464,7 @@ impl<A> TreeFocus<A> {
 /// # #[macro_use] extern crate imbl;
 /// # use imbl::vector::Vector;
 /// # use std::iter::FromIterator;
-/// let mut vec = Vector::from_iter(0..1000);
+/// let mut vec: Vector<i64> = Vector::from_iter(0..1000);
 /// let focus = vec.focus_mut();
 /// let (mut left, mut right) = focus.split_at(500);
 /// assert_eq!(Some(&0), left.get(0));
@@ -476,7 +478,7 @@ impl<A> TreeFocus<A> {
 /// # #[macro_use] extern crate imbl;
 /// # use imbl::vector::Vector;
 /// # use std::iter::FromIterator;
-/// let mut vec = Vector::from_iter(0..1000);
+/// let mut vec: Vector<i64> = Vector::from_iter(0..1000);
 /// let (left, right) = {
 ///     let focus = vec.focus_mut();
 ///     focus.split_at(500)
@@ -488,16 +490,16 @@ impl<A> TreeFocus<A> {
 /// ```
 ///
 /// [Focus]: enum.Focus.html
-pub enum FocusMut<'a, A> {
+pub enum FocusMut<'a, A, P: SharedPointerKind> {
     #[doc(hidden)]
     /// The Single variant is a focusmut of a simple Vector that can be represented as a single slice.
-    Single(RRBPool<A>, &'a mut [A]),
+    Single(RRBPool<A, P>, &'a mut [A]),
     #[doc(hidden)]
     /// The Full variant is a focus of a more complex Vector that cannot be represented as a single slice.
-    Full(RRBPool<A>, TreeFocusMut<'a, A>),
+    Full(RRBPool<A, P>, TreeFocusMut<'a, A, P>),
 }
 
-impl<'a, A> FocusMut<'a, A>
+impl<'a, A, P: SharedPointerKind> FocusMut<'a, A, P>
 where
     A: 'a,
 {
@@ -527,9 +529,9 @@ where
     /// # #[macro_use] extern crate imbl;
     /// # use imbl::vector::Vector;
     /// # use std::iter::FromIterator;
-    /// let mut vec = Vector::from_iter(0..1000);
+    /// let mut vec: Vector<i64> = Vector::from_iter(0..1000);
     /// let narrowed = vec.focus_mut().narrow(100..200);
-    /// let narrowed_vec = narrowed.unmut().into_iter().cloned().collect();
+    /// let narrowed_vec: Vector<i64> = narrowed.unmut().into_iter().cloned().collect();
     /// assert_eq!(Vector::from_iter(100..200), narrowed_vec);
     /// ```
     ///
@@ -568,7 +570,7 @@ where
     /// # #[macro_use] extern crate imbl;
     /// # use imbl::vector::Vector;
     /// # use std::iter::FromIterator;
-    /// let mut vec = Vector::from_iter(0..1000);
+    /// let mut vec: Vector<i64> = Vector::from_iter(0..1000);
     /// {
     ///     let (left, right) = vec.focus_mut().split_at(500);
     ///     for ptr in left {
@@ -609,7 +611,7 @@ where
     }
 
     /// Convert a `FocusMut` into a `Focus`.
-    pub fn unmut(self) -> Focus<'a, A> {
+    pub fn unmut(self) -> Focus<'a, A, P> {
         match self {
             FocusMut::Single(_, chunk) => Focus::Single(chunk),
             FocusMut::Full(_, mut tree) => Focus::Full(TreeFocus {
@@ -626,18 +628,17 @@ where
     }
 }
 
-impl<'a, A> FocusMut<'a, A>
+impl<'a, A, P: SharedPointerKind> FocusMut<'a, A, P>
 where
     A: Clone + 'a,
 {
     /// Construct a `FocusMut` for a `Vector`.
-    pub fn new(vector: &'a mut Vector<A>) -> Self {
+    pub fn new(vector: &'a mut Vector<A, P>) -> Self {
         match &mut vector.vector {
             Inline(pool, chunk) => FocusMut::Single(pool.clone(), chunk),
-            Single(pool, chunk) => FocusMut::Single(
-                pool.clone(),
-                PoolRef::make_mut(&pool.value_pool, chunk).as_mut_slice(),
-            ),
+            Single(pool, chunk) => {
+                FocusMut::Single(pool.clone(), SharedPointer::make_mut(chunk).as_mut_slice())
+            }
             Full(pool, tree) => FocusMut::Full(pool.clone(), TreeFocusMut::new(tree)),
         }
     }
@@ -727,7 +728,7 @@ where
     /// # #[macro_use] extern crate imbl;
     /// # use imbl::vector::Vector;
     /// # use std::iter::FromIterator;
-    /// let mut vec = vector![1, 2, 3, 4, 5];
+    /// let mut vec: Vector<i64> = vector![1, 2, 3, 4, 5];
     /// vec.focus_mut().pair(1, 3, |a, b| *a += *b);
     /// assert_eq!(vector![1, 6, 3, 4, 5], vec);
     /// ```
@@ -755,7 +756,7 @@ where
     /// # #[macro_use] extern crate imbl;
     /// # use imbl::vector::Vector;
     /// # use std::iter::FromIterator;
-    /// let mut vec = vector![1, 2, 3, 4, 5];
+    /// let mut vec: Vector<i64> = vector![1, 2, 3, 4, 5];
     /// vec.focus_mut().triplet(0, 2, 4, |a, b, c| *a += *b + *c);
     /// assert_eq!(vector![9, 2, 3, 4, 5], vec);
     /// ```
@@ -789,34 +790,34 @@ where
     }
 }
 
-impl<'a, A> IntoIterator for FocusMut<'a, A>
+impl<'a, A, P: SharedPointerKind> IntoIterator for FocusMut<'a, A, P>
 where
     A: Clone + 'a,
 {
     type Item = &'a mut A;
-    type IntoIter = IterMut<'a, A>;
+    type IntoIter = IterMut<'a, A, P>;
 
     fn into_iter(self) -> Self::IntoIter {
         IterMut::from_focus(self)
     }
 }
 
-impl<'a, A> From<FocusMut<'a, A>> for Focus<'a, A>
+impl<'a, A, P: SharedPointerKind> From<FocusMut<'a, A, P>> for Focus<'a, A, P>
 where
     A: Clone + 'a,
 {
-    fn from(f: FocusMut<'a, A>) -> Focus<'a, A> {
+    fn from(f: FocusMut<'a, A, P>) -> Focus<'a, A, P> {
         f.unmut()
     }
 }
 
 // NOTE: The documentation the mutable version is similar to the non-mutable version. I will comment for the places
 // where there are differences, otherwise the documentation is copied directly.
-pub struct TreeFocusMut<'a, A> {
+pub struct TreeFocusMut<'a, A, P: SharedPointerKind> {
     /// The tree that this TreeFocusMut refers to. Unlike the non-mutable version, TreeFocusMut needs to store a
     /// mutable reference. Additionally, there may be multiple TreeFocusMuts that refer to the same tree so we need a
     /// Lock to synchronise the changes.
-    tree: Lock<&'a mut RRB<A>>,
+    tree: Lock<&'a mut RRB<A, P>>,
     /// The view represents the range of the tree that this TreeFocusMut can see. The view can be narrowed by calling
     /// either the narrow or split_at methods.
     view: Range<usize>,
@@ -832,12 +833,12 @@ pub struct TreeFocusMut<'a, A> {
     target_ptr: AtomicPtr<Chunk<A>>,
 }
 
-impl<'a, A> TreeFocusMut<'a, A>
+impl<'a, A, P: SharedPointerKind> TreeFocusMut<'a, A, P>
 where
     A: 'a,
 {
     /// Creates a new TreeFocusMut for a Vector's RRB tree.
-    fn new(tree: &'a mut RRB<A>) -> Self {
+    fn new(tree: &'a mut RRB<A, P>) -> Self {
         let middle_start = tree.outer_f.len() + tree.inner_f.len();
         let middle_end = middle_start + tree.middle.len();
         TreeFocusMut {
@@ -910,12 +911,12 @@ where
     }
 }
 
-impl<'a, A> TreeFocusMut<'a, A>
+impl<'a, A, P: SharedPointerKind> TreeFocusMut<'a, A, P>
 where
     A: Clone + 'a,
 {
     /// Sets the internal chunk to the one that contains the given absolute index.
-    fn set_focus(&mut self, pool: &RRBPool<A>, index: usize) {
+    fn set_focus(&mut self, pool: &RRBPool<A, P>, index: usize) {
         let mut tree = self
             .tree
             .lock()
@@ -925,13 +926,13 @@ where
             if index < outer_len {
                 self.target_range = 0..outer_len;
                 self.target_ptr.store(
-                    PoolRef::make_mut(&pool.value_pool, &mut tree.outer_f),
+                    SharedPointer::make_mut(&mut tree.outer_f),
                     Ordering::Relaxed,
                 );
             } else {
                 self.target_range = outer_len..self.middle_range.start;
                 self.target_ptr.store(
-                    PoolRef::make_mut(&pool.value_pool, &mut tree.inner_f),
+                    SharedPointer::make_mut(&mut tree.inner_f),
                     Ordering::Relaxed,
                 );
             }
@@ -940,20 +941,20 @@ where
             if index < outer_start {
                 self.target_range = self.middle_range.end..outer_start;
                 self.target_ptr.store(
-                    PoolRef::make_mut(&pool.value_pool, &mut tree.inner_b),
+                    SharedPointer::make_mut(&mut tree.inner_b),
                     Ordering::Relaxed,
                 );
             } else {
                 self.target_range = outer_start..tree.length;
                 self.target_ptr.store(
-                    PoolRef::make_mut(&pool.value_pool, &mut tree.outer_b),
+                    SharedPointer::make_mut(&mut tree.outer_b),
                     Ordering::Relaxed,
                 );
             }
         } else {
             let tree_index = index - self.middle_range.start;
             let level = tree.middle_level;
-            let middle = Ref::make_mut(&mut tree.middle);
+            let middle = SharedPointer::make_mut(&mut tree.middle);
             let (range, ptr) = middle.lookup_chunk_mut(pool, level, 0, tree_index);
             self.target_range =
                 (range.start + self.middle_range.start)..(range.end + self.middle_range.start);
@@ -962,7 +963,7 @@ where
     }
 
     /// Gets the value at the given index relative to the TreeFocusMut.
-    pub fn get(&mut self, pool: &RRBPool<A>, index: usize) -> Option<&mut A> {
+    pub fn get(&mut self, pool: &RRBPool<A, P>, index: usize) -> Option<&mut A> {
         if index >= self.len() {
             return None;
         }
@@ -976,7 +977,7 @@ where
 
     fn get_many<const N: usize>(
         &mut self,
-        pool: &RRBPool<A>,
+        pool: &RRBPool<A, P>,
         indices: [usize; N],
     ) -> Option<[&mut A; N]> {
         check_indices(self.len(), &indices)?;
@@ -995,7 +996,7 @@ where
     }
 
     /// Gets the chunk for an index as a slice and its corresponding range within the TreeFocusMut.
-    pub fn get_chunk(&mut self, pool: &RRBPool<A>, index: usize) -> (Range<usize>, &mut [A]) {
+    pub fn get_chunk(&mut self, pool: &RRBPool<A, P>, index: usize) -> (Range<usize>, &mut [A]) {
         let phys_index = self.physical_index(index);
         if !contains(&self.target_range, &phys_index) {
             self.set_focus(pool, phys_index);

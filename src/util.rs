@@ -7,30 +7,18 @@
 use std::cmp::Ordering;
 use std::ops::{Bound, Range, RangeBounds};
 
+use archery::{SharedPointer, SharedPointerKind};
 #[cfg(feature = "pool")]
 pub(crate) use refpool::{PoolClone, PoolDefault};
 
-// The `Ref` type is an alias for either `Rc` or `Arc`, user's choice.
-// FIXME: we have temporarily disabled `Rc`, so this is always `Arc`.
-// `Arc` without refpool
 pub(crate) use crate::fakepool::{Pool, PoolClone, PoolDefault};
 
-#[cfg(feature = "triomphe")]
-pub(crate) type Ref<A> = ::triomphe::Arc<A>;
-// `Ref` == `Arc` when threadsafe
-#[cfg(not(feature = "triomphe"))]
-pub(crate) type Ref<A> = std::sync::Arc<A>;
-
-#[cfg(feature = "triomphe")]
-pub(crate) use crate::fakepool::triomphe::Arc as PoolRef;
-#[cfg(not(feature = "triomphe"))]
-pub(crate) use crate::fakepool::Arc as PoolRef;
-
-pub(crate) fn clone_ref<A>(r: Ref<A>) -> A
+pub(crate) fn clone_ref<A, P>(r: SharedPointer<A, P>) -> A
 where
     A: Clone,
+    P: SharedPointerKind,
 {
-    Ref::try_unwrap(r).unwrap_or_else(|r| (*r).clone())
+    SharedPointer::try_unwrap(r).unwrap_or_else(|r| (*r).clone())
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -78,9 +66,9 @@ where
 macro_rules! def_pool {
     ($name:ident<$($arg:tt),*>, $pooltype:ty) => {
         /// A memory pool for the appropriate node type.
-        pub struct $name<$($arg,)*>(Pool<$pooltype>);
+        pub struct $name<$($arg,)* P: ::archery::SharedPointerKind>(Pool<$pooltype>);
 
-        impl<$($arg,)*> $name<$($arg,)*> {
+        impl<$($arg,)* P: ::archery::SharedPointerKind> $name<$($arg,)* P> {
             /// Create a new pool with the given size.
             pub fn new(size: usize) -> Self {
                 Self(Pool::new(size))
@@ -97,13 +85,13 @@ macro_rules! def_pool {
             }
         }
 
-        impl<$($arg,)*> Default for $name<$($arg,)*> {
+        impl<$($arg,)* P: ::archery::SharedPointerKind> Default for $name<$($arg,)* P> {
             fn default() -> Self {
                 Self::new($crate::config::POOL_SIZE)
             }
         }
 
-        impl<$($arg,)*> Clone for $name<$($arg,)*> {
+        impl<$($arg,)* P: ::archery::SharedPointerKind> Clone for $name<$($arg,)* P> {
             fn clone(&self) -> Self {
                 Self(self.0.clone())
             }

@@ -26,11 +26,14 @@ use std::iter::{FromIterator, Sum};
 use std::mem;
 use std::ops::{Add, Index, IndexMut, RangeBounds};
 
+use archery::{SharedPointer, SharedPointerKind};
+
 use crate::hashmap::HashMap;
 use crate::nodes::btree::{BTreeValue, Insert, Iter as NodeIter, Node, Remove};
+use crate::shared_ptr::DefaultSharedPtr;
 #[cfg(has_specialisation)]
 use crate::util::linear_search_by;
-use crate::util::{Pool, PoolRef};
+use crate::util::Pool;
 
 pub use crate::nodes::btree::{ConsumingIter, DiffItem as NodeDiffItem, DiffIter as NodeDiffIter};
 
@@ -146,7 +149,7 @@ impl<K: Ord + Copy, V> BTreeValue for (K, V) {
     }
 }
 
-def_pool!(OrdMapPool<K, V>, Node<(K, V)>);
+def_pool!(OrdMapPool<K, V>, Node<(K, V), P>);
 
 /// An ordered map.
 ///
@@ -161,33 +164,55 @@ def_pool!(OrdMapPool<K, V>, Node<(K, V)>);
 ///
 /// [hashmap::HashMap]: ../hashmap/struct.HashMap.html
 /// [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
-pub struct OrdMap<K, V> {
+pub struct OrdMap<K, V, P: SharedPointerKind = DefaultSharedPtr> {
     size: usize,
-    pool: OrdMapPool<K, V>,
-    root: PoolRef<Node<(K, V)>>,
+    pool: OrdMapPool<K, V, P>,
+    root: SharedPointer<Node<(K, V), P>, P>,
 }
 
 impl<K, V> OrdMap<K, V> {
     /// Construct an empty map.
+    #[inline]
     #[must_use]
     pub fn new() -> Self {
-        let pool = OrdMapPool::default();
-        let root = PoolRef::default(&pool.0);
-        OrdMap {
-            size: 0,
-            pool,
-            root,
-        }
+        Self::with_ptr_kind()
     }
 
     /// Construct an empty map using a specific memory pool.
     #[cfg(feature = "pool")]
     #[must_use]
-    pub fn with_pool(pool: &OrdMapPool<K, V>) -> Self {
-        let root = PoolRef::default(&pool.0);
+    pub fn with_pool(pool: &OrdMapPool<K, V, P>) -> Self {
+        let root = SharedPointer::default();
         OrdMap {
             size: 0,
             pool: pool.clone(),
+            root,
+        }
+    }
+}
+
+impl<K, V, P: SharedPointerKind> OrdMap<K, V, P> {
+    /// Construct an empty map using a specific memory pool.
+    #[cfg(feature = "pool")]
+    #[must_use]
+    pub fn with_pool(pool: &OrdMapPool<K, V, P>) -> Self {
+        let root = SharedPointer::default();
+        OrdMap {
+            size: 0,
+            pool: pool.clone(),
+            root,
+        }
+    }
+
+    /// Construct a map with the given pointer type.
+    #[inline]
+    #[must_use]
+    pub fn with_ptr_kind() -> Self {
+        let pool = OrdMapPool::default();
+        let root = SharedPointer::default();
+        OrdMap {
+            size: 0,
+            pool,
             root,
         }
     }
@@ -198,7 +223,7 @@ impl<K, V> OrdMap<K, V> {
     ///
     /// ```
     /// # #[macro_use] extern crate imbl;
-    /// # use imbl::ordmap::OrdMap;
+    /// # type OrdMap<K, V> = imbl::ordmap::OrdMap<K, V>;
     /// let map = OrdMap::unit(123, "onetwothree");
     /// assert_eq!(
     ///   map.get(&123),
@@ -209,7 +234,7 @@ impl<K, V> OrdMap<K, V> {
     #[must_use]
     pub fn unit(key: K, value: V) -> Self {
         let pool = OrdMapPool::default();
-        let root = PoolRef::new(&pool.0, Node::unit((key, value)));
+        let root = SharedPointer::new(Node::unit((key, value)));
         OrdMap {
             size: 1,
             pool,
@@ -249,7 +274,7 @@ impl<K, V> OrdMap<K, V> {
     ///
     /// Time: O(1)
     pub fn ptr_eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other) || PoolRef::ptr_eq(&self.root, &other.root)
+        std::ptr::eq(self, other) || SharedPointer::ptr_eq(&self.root, &other.root)
     }
 
     /// Get the size of a map.
@@ -300,15 +325,16 @@ impl<K, V> OrdMap<K, V> {
     /// ```
     pub fn clear(&mut self) {
         if !self.is_empty() {
-            self.root = PoolRef::default(&self.pool.0);
+            self.root = SharedPointer::default();
             self.size = 0;
         }
     }
 }
 
-impl<K, V> OrdMap<K, V>
+impl<K, V, P> OrdMap<K, V, P>
 where
     K: Ord,
+    P: SharedPointerKind,
 {
     /// Get the largest key in a map, along with its value. If the map
     /// is empty, return `None`.
@@ -354,7 +380,7 @@ where
 
     /// Get an iterator over the key/value pairs of a map.
     #[must_use]
-    pub fn iter(&self) -> Iter<'_, K, V> {
+    pub fn iter(&self) -> Iter<'_, K, V, P> {
         Iter {
             it: NodeIter::new(&self.root, self.size, ..),
         }
@@ -362,7 +388,7 @@ where
 
     /// Create an iterator over a range of key/value pairs.
     #[must_use]
-    pub fn range<R, BK>(&self, range: R) -> RangedIter<'_, K, V>
+    pub fn range<R, BK>(&self, range: R) -> RangedIter<'_, K, V, P>
     where
         R: RangeBounds<BK>,
         K: Borrow<BK>,
@@ -375,13 +401,13 @@ where
 
     /// Get an iterator over a map's keys.
     #[must_use]
-    pub fn keys(&self) -> Keys<'_, K, V> {
+    pub fn keys(&self) -> Keys<'_, K, V, P> {
         Keys { it: self.iter() }
     }
 
     /// Get an iterator over a map's values.
     #[must_use]
-    pub fn values(&self) -> Values<'_, K, V> {
+    pub fn values(&self) -> Values<'_, K, V, P> {
         Values { it: self.iter() }
     }
 
@@ -397,7 +423,7 @@ where
     /// the two maps, minus the number of elements belonging to nodes
     /// shared between them)
     #[must_use]
-    pub fn diff<'a, 'b>(&'a self, other: &'b Self) -> DiffIter<'a, 'b, K, V> {
+    pub fn diff<'a, 'b>(&'a self, other: &'b Self) -> DiffIter<'a, 'b, K, V, P> {
         DiffIter {
             it: NodeDiffIter::new(&self.root, &other.root),
         }
@@ -535,10 +561,11 @@ where
     ///
     /// Time: O(n log n)
     #[must_use]
-    pub fn is_submap_by<B, RM, F>(&self, other: RM, mut cmp: F) -> bool
+    pub fn is_submap_by<B, RM, F, P2>(&self, other: RM, mut cmp: F) -> bool
     where
         F: FnMut(&V, &B) -> bool,
-        RM: Borrow<OrdMap<K, B>>,
+        RM: Borrow<OrdMap<K, B, P2>>,
+        P2: SharedPointerKind,
     {
         self.iter()
             .all(|(k, v)| other.borrow().get(k).map(|ov| cmp(v, ov)).unwrap_or(false))
@@ -553,10 +580,11 @@ where
     ///
     /// Time: O(n log n)
     #[must_use]
-    pub fn is_proper_submap_by<B, RM, F>(&self, other: RM, cmp: F) -> bool
+    pub fn is_proper_submap_by<B, RM, F, P2>(&self, other: RM, cmp: F) -> bool
     where
         F: FnMut(&V, &B) -> bool,
-        RM: Borrow<OrdMap<K, B>>,
+        RM: Borrow<OrdMap<K, B, P2>>,
+        P2: SharedPointerKind,
     {
         self.len() != other.borrow().len() && self.is_submap_by(other, cmp)
     }
@@ -615,10 +643,11 @@ where
     }
 }
 
-impl<K, V> OrdMap<K, V>
+impl<K, V, P> OrdMap<K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
     /// Get a mutable reference to the value for a key from a map.
     ///
@@ -644,7 +673,7 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+        let root = SharedPointer::make_mut(&mut self.root);
         root.lookup_mut(&self.pool.0, key).map(|(_, v)| v)
     }
 
@@ -674,7 +703,7 @@ where
         K: Borrow<BK>,
     {
         let pool = &self.pool.0;
-        PoolRef::make_mut(pool, &mut self.root)
+        SharedPointer::make_mut(&mut self.root)
             .lookup_prev_mut(pool, key)
             .map(|(ref k, ref mut v)| (k, v))
     }
@@ -705,7 +734,7 @@ where
         K: Borrow<BK>,
     {
         let pool = &self.pool.0;
-        PoolRef::make_mut(pool, &mut self.root)
+        SharedPointer::make_mut(&mut self.root)
             .lookup_next_mut(pool, key)
             .map(|(ref k, ref mut v)| (k, v))
     }
@@ -739,17 +768,16 @@ where
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         let new_root = {
-            let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+            let root = SharedPointer::make_mut(&mut self.root);
             match root.insert(&self.pool.0, (key, value)) {
                 Insert::Replaced((_, old_value)) => return Some(old_value),
                 Insert::Added => {
                     self.size += 1;
                     return None;
                 }
-                Insert::Split(left, median, right) => PoolRef::new(
-                    &self.pool.0,
-                    Node::new_from_split(&self.pool.0, left, median, right),
-                ),
+                Insert::Split(left, median, right) => {
+                    SharedPointer::new(Node::new_from_split(&self.pool.0, left, median, right))
+                }
             }
         };
         self.size += 1;
@@ -792,14 +820,14 @@ where
         K: Borrow<BK>,
     {
         let (new_root, removed_value) = {
-            let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+            let root = SharedPointer::make_mut(&mut self.root);
             match root.remove(&self.pool.0, k) {
                 Remove::NoChange => return None,
                 Remove::Removed(pair) => {
                     self.size -= 1;
                     return Some(pair);
                 }
-                Remove::Update(pair, root) => (PoolRef::new(&self.pool.0, root), Some(pair)),
+                Remove::Update(pair, root) => (SharedPointer::new(root), Some(pair)),
             }
         };
         self.size -= 1;
@@ -1347,11 +1375,17 @@ where
     /// Time: O(n log n)
     #[inline]
     #[must_use]
-    pub fn intersection_with<B, C, F>(self, other: OrdMap<K, B>, mut f: F) -> OrdMap<K, C>
+    pub fn intersection_with<B, C, F, P2, P3>(
+        self,
+        other: OrdMap<K, B, P2>,
+        mut f: F,
+    ) -> OrdMap<K, C, P3>
     where
         B: Clone,
         C: Clone,
         F: FnMut(V, B) -> C,
+        P2: SharedPointerKind,
+        P3: SharedPointerKind,
     {
         self.intersection_with_key(other, |_, v1, v2| f(v1, v2))
     }
@@ -1376,13 +1410,19 @@ where
     /// ));
     /// ```
     #[must_use]
-    pub fn intersection_with_key<B, C, F>(mut self, other: OrdMap<K, B>, mut f: F) -> OrdMap<K, C>
+    pub fn intersection_with_key<B, C, F, P2, P3>(
+        mut self,
+        other: OrdMap<K, B, P2>,
+        mut f: F,
+    ) -> OrdMap<K, C, P3>
     where
         B: Clone,
         C: Clone,
         F: FnMut(&K, V, B) -> C,
+        P2: SharedPointerKind,
+        P3: SharedPointerKind,
     {
-        let mut out = OrdMap::<K, C>::default();
+        let mut out = OrdMap::<K, C, P3>::default();
         for (key, right_value) in other {
             match self.remove(&key) {
                 None => (),
@@ -1422,14 +1462,14 @@ where
         K: Borrow<BK>,
     {
         // TODO this is atrociously slow, got to be a better way
-        self.iter()
-            .fold((ordmap![], None, ordmap![]), |(l, m, r), (k, v)| {
-                match k.borrow().cmp(split) {
-                    Ordering::Less => (l.update(k.clone(), v.clone()), m, r),
-                    Ordering::Equal => (l, Some(v.clone()), r),
-                    Ordering::Greater => (l, m, r.update(k.clone(), v.clone())),
-                }
-            })
+        self.iter().fold(
+            (OrdMap::with_ptr_kind(), None, OrdMap::with_ptr_kind()),
+            |(l, m, r), (k, v)| match k.borrow().cmp(&split) {
+                Ordering::Less => (l.update(k.clone(), v.clone()), m, r),
+                Ordering::Equal => (l, Some(v.clone()), r),
+                Ordering::Greater => (l, m, r.update(k.clone(), v.clone())),
+            },
+        )
     }
 
     /// Construct a map with only the `n` smallest keys from a given
@@ -1500,7 +1540,7 @@ where
     ///
     /// [Entry]: enum.Entry.html
     #[must_use]
-    pub fn entry(&mut self, key: K) -> Entry<'_, K, V> {
+    pub fn entry(&mut self, key: K) -> Entry<'_, K, V, P> {
         if self.contains_key(&key) {
             Entry::Occupied(OccupiedEntry { map: self, key })
         } else {
@@ -1512,21 +1552,23 @@ where
 // Entries
 
 /// A handle for a key and its associated value.
-pub enum Entry<'a, K, V>
+pub enum Entry<'a, K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
     /// An entry which exists in the map.
-    Occupied(OccupiedEntry<'a, K, V>),
+    Occupied(OccupiedEntry<'a, K, V, P>),
     /// An entry which doesn't exist in the map.
-    Vacant(VacantEntry<'a, K, V>),
+    Vacant(VacantEntry<'a, K, V, P>),
 }
 
-impl<'a, K, V> Entry<'a, K, V>
+impl<'a, K, V, P> Entry<'a, K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
     /// Insert the default value provided if there was no value
     /// already, and return a mutable reference to the value.
@@ -1582,19 +1624,21 @@ where
 }
 
 /// An entry for a mapping that already exists in the map.
-pub struct OccupiedEntry<'a, K, V>
+pub struct OccupiedEntry<'a, K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
-    map: &'a mut OrdMap<K, V>,
+    map: &'a mut OrdMap<K, V, P>,
     key: K,
 }
 
-impl<'a, K, V> OccupiedEntry<'a, K, V>
+impl<'a, K, V, P> OccupiedEntry<'a, K, V, P>
 where
     K: 'a + Ord + Clone,
     V: 'a + Clone,
+    P: SharedPointerKind,
 {
     /// Get the key for this entry.
     #[must_use]
@@ -1639,19 +1683,21 @@ where
 }
 
 /// An entry for a mapping that does not already exist in the map.
-pub struct VacantEntry<'a, K, V>
+pub struct VacantEntry<'a, K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
-    map: &'a mut OrdMap<K, V>,
+    map: &'a mut OrdMap<K, V, P>,
     key: K,
 }
 
-impl<'a, K, V> VacantEntry<'a, K, V>
+impl<'a, K, V, P> VacantEntry<'a, K, V, P>
 where
     K: 'a + Ord + Clone,
     V: 'a + Clone,
+    P: SharedPointerKind,
 {
     /// Get the key for this entry.
     #[must_use]
@@ -1675,7 +1721,7 @@ where
 
 // Core traits
 
-impl<K, V> Clone for OrdMap<K, V> {
+impl<K, V, P: SharedPointerKind> Clone for OrdMap<K, V, P> {
     /// Clone a map.
     ///
     /// Time: O(1)
@@ -1689,22 +1735,26 @@ impl<K, V> Clone for OrdMap<K, V> {
     }
 }
 
+// TODO: Support PartialEq for OrdMap that have different P
 #[cfg(not(has_specialisation))]
-impl<K, V> PartialEq for OrdMap<K, V>
+impl<K, V, P> PartialEq for OrdMap<K, V, P>
 where
     K: Ord + PartialEq,
     V: PartialEq,
+    P: SharedPointerKind,
 {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, other: &OrdMap<K, V, P>) -> bool {
         self.len() == other.len() && self.diff(other).next().is_none()
     }
 }
 
 #[cfg(has_specialisation)]
-impl<K, V> PartialEq for OrdMap<K, V>
+impl<K, V, P1, P2> PartialEq<Ord<K, V, P2>> for OrdMap<K, V, P1>
 where
     K: Ord + PartialEq,
     V: PartialEq,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
     default fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.diff(other).next().is_none()
@@ -1712,43 +1762,48 @@ where
 }
 
 #[cfg(has_specialisation)]
-impl<K, V> PartialEq for OrdMap<K, V>
+impl<K, V, P> PartialEq for OrdMap<K, V, P>
 where
     K: Ord + Eq,
     V: Eq,
+    P: SharedPointerKind,
 {
     fn eq(&self, other: &Self) -> bool {
-        PoolRef::ptr_eq(&self.root, &other.root)
+        SharedPointer::ptr_eq(&self.root, &other.root)
             || (self.len() == other.len() && self.diff(other).next().is_none())
     }
 }
 
-impl<K: Ord + Eq, V: Eq> Eq for OrdMap<K, V> {}
+impl<K: Ord + Eq, V: Eq, P: SharedPointerKind> Eq for OrdMap<K, V, P> {}
 
-impl<K, V> PartialOrd for OrdMap<K, V>
+// TODO: Support PartialOrd for OrdMap that have different P
+impl<K, V, P> PartialOrd for OrdMap<K, V, P>
 where
     K: Ord,
     V: PartialOrd,
+    P: SharedPointerKind,
 {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &OrdMap<K, V, P>) -> Option<Ordering> {
         self.iter().partial_cmp(other.iter())
     }
 }
 
-impl<K, V> Ord for OrdMap<K, V>
+impl<K, V, P> Ord for OrdMap<K, V, P>
 where
     K: Ord,
     V: Ord,
+    P: SharedPointerKind,
 {
     fn cmp(&self, other: &Self) -> Ordering {
         self.iter().cmp(other.iter())
     }
 }
 
-impl<K, V> Hash for OrdMap<K, V>
+impl<K, V, P> Hash for OrdMap<K, V, P>
 where
     K: Ord + Hash,
     V: Hash,
+    P: SharedPointerKind,
 {
     fn hash<H>(&self, state: &mut H)
     where
@@ -1760,40 +1815,43 @@ where
     }
 }
 
-impl<K, V> Default for OrdMap<K, V> {
+impl<K, V, P: SharedPointerKind> Default for OrdMap<K, V, P> {
     fn default() -> Self {
-        Self::new()
+        Self::with_ptr_kind()
     }
 }
 
-impl<'a, K, V> Add for &'a OrdMap<K, V>
+impl<'a, K, V, P> Add for &'a OrdMap<K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
-    type Output = OrdMap<K, V>;
+    type Output = OrdMap<K, V, P>;
 
     fn add(self, other: Self) -> Self::Output {
         self.clone().union(other.clone())
     }
 }
 
-impl<K, V> Add for OrdMap<K, V>
+impl<K, V, P> Add for OrdMap<K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
-    type Output = OrdMap<K, V>;
+    type Output = OrdMap<K, V, P>;
 
     fn add(self, other: Self) -> Self::Output {
         self.union(other)
     }
 }
 
-impl<K, V> Sum for OrdMap<K, V>
+impl<K, V, P> Sum for OrdMap<K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
     fn sum<I>(it: I) -> Self
     where
@@ -1803,10 +1861,11 @@ where
     }
 }
 
-impl<K, V, RK, RV> Extend<(RK, RV)> for OrdMap<K, V>
+impl<K, V, RK, RV, P> Extend<(RK, RV)> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
+    P: SharedPointerKind,
 {
     fn extend<I>(&mut self, iter: I)
     where
@@ -1818,7 +1877,7 @@ where
     }
 }
 
-impl<'a, BK, K, V> Index<&'a BK> for OrdMap<K, V>
+impl<'a, BK, K, V, P: SharedPointerKind> Index<&'a BK> for OrdMap<K, V, P>
 where
     BK: Ord + ?Sized,
     K: Ord + Borrow<BK>,
@@ -1833,14 +1892,15 @@ where
     }
 }
 
-impl<'a, BK, K, V> IndexMut<&'a BK> for OrdMap<K, V>
+impl<'a, BK, K, V, P> IndexMut<&'a BK> for OrdMap<K, V, P>
 where
     BK: Ord + ?Sized,
     K: Ord + Clone + Borrow<BK>,
     V: Clone,
+    P: SharedPointerKind,
 {
     fn index_mut(&mut self, key: &BK) -> &mut Self::Output {
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+        let root = SharedPointer::make_mut(&mut self.root);
         match root.lookup_mut(&self.pool.0, key) {
             None => panic!("OrdMap::index: invalid key"),
             Some(&mut (_, ref mut value)) => value,
@@ -1848,10 +1908,11 @@ where
     }
 }
 
-impl<K, V> Debug for OrdMap<K, V>
+impl<K, V, P> Debug for OrdMap<K, V, P>
 where
     K: Ord + Debug,
     V: Debug,
+    P: SharedPointerKind,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         let mut d = f.debug_map();
@@ -1865,12 +1926,12 @@ where
 // Iterators
 
 /// An iterator over the key/value pairs of a map.
-pub struct Iter<'a, K, V> {
-    it: NodeIter<'a, (K, V)>,
+pub struct Iter<'a, K, V, P: SharedPointerKind> {
+    it: NodeIter<'a, (K, V), P>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
-impl<'a, K, V> Clone for Iter<'a, K, V> {
+impl<'a, K, V, P: SharedPointerKind> Clone for Iter<'a, K, V, P> {
     fn clone(&self) -> Self {
         Iter {
             it: self.it.clone(),
@@ -1878,9 +1939,10 @@ impl<'a, K, V> Clone for Iter<'a, K, V> {
     }
 }
 
-impl<'a, K, V> Iterator for Iter<'a, K, V>
+impl<'a, K, V, P> Iterator for Iter<'a, K, V, P>
 where
     (K, V): 'a + BTreeValue,
+    P: SharedPointerKind,
 {
     type Item = (&'a K, &'a V);
 
@@ -1895,24 +1957,30 @@ where
     }
 }
 
-impl<'a, K, V> DoubleEndedIterator for Iter<'a, K, V>
+impl<'a, K, V, P> DoubleEndedIterator for Iter<'a, K, V, P>
 where
     (K, V): 'a + BTreeValue,
+    P: SharedPointerKind,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.it.next_back().map(|(k, v)| (k, v))
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V> where (K, V): 'a + BTreeValue {}
+impl<'a, K, V, P> ExactSizeIterator for Iter<'a, K, V, P>
+where
+    (K, V): 'a + BTreeValue,
+    P: SharedPointerKind,
+{
+}
 
 /// An iterator over a range of key/value pairs in a map.
-pub struct RangedIter<'a, K, V> {
-    it: NodeIter<'a, (K, V)>,
+pub struct RangedIter<'a, K, V, P: SharedPointerKind> {
+    it: NodeIter<'a, (K, V), P>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
-impl<'a, K, V> Clone for RangedIter<'a, K, V> {
+impl<'a, K, V, P: SharedPointerKind> Clone for RangedIter<'a, K, V, P> {
     fn clone(&self) -> Self {
         RangedIter {
             it: self.it.clone(),
@@ -1920,9 +1988,10 @@ impl<'a, K, V> Clone for RangedIter<'a, K, V> {
     }
 }
 
-impl<'a, K, V> Iterator for RangedIter<'a, K, V>
+impl<'a, K, V, P> Iterator for RangedIter<'a, K, V, P>
 where
     (K, V): 'a + BTreeValue,
+    P: SharedPointerKind,
 {
     type Item = (&'a K, &'a V);
 
@@ -1935,9 +2004,10 @@ where
     }
 }
 
-impl<'a, K, V> DoubleEndedIterator for RangedIter<'a, K, V>
+impl<'a, K, V, P> DoubleEndedIterator for RangedIter<'a, K, V, P>
 where
     (K, V): 'a + BTreeValue,
+    P: SharedPointerKind,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.it.next_back().map(|(k, v)| (k, v))
@@ -1945,8 +2015,8 @@ where
 }
 
 /// An iterator over the differences between two maps.
-pub struct DiffIter<'a, 'b, K, V> {
-    it: NodeDiffIter<'a, 'b, (K, V)>,
+pub struct DiffIter<'a, 'b, K, V, P: SharedPointerKind> {
+    it: NodeDiffIter<'a, 'b, (K, V), P>,
 }
 
 /// A description of a difference between two ordered maps.
@@ -1965,9 +2035,10 @@ pub enum DiffItem<'a, 'b, K, V> {
     Remove(&'a K, &'a V),
 }
 
-impl<'a, 'b, K, V> Iterator for DiffIter<'a, 'b, K, V>
+impl<'a, 'b, K, V, P> Iterator for DiffIter<'a, 'b, K, V, P>
 where
     (K, V): 'a + 'b + BTreeValue + PartialEq,
+    P: SharedPointerKind,
 {
     type Item = DiffItem<'a, 'b, K, V>;
 
@@ -1987,14 +2058,15 @@ where
 }
 
 /// An iterator ove the keys of a map.
-pub struct Keys<'a, K, V> {
-    it: Iter<'a, K, V>,
+pub struct Keys<'a, K, V, P: SharedPointerKind> {
+    it: Iter<'a, K, V, P>,
 }
 
-impl<'a, K, V> Iterator for Keys<'a, K, V>
+impl<'a, K, V, P> Iterator for Keys<'a, K, V, P>
 where
     K: 'a + Ord,
     V: 'a,
+    P: SharedPointerKind,
 {
     type Item = &'a K;
 
@@ -2007,10 +2079,11 @@ where
     }
 }
 
-impl<'a, K, V> DoubleEndedIterator for Keys<'a, K, V>
+impl<'a, K, V, P> DoubleEndedIterator for Keys<'a, K, V, P>
 where
     K: 'a + Ord,
     V: 'a,
+    P: SharedPointerKind,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         match self.it.next_back() {
@@ -2020,22 +2093,24 @@ where
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for Keys<'a, K, V>
+impl<'a, K, V, P> ExactSizeIterator for Keys<'a, K, V, P>
 where
     K: 'a + Ord,
     V: 'a,
+    P: SharedPointerKind,
 {
 }
 
 /// An iterator over the values of a map.
-pub struct Values<'a, K, V> {
-    it: Iter<'a, K, V>,
+pub struct Values<'a, K, V, P: SharedPointerKind> {
+    it: Iter<'a, K, V, P>,
 }
 
-impl<'a, K, V> Iterator for Values<'a, K, V>
+impl<'a, K, V, P> Iterator for Values<'a, K, V, P>
 where
     K: 'a + Ord,
     V: 'a,
+    P: SharedPointerKind,
 {
     type Item = &'a V;
 
@@ -2048,10 +2123,11 @@ where
     }
 }
 
-impl<'a, K, V> DoubleEndedIterator for Values<'a, K, V>
+impl<'a, K, V, P> DoubleEndedIterator for Values<'a, K, V, P>
 where
     K: 'a + Ord,
     V: 'a,
+    P: SharedPointerKind,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         match self.it.next_back() {
@@ -2061,17 +2137,19 @@ where
     }
 }
 
-impl<'a, K, V> ExactSizeIterator for Values<'a, K, V>
+impl<'a, K, V, P> ExactSizeIterator for Values<'a, K, V, P>
 where
     K: 'a + Ord,
     V: 'a,
+    P: SharedPointerKind,
 {
 }
 
-impl<K, V, RK, RV> FromIterator<(RK, RV)> for OrdMap<K, V>
+impl<K, V, RK, RV, P> FromIterator<(RK, RV)> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
+    P: SharedPointerKind,
 {
     fn from_iter<T>(i: T) -> Self
     where
@@ -2085,25 +2163,27 @@ where
     }
 }
 
-impl<'a, K, V> IntoIterator for &'a OrdMap<K, V>
+impl<'a, K, V, P> IntoIterator for &'a OrdMap<K, V, P>
 where
     K: Ord,
+    P: SharedPointerKind,
 {
     type Item = (&'a K, &'a V);
-    type IntoIter = Iter<'a, K, V>;
+    type IntoIter = Iter<'a, K, V, P>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<K, V> IntoIterator for OrdMap<K, V>
+impl<K, V, P> IntoIterator for OrdMap<K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
+    P: SharedPointerKind,
 {
     type Item = (K, V);
-    type IntoIter = ConsumingIter<(K, V)>;
+    type IntoIter = ConsumingIter<(K, V), P>;
 
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter::new(&self.root, self.size)
@@ -2112,27 +2192,29 @@ where
 
 // Conversions
 
-impl<K, V> AsRef<OrdMap<K, V>> for OrdMap<K, V> {
+impl<K, V, P: SharedPointerKind> AsRef<OrdMap<K, V, P>> for OrdMap<K, V, P> {
     fn as_ref(&self) -> &Self {
         self
     }
 }
 
-impl<'m, 'k, 'v, K, V, OK, OV> From<&'m OrdMap<&'k K, &'v V>> for OrdMap<OK, OV>
+impl<'m, 'k, 'v, K, V, OK, OV, P1, P2> From<&'m OrdMap<&'k K, &'v V, P2>> for OrdMap<OK, OV, P1>
 where
     K: Ord + ToOwned<Owned = OK> + ?Sized,
     V: ToOwned<Owned = OV> + ?Sized,
     OK: Ord + Clone + Borrow<K>,
     OV: Clone + Borrow<V>,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    fn from(m: &OrdMap<&K, &V>) -> Self {
+    fn from(m: &OrdMap<&K, &V, P2>) -> Self {
         m.iter()
             .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
             .collect()
     }
 }
 
-impl<'a, K, V, RK, RV, OK, OV> From<&'a [(RK, RV)]> for OrdMap<K, V>
+impl<'a, K, V, RK, RV, OK, OV, P> From<&'a [(RK, RV)]> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2140,25 +2222,27 @@ where
     OV: Borrow<RV>,
     RK: ToOwned<Owned = OK>,
     RV: ToOwned<Owned = OV>,
+    P: SharedPointerKind,
 {
-    fn from(m: &'a [(RK, RV)]) -> OrdMap<K, V> {
+    fn from(m: &'a [(RK, RV)]) -> OrdMap<K, V, P> {
         m.iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
     }
 }
 
-impl<K, V, RK, RV> From<Vec<(RK, RV)>> for OrdMap<K, V>
+impl<K, V, RK, RV, P> From<Vec<(RK, RV)>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
+    P: SharedPointerKind,
 {
-    fn from(m: Vec<(RK, RV)>) -> OrdMap<K, V> {
+    fn from(m: Vec<(RK, RV)>) -> OrdMap<K, V, P> {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K: Ord, V, RK, RV, OK, OV> From<&'a Vec<(RK, RV)>> for OrdMap<K, V>
+impl<'a, K: Ord, V, RK, RV, OK, OV, P> From<&'a Vec<(RK, RV)>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2166,25 +2250,27 @@ where
     OV: Borrow<RV>,
     RK: ToOwned<Owned = OK>,
     RV: ToOwned<Owned = OV>,
+    P: SharedPointerKind,
 {
-    fn from(m: &'a Vec<(RK, RV)>) -> OrdMap<K, V> {
+    fn from(m: &'a Vec<(RK, RV)>) -> OrdMap<K, V, P> {
         m.iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
     }
 }
 
-impl<K: Ord, V, RK: Eq + Hash, RV> From<collections::HashMap<RK, RV>> for OrdMap<K, V>
+impl<K: Ord, V, RK: Eq + Hash, RV, P> From<collections::HashMap<RK, RV>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
+    P: SharedPointerKind,
 {
-    fn from(m: collections::HashMap<RK, RV>) -> OrdMap<K, V> {
+    fn from(m: collections::HashMap<RK, RV>) -> OrdMap<K, V, P> {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K, V, OK, OV, RK, RV> From<&'a collections::HashMap<RK, RV>> for OrdMap<K, V>
+impl<'a, K, V, OK, OV, RK, RV, P> From<&'a collections::HashMap<RK, RV>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2192,25 +2278,27 @@ where
     OV: Borrow<RV>,
     RK: Hash + Eq + ToOwned<Owned = OK>,
     RV: ToOwned<Owned = OV>,
+    P: SharedPointerKind,
 {
-    fn from(m: &'a collections::HashMap<RK, RV>) -> OrdMap<K, V> {
+    fn from(m: &'a collections::HashMap<RK, RV>) -> OrdMap<K, V, P> {
         m.iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
     }
 }
 
-impl<K: Ord, V, RK, RV> From<collections::BTreeMap<RK, RV>> for OrdMap<K, V>
+impl<K: Ord, V, RK, RV, P> From<collections::BTreeMap<RK, RV>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
+    P: SharedPointerKind,
 {
-    fn from(m: collections::BTreeMap<RK, RV>) -> OrdMap<K, V> {
+    fn from(m: collections::BTreeMap<RK, RV>) -> OrdMap<K, V, P> {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K: Ord, V, RK, RV, OK, OV> From<&'a collections::BTreeMap<RK, RV>> for OrdMap<K, V>
+impl<'a, K: Ord, V, RK, RV, OK, OV, P> From<&'a collections::BTreeMap<RK, RV>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2218,22 +2306,25 @@ where
     OV: Borrow<RV>,
     RK: Ord + ToOwned<Owned = OK>,
     RV: ToOwned<Owned = OV>,
+    P: SharedPointerKind,
 {
-    fn from(m: &'a collections::BTreeMap<RK, RV>) -> OrdMap<K, V> {
+    fn from(m: &'a collections::BTreeMap<RK, RV>) -> OrdMap<K, V, P> {
         m.iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
     }
 }
 
-impl<K: Ord + Hash + Eq + Clone, V: Clone, S: BuildHasher> From<HashMap<K, V, S>> for OrdMap<K, V> {
+impl<K: Ord + Hash + Eq + Clone, V: Clone, S: BuildHasher, P: SharedPointerKind>
+    From<HashMap<K, V, S>> for OrdMap<K, V, P>
+{
     fn from(m: HashMap<K, V, S>) -> Self {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K: Ord + Hash + Eq + Clone, V: Clone, S: BuildHasher> From<&'a HashMap<K, V, S>>
-    for OrdMap<K, V>
+impl<'a, K: Ord + Hash + Eq + Clone, V: Clone, S: BuildHasher, P: SharedPointerKind>
+    From<&'a HashMap<K, V, S>> for OrdMap<K, V, P>
 {
     fn from(m: &'a HashMap<K, V, S>) -> Self {
         m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
@@ -2359,8 +2450,8 @@ mod test {
         let p1 = Vec::<String>::new();
         let p2 = Vec::<String>::new();
         assert_eq!(p1, p2);
-        let c1 = OrdMap::unit(v1, p1);
-        let c2 = OrdMap::unit(v2, p2);
+        let c1: OrdMap<_, _> = OrdMap::unit(v1, p1);
+        let c2: OrdMap<_, _> = OrdMap::unit(v2, p2);
         assert_eq!(c1, c2);
     }
 
@@ -2368,7 +2459,7 @@ mod test {
     fn insert_remove_single_mut() {
         let mut m = OrdMap::new();
         m.insert(0, 0);
-        assert_eq!(OrdMap::unit(0, 0), m);
+        assert_eq!(OrdMap::<_, _>::unit(0, 0), m);
         m.remove(&0);
         assert_eq!(OrdMap::new(), m);
     }
@@ -2397,7 +2488,7 @@ mod test {
 
     #[test]
     fn safe_mutation() {
-        let v1 = OrdMap::from_iter((0..131_072).map(|i| (i, i)));
+        let v1 = OrdMap::<_, _>::from_iter((0..131_072).map(|i| (i, i)));
         let mut v2 = v1.clone();
         v2.insert(131_000, 23);
         assert_eq!(Some(&23), v2.get(&131_000));
@@ -2531,7 +2622,7 @@ mod test {
         #[test]
         fn overwrite_values(ref vec in collection::vec((i16::ANY, i16::ANY), 1..1000), index_rand in usize::ANY, new_val in i16::ANY) {
             let index = vec[index_rand % vec.len()].0;
-            let map1 = OrdMap::from_iter(vec.clone());
+            let map1 = OrdMap::<_, _>::from_iter(vec.clone());
             let map2 = map1.update(index, new_val);
             for (k, v) in map2 {
                 if k == index {
@@ -2678,7 +2769,7 @@ mod test {
             index_rand in usize::ANY
         ) {
             let index = *input.keys().nth(index_rand % input.len()).unwrap();
-            let map1 = OrdMap::from_iter(input.clone());
+            let map1 = OrdMap::<_, _>::from_iter(input.clone());
             let (val, map2): (i16, _) = map1.extract(&index).unwrap();
             let map3 = map2.update(index, val);
             for key in map2.keys() {

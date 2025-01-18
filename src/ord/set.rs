@@ -23,14 +23,17 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use std::iter::{FromIterator, Sum};
 use std::ops::{Add, Deref, Mul, RangeBounds};
 
+use archery::{SharedPointer, SharedPointerKind};
+
 use crate::hashset::HashSet;
 use crate::nodes::btree::{
     BTreeValue, ConsumingIter as ConsumingNodeIter, DiffIter as NodeDiffIter, Insert,
     Iter as NodeIter, Node, Remove,
 };
+use crate::shared_ptr::DefaultSharedPtr;
 #[cfg(has_specialisation)]
 use crate::util::linear_search_by;
-use crate::util::{Pool, PoolRef};
+use crate::util::Pool;
 
 pub use crate::nodes::btree::DiffItem;
 
@@ -153,8 +156,7 @@ impl<A: Ord + Copy> BTreeValue for Value<A> {
         linear_search_by(slice, |value| value.cmp(key))
     }
 }
-
-def_pool!(OrdSetPool<A>, Node<Value<A>>);
+def_pool!(OrdSetPool<A>, Node<Value<A>, P>);
 
 /// An ordered set.
 ///
@@ -168,18 +170,28 @@ def_pool!(OrdSetPool<A>, Node<Value<A>>);
 /// [`HashSet`] has no guaranteed ordering.
 ///
 /// [1]: https://en.wikipedia.org/wiki/B-tree
-pub struct OrdSet<A> {
+pub struct OrdSet<A, P: SharedPointerKind = DefaultSharedPtr> {
     size: usize,
-    pool: OrdSetPool<A>,
-    root: PoolRef<Node<Value<A>>>,
+    pool: OrdSetPool<A, P>,
+    root: SharedPointer<Node<Value<A>, P>, P>,
 }
 
 impl<A> OrdSet<A> {
     /// Construct an empty set.
+    #[inline]
     #[must_use]
     pub fn new() -> Self {
+        Self::with_ptr_kind()
+    }
+}
+
+impl<A, P: SharedPointerKind> OrdSet<A, P> {
+    /// Construct an empty set using the given pointer type.
+    #[inline]
+    #[must_use]
+    pub fn with_ptr_kind() -> Self {
         let pool = OrdSetPool::default();
-        let root = PoolRef::default(&pool.0);
+        let root = SharedPointer::default();
         OrdSet {
             size: 0,
             pool,
@@ -191,7 +203,7 @@ impl<A> OrdSet<A> {
     #[cfg(feature = "pool")]
     #[must_use]
     pub fn with_pool(pool: &OrdSetPool<A>) -> Self {
-        let root = PoolRef::default(&pool.0);
+        let root = SharedPointer::default();
         OrdSet {
             size: 0,
             pool: pool.clone(),
@@ -205,7 +217,7 @@ impl<A> OrdSet<A> {
     ///
     /// ```
     /// # #[macro_use] extern crate imbl;
-    /// # use imbl::ordset::OrdSet;
+    /// # type OrdSet<T> = imbl::ordset::OrdSet<T>;
     /// let set = OrdSet::unit(123);
     /// assert!(set.contains(&123));
     /// ```
@@ -213,7 +225,7 @@ impl<A> OrdSet<A> {
     #[must_use]
     pub fn unit(a: A) -> Self {
         let pool = OrdSetPool::default();
-        let root = PoolRef::new(&pool.0, Node::unit(Value(a)));
+        let root = SharedPointer::new(Node::unit(Value(a)));
         OrdSet {
             size: 1,
             pool,
@@ -270,7 +282,7 @@ impl<A> OrdSet<A> {
     ///
     /// Time: O(1)
     pub fn ptr_eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other) || PoolRef::ptr_eq(&self.root, &other.root)
+        std::ptr::eq(self, other) || SharedPointer::ptr_eq(&self.root, &other.root)
     }
 
     /// Get a reference to the memory pool used by this set.
@@ -300,15 +312,16 @@ impl<A> OrdSet<A> {
     /// ```
     pub fn clear(&mut self) {
         if !self.is_empty() {
-            self.root = PoolRef::default(&self.pool.0);
+            self.root = SharedPointer::default();
             self.size = 0;
         }
     }
 }
 
-impl<A> OrdSet<A>
+impl<A, P> OrdSet<A, P>
 where
     A: Ord,
+    P: SharedPointerKind,
 {
     /// Get the smallest value in a set.
     ///
@@ -332,7 +345,7 @@ where
 
     /// Create an iterator over the contents of the set.
     #[must_use]
-    pub fn iter(&self) -> Iter<'_, A> {
+    pub fn iter(&self) -> Iter<'_, A, P> {
         Iter {
             it: NodeIter::new(&self.root, self.size, ..),
         }
@@ -340,7 +353,7 @@ where
 
     /// Create an iterator over a range inside the set.
     #[must_use]
-    pub fn range<R, BA>(&self, range: R) -> RangedIter<'_, A>
+    pub fn range<R, BA>(&self, range: R) -> RangedIter<'_, A, P>
     where
         R: RangeBounds<BA>,
         A: Borrow<BA>,
@@ -363,7 +376,7 @@ where
     /// the two sets, minus the number of elements belonging to nodes
     /// shared between them)
     #[must_use]
-    pub fn diff<'a, 'b>(&'a self, other: &'b Self) -> DiffIter<'a, 'b, A> {
+    pub fn diff<'a, 'b>(&'a self, other: &'b Self) -> DiffIter<'a, 'b, A, P> {
         DiffIter {
             it: NodeDiffIter::new(&self.root, &other.root),
         }
@@ -511,9 +524,10 @@ where
     }
 }
 
-impl<A> OrdSet<A>
+impl<A, P> OrdSet<A, P>
 where
     A: Ord + Clone,
+    P: SharedPointerKind,
 {
     /// Insert a value into a set.
     ///
@@ -535,17 +549,16 @@ where
     #[inline]
     pub fn insert(&mut self, a: A) -> Option<A> {
         let new_root = {
-            let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+            let root = SharedPointer::make_mut(&mut self.root);
             match root.insert(&self.pool.0, Value(a)) {
                 Insert::Replaced(Value(old_value)) => return Some(old_value),
                 Insert::Added => {
                     self.size += 1;
                     return None;
                 }
-                Insert::Split(left, median, right) => PoolRef::new(
-                    &self.pool.0,
-                    Node::new_from_split(&self.pool.0, left, median, right),
-                ),
+                Insert::Split(left, median, right) => {
+                    SharedPointer::new(Node::new_from_split(&self.pool.0, left, median, right))
+                }
             }
         };
         self.size += 1;
@@ -563,9 +576,9 @@ where
         A: Borrow<BA>,
     {
         let (new_root, removed_value) = {
-            let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+            let root = SharedPointer::make_mut(&mut self.root);
             match root.remove(&self.pool.0, a) {
-                Remove::Update(value, root) => (PoolRef::new(&self.pool.0, root), Some(value.0)),
+                Remove::Update(value, root) => (SharedPointer::new(root), Some(value.0)),
                 Remove::Removed(value) => {
                     self.size -= 1;
                     return Some(value.0);
@@ -840,7 +853,7 @@ where
         let mut right = Self::default();
         let mut present = false;
         for value in self {
-            match value.borrow().cmp(split) {
+            match value.borrow().cmp(&split) {
                 Ordering::Less => {
                     left.insert(value);
                 }
@@ -876,7 +889,7 @@ where
 
 // Core traits
 
-impl<A> Clone for OrdSet<A> {
+impl<A, P: SharedPointerKind> Clone for OrdSet<A, P> {
     /// Clone a set.
     ///
     /// Time: O(1)
@@ -890,28 +903,29 @@ impl<A> Clone for OrdSet<A> {
     }
 }
 
-impl<A: Ord> PartialEq for OrdSet<A> {
+// TODO: Support PartialEq for OrdSet that have different P
+impl<A: Ord, P: SharedPointerKind> PartialEq for OrdSet<A, P> {
     fn eq(&self, other: &Self) -> bool {
-        PoolRef::ptr_eq(&self.root, &other.root)
+        SharedPointer::ptr_eq(&self.root, &other.root)
             || (self.len() == other.len() && self.diff(other).next().is_none())
     }
 }
 
-impl<A: Ord + Eq> Eq for OrdSet<A> {}
+impl<A: Ord, P: SharedPointerKind> Eq for OrdSet<A, P> {}
 
-impl<A: Ord> PartialOrd for OrdSet<A> {
+impl<A: Ord, P: SharedPointerKind> PartialOrd for OrdSet<A, P> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<A: Ord> Ord for OrdSet<A> {
+impl<A: Ord, P: SharedPointerKind> Ord for OrdSet<A, P> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.iter().cmp(other.iter())
     }
 }
 
-impl<A: Ord + Hash> Hash for OrdSet<A> {
+impl<A: Ord + Hash, P: SharedPointerKind> Hash for OrdSet<A, P> {
     fn hash<H>(&self, state: &mut H)
     where
         H: Hasher,
@@ -922,56 +936,57 @@ impl<A: Ord + Hash> Hash for OrdSet<A> {
     }
 }
 
-impl<A> Default for OrdSet<A> {
+impl<A, P: SharedPointerKind> Default for OrdSet<A, P> {
     fn default() -> Self {
-        OrdSet::new()
+        OrdSet::with_ptr_kind()
     }
 }
 
-impl<A: Ord + Clone> Add for OrdSet<A> {
-    type Output = OrdSet<A>;
+impl<A: Ord + Clone, P: SharedPointerKind> Add for OrdSet<A, P> {
+    type Output = OrdSet<A, P>;
 
     fn add(self, other: Self) -> Self::Output {
         self.union(other)
     }
 }
 
-impl<'a, A: Ord + Clone> Add for &'a OrdSet<A> {
-    type Output = OrdSet<A>;
+impl<'a, A: Ord + Clone, P: SharedPointerKind> Add for &'a OrdSet<A, P> {
+    type Output = OrdSet<A, P>;
 
     fn add(self, other: Self) -> Self::Output {
         self.clone().union(other.clone())
     }
 }
 
-impl<A: Ord + Clone> Mul for OrdSet<A> {
-    type Output = OrdSet<A>;
+impl<A: Ord + Clone, P: SharedPointerKind> Mul for OrdSet<A, P> {
+    type Output = OrdSet<A, P>;
 
     fn mul(self, other: Self) -> Self::Output {
         self.intersection(other)
     }
 }
 
-impl<'a, A: Ord + Clone> Mul for &'a OrdSet<A> {
-    type Output = OrdSet<A>;
+impl<'a, A: Ord + Clone, P: SharedPointerKind> Mul for &'a OrdSet<A, P> {
+    type Output = OrdSet<A, P>;
 
     fn mul(self, other: Self) -> Self::Output {
         self.clone().intersection(other.clone())
     }
 }
 
-impl<A: Ord + Clone> Sum for OrdSet<A> {
+impl<A: Ord + Clone, P: SharedPointerKind> Sum for OrdSet<A, P> {
     fn sum<I>(it: I) -> Self
     where
         I: Iterator<Item = Self>,
     {
-        it.fold(Self::new(), |a, b| a + b)
+        it.fold(Self::with_ptr_kind(), |a, b| a + b)
     }
 }
 
-impl<A, R> Extend<R> for OrdSet<A>
+impl<A, R, P> Extend<R> for OrdSet<A, P>
 where
     A: Ord + Clone + From<R>,
+    P: SharedPointerKind,
 {
     fn extend<I>(&mut self, iter: I)
     where
@@ -983,7 +998,7 @@ where
     }
 }
 
-impl<A: Ord + Debug> Debug for OrdSet<A> {
+impl<A: Ord + Debug, P: SharedPointerKind> Debug for OrdSet<A, P> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         f.debug_set().entries(self.iter()).finish()
     }
@@ -992,12 +1007,12 @@ impl<A: Ord + Debug> Debug for OrdSet<A> {
 // Iterators
 
 /// An iterator over the elements of a set.
-pub struct Iter<'a, A> {
-    it: NodeIter<'a, Value<A>>,
+pub struct Iter<'a, A, P: SharedPointerKind> {
+    it: NodeIter<'a, Value<A>, P>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
-impl<'a, A> Clone for Iter<'a, A> {
+impl<'a, A, P: SharedPointerKind> Clone for Iter<'a, A, P> {
     fn clone(&self) -> Self {
         Iter {
             it: self.it.clone(),
@@ -1005,7 +1020,7 @@ impl<'a, A> Clone for Iter<'a, A> {
     }
 }
 
-impl<'a, A> Iterator for Iter<'a, A>
+impl<'a, A, P: SharedPointerKind> Iterator for Iter<'a, A, P>
 where
     A: 'a + Ord,
 {
@@ -1023,29 +1038,36 @@ where
     }
 }
 
-impl<'a, A> DoubleEndedIterator for Iter<'a, A>
+impl<'a, A, P> DoubleEndedIterator for Iter<'a, A, P>
 where
     A: 'a + Ord,
+    P: SharedPointerKind,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.it.next_back().map(Deref::deref)
     }
 }
 
-impl<'a, A> ExactSizeIterator for Iter<'a, A> where A: 'a + Ord {}
+impl<'a, A, P> ExactSizeIterator for Iter<'a, A, P>
+where
+    A: 'a + Ord,
+    P: SharedPointerKind,
+{
+}
 
 /// A ranged iterator over the elements of a set.
 ///
 /// The only difference from `Iter` is that this one doesn't implement
 /// `ExactSizeIterator` because we can't know the size of the range without first
 /// iterating over it to count.
-pub struct RangedIter<'a, A> {
-    it: NodeIter<'a, Value<A>>,
+pub struct RangedIter<'a, A, P: SharedPointerKind> {
+    it: NodeIter<'a, Value<A>, P>,
 }
 
-impl<'a, A> Iterator for RangedIter<'a, A>
+impl<'a, A, P> Iterator for RangedIter<'a, A, P>
 where
     A: 'a + Ord,
+    P: SharedPointerKind,
 {
     type Item = &'a A;
 
@@ -1061,9 +1083,10 @@ where
     }
 }
 
-impl<'a, A> DoubleEndedIterator for RangedIter<'a, A>
+impl<'a, A, P> DoubleEndedIterator for RangedIter<'a, A, P>
 where
     A: 'a + Ord,
+    P: SharedPointerKind,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.it.next_back().map(Deref::deref)
@@ -1071,13 +1094,14 @@ where
 }
 
 /// A consuming iterator over the elements of a set.
-pub struct ConsumingIter<A> {
-    it: ConsumingNodeIter<Value<A>>,
+pub struct ConsumingIter<A, P: SharedPointerKind> {
+    it: ConsumingNodeIter<Value<A>, P>,
 }
 
-impl<A> Iterator for ConsumingIter<A>
+impl<A, P> Iterator for ConsumingIter<A, P>
 where
     A: Ord + Clone,
+    P: SharedPointerKind,
 {
     type Item = A;
 
@@ -1090,13 +1114,14 @@ where
 }
 
 /// An iterator over the difference between two sets.
-pub struct DiffIter<'a, 'b, A> {
-    it: NodeDiffIter<'a, 'b, Value<A>>,
+pub struct DiffIter<'a, 'b, A, P: SharedPointerKind> {
+    it: NodeDiffIter<'a, 'b, Value<A>, P>,
 }
 
-impl<'a, 'b, A> Iterator for DiffIter<'a, 'b, A>
+impl<'a, 'b, A, P> Iterator for DiffIter<'a, 'b, A, P>
 where
     A: Ord + PartialEq,
+    P: SharedPointerKind,
 {
     type Item = DiffItem<'a, 'b, A>;
 
@@ -1115,15 +1140,16 @@ where
     }
 }
 
-impl<A, R> FromIterator<R> for OrdSet<A>
+impl<A, R, P> FromIterator<R> for OrdSet<A, P>
 where
     A: Ord + Clone + From<R>,
+    P: SharedPointerKind,
 {
     fn from_iter<T>(i: T) -> Self
     where
         T: IntoIterator<Item = R>,
     {
-        let mut out = Self::new();
+        let mut out = Self::with_ptr_kind();
         for item in i {
             out.insert(From::from(item));
         }
@@ -1131,24 +1157,26 @@ where
     }
 }
 
-impl<'a, A> IntoIterator for &'a OrdSet<A>
+impl<'a, A, P> IntoIterator for &'a OrdSet<A, P>
 where
     A: 'a + Ord,
+    P: SharedPointerKind,
 {
     type Item = &'a A;
-    type IntoIter = Iter<'a, A>;
+    type IntoIter = Iter<'a, A, P>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<A> IntoIterator for OrdSet<A>
+impl<A, P> IntoIterator for OrdSet<A, P>
 where
     A: Ord + Clone,
+    P: SharedPointerKind,
 {
     type Item = A;
-    type IntoIter = ConsumingIter<A>;
+    type IntoIter = ConsumingIter<A, P>;
 
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter {
@@ -1159,68 +1187,79 @@ where
 
 // Conversions
 
-impl<'s, 'a, A, OA> From<&'s OrdSet<&'a A>> for OrdSet<OA>
+impl<'s, 'a, A, OA, P1, P2> From<&'s OrdSet<&'a A, P2>> for OrdSet<OA, P1>
 where
     A: ToOwned<Owned = OA> + Ord + ?Sized,
     OA: Borrow<A> + Ord + Clone,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    fn from(set: &OrdSet<&A>) -> Self {
+    fn from(set: &OrdSet<&A, P2>) -> Self {
         set.iter().map(|a| (*a).to_owned()).collect()
     }
 }
 
-impl<'a, A> From<&'a [A]> for OrdSet<A>
+impl<'a, A, P> From<&'a [A]> for OrdSet<A, P>
 where
     A: Ord + Clone,
+    P: SharedPointerKind,
 {
     fn from(slice: &'a [A]) -> Self {
         slice.iter().cloned().collect()
     }
 }
 
-impl<A: Ord + Clone> From<Vec<A>> for OrdSet<A> {
+impl<A: Ord + Clone, P: SharedPointerKind> From<Vec<A>> for OrdSet<A, P> {
     fn from(vec: Vec<A>) -> Self {
         vec.into_iter().collect()
     }
 }
 
-impl<'a, A: Ord + Clone> From<&'a Vec<A>> for OrdSet<A> {
+impl<'a, A: Ord + Clone, P: SharedPointerKind> From<&'a Vec<A>> for OrdSet<A, P> {
     fn from(vec: &Vec<A>) -> Self {
         vec.iter().cloned().collect()
     }
 }
 
-impl<A: Eq + Hash + Ord + Clone> From<collections::HashSet<A>> for OrdSet<A> {
+impl<A: Eq + Hash + Ord + Clone, P: SharedPointerKind> From<collections::HashSet<A>>
+    for OrdSet<A, P>
+{
     fn from(hash_set: collections::HashSet<A>) -> Self {
         hash_set.into_iter().collect()
     }
 }
 
-impl<'a, A: Eq + Hash + Ord + Clone> From<&'a collections::HashSet<A>> for OrdSet<A> {
+impl<'a, A: Eq + Hash + Ord + Clone, P: SharedPointerKind> From<&'a collections::HashSet<A>>
+    for OrdSet<A, P>
+{
     fn from(hash_set: &collections::HashSet<A>) -> Self {
         hash_set.iter().cloned().collect()
     }
 }
 
-impl<A: Ord + Clone> From<collections::BTreeSet<A>> for OrdSet<A> {
+impl<A: Ord + Clone, P: SharedPointerKind> From<collections::BTreeSet<A>> for OrdSet<A, P> {
     fn from(btree_set: collections::BTreeSet<A>) -> Self {
         btree_set.into_iter().collect()
     }
 }
 
-impl<'a, A: Ord + Clone> From<&'a collections::BTreeSet<A>> for OrdSet<A> {
+impl<'a, A: Ord + Clone, P: SharedPointerKind> From<&'a collections::BTreeSet<A>> for OrdSet<A, P> {
     fn from(btree_set: &collections::BTreeSet<A>) -> Self {
         btree_set.iter().cloned().collect()
     }
 }
 
-impl<A: Hash + Eq + Ord + Clone, S: BuildHasher> From<HashSet<A, S>> for OrdSet<A> {
+impl<A: Hash + Eq + Ord + Clone, S: BuildHasher, P: SharedPointerKind> From<HashSet<A, S>>
+    for OrdSet<A, P>
+{
     fn from(hashset: HashSet<A, S>) -> Self {
         hashset.into_iter().collect()
     }
 }
 
-impl<'a, A: Hash + Eq + Ord + Clone, S: BuildHasher> From<&'a HashSet<A, S>> for OrdSet<A> {
+impl<'a, A: Hash + Eq + Ord + Clone, S: BuildHasher, P: SharedPointerKind> From<&'a HashSet<A, S>>
+    for OrdSet<A, P>
+{
     fn from(hashset: &HashSet<A, S>) -> Self {
         hashset.into_iter().cloned().collect()
     }

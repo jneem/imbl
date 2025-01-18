@@ -79,7 +79,7 @@ proptest! {
                 }
             }
             assert_eq!(nat.len(), set.len());
-            assert_eq!(HashSet::from(nat.clone()), set);
+            assert_eq!(HashSet::<_>::from(nat.clone()), set);
         }
     }
 }

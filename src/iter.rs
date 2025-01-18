@@ -22,7 +22,7 @@
 /// let mut it = unfold(0, |i| Some((i, i + 1)));
 ///
 /// // Make a list out of its first five elements.
-/// let numbers = Vector::from_iter(it.take(5));
+/// let numbers: Vector<i64> = Vector::from_iter(it.take(5));
 /// assert_eq!(numbers, vector![0, 1, 2, 3, 4]);
 /// ```
 ///
