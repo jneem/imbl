@@ -4,6 +4,7 @@ version = "4.0.1"
 authors = ["Bodil Stokke <bodil@bodil.org>", "Joe Neeman <joeneeman@gmail.com>"]
 edition = "2018"
 license = "MPL-2.0+"
+rust-version = "1.79"
 description = "Immutable collection datatypes"
 repository = "https://github.com/jneem/imbl"
 documentation = "https://docs.rs/imbl"
