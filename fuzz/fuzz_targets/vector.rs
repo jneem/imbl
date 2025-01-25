@@ -83,7 +83,7 @@ fuzz_target!(|actions: Vec<Action<u32>>| {
                 assert_eq!(len - 1, vec.len());
             }
             Action::JoinLeft(mut new_nat) => {
-                let mut new_vec = Vector::from_iter(new_nat.iter().cloned());
+                let mut new_vec = Vector::<_>::from_iter(new_nat.iter().cloned());
                 let add_len = new_nat.len();
                 let len = vec.len();
                 new_vec.append(vec);
@@ -93,7 +93,7 @@ fuzz_target!(|actions: Vec<Action<u32>>| {
                 assert_eq!(len + add_len, vec.len());
             }
             Action::JoinRight(mut new_nat) => {
-                let new_vec = Vector::from_iter(new_nat.iter().cloned());
+                let new_vec = Vector::<_>::from_iter(new_nat.iter().cloned());
                 let add_len = new_nat.len();
                 let len = vec.len();
                 vec.append(new_vec);
@@ -116,7 +116,7 @@ fuzz_target!(|actions: Vec<Action<u32>>| {
                 let nat_right = nat.split_off(index);
                 assert_eq!(index, vec.len());
                 assert_eq!(len - index, vec_right.len());
-                assert_eq!(Vector::from_iter(nat.iter().cloned()), vec);
+                assert_eq!(Vector::<_>::from_iter(nat.iter().cloned()), vec);
                 vec = vec_right;
                 nat = nat_right;
             }
@@ -124,7 +124,7 @@ fuzz_target!(|actions: Vec<Action<u32>>| {
         assert_eq!(nat.len(), vec.len());
     }
     vec.assert_invariants();
-    assert_eq!(Vector::from_iter(nat.iter().cloned()), vec);
+    assert_eq!(Vector::<_>::from_iter(nat.iter().cloned()), vec);
     assert_eq!(Vec::from_iter(vec.iter().cloned()), nat);
     assert_eq!(Vec::from_iter(vec.clone().into_iter()), nat);
     assert_eq!(Vec::from_iter(vec.iter().rev()), Vec::from_iter(nat.iter().rev()));

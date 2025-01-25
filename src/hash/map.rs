@@ -267,7 +267,7 @@ impl<K, V, S, P: SharedPointerKind> HashMap<K, V, S, P> {
     #[must_use]
     pub fn with_pool_hasher<RS>(pool: &HashMapPool<K, V>, hasher: RS) -> Self
     where
-        Ref<S>: From<RS>,
+        SharedPointer<S>: From<RS>,
     {
         let root = SharedPointer::default();
         Self {
@@ -1609,40 +1609,44 @@ where
 }
 
 #[cfg(not(has_specialisation))]
-impl<K, V, S, P1, P2> PartialEq<HashMap<K, V, S, P2>> for HashMap<K, V, S, P1>
+impl<K, V, S1, S2, P1, P2> PartialEq<HashMap<K, V, S2, P2>> for HashMap<K, V, S1, P1>
 where
     K: Hash + Eq,
     V: PartialEq,
-    S: BuildHasher,
+    S1: BuildHasher,
+    S2: BuildHasher,
     P1: SharedPointerKind,
     P2: SharedPointerKind,
 {
-    fn eq(&self, other: &HashMap<K, V, S, P2>) -> bool {
+    fn eq(&self, other: &HashMap<K, V, S2, P2>) -> bool {
         self.test_eq(other)
     }
 }
 
 #[cfg(has_specialisation)]
-impl<K, V, S, P1, P2> PartialEq<HashMap<K, V, S, P2>> for HashMap<K, V, S, P1>
+impl<K, V, S1, S2, P1, P2> PartialEq<HashMap<K, V, S2, P2>> for HashMap<K, V, S1, P1>
 where
     K: Hash + Eq,
     V: PartialEq,
-    S: BuildHasher,
+    S1: BuildHasher,
+    S2: BuildHasher,
     P1: SharedPointerKind,
     P2: SharedPointerKind,
 {
-    default fn eq(&self, other: &HashMap<K, V, S, P2>) -> bool {
+    default fn eq(&self, other: &HashMap<K, V, S1, P2>) -> bool {
         self.test_eq(other)
     }
 }
 
 #[cfg(has_specialisation)]
-impl<K, V, S, P1, P2> PartialEq for HashMap<K, V, S, P>
+impl<K, V, S1, S2, P1, P2> PartialEq<HashMap<K, V, S2, P2>> for HashMap<K, V, S1, P1>
 where
     K: Hash + Eq,
     V: Eq,
-    S: BuildHasher,
-    P: SharedPointerKind,
+    S1: BuildHasher,
+    S2: BuildHasher,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
     fn eq(&self, other: &Self) -> bool {
         if SharedPointer::ptr_eq(&self.root, &other.root) {

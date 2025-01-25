@@ -5,9 +5,9 @@
 use ::arbitrary::{size_hint, Arbitrary, Result, Unstructured};
 use std::hash::{BuildHasher, Hash};
 
-use crate::{HashMap, HashSet, OrdMap, OrdSet, Vector};
+use crate::{HashMap, HashSet, OrdMap, OrdSet, Vector, shared_ptr::SharedPointerKind};
 
-impl<'a, A: Arbitrary<'a> + Clone> Arbitrary<'a> for Vector<A> {
+impl<'a, A: Arbitrary<'a> + Clone, P: SharedPointerKind + 'static> Arbitrary<'a> for Vector<A, P> {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
     }
@@ -23,7 +23,7 @@ impl<'a, A: Arbitrary<'a> + Clone> Arbitrary<'a> for Vector<A> {
     }
 }
 
-impl<'a, K: Arbitrary<'a> + Ord + Clone, V: Arbitrary<'a> + Clone> Arbitrary<'a> for OrdMap<K, V> {
+impl<'a, K: Arbitrary<'a> + Ord + Clone, V: Arbitrary<'a> + Clone, P: SharedPointerKind + 'static> Arbitrary<'a> for OrdMap<K, V, P> {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
     }
@@ -39,7 +39,7 @@ impl<'a, K: Arbitrary<'a> + Ord + Clone, V: Arbitrary<'a> + Clone> Arbitrary<'a>
     }
 }
 
-impl<'a, A: Arbitrary<'a> + Ord + Clone> Arbitrary<'a> for OrdSet<A> {
+impl<'a, A: Arbitrary<'a> + Ord + Clone, P: SharedPointerKind + 'static> Arbitrary<'a> for OrdSet<A, P> {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
     }
@@ -55,11 +55,12 @@ impl<'a, A: Arbitrary<'a> + Ord + Clone> Arbitrary<'a> for OrdSet<A> {
     }
 }
 
-impl<'a, K, V, S> Arbitrary<'a> for HashMap<K, V, S>
+impl<'a, K, V, S, P> Arbitrary<'a> for HashMap<K, V, S, P>
 where
     K: Arbitrary<'a> + Hash + Eq + Clone,
     V: Arbitrary<'a> + Clone,
     S: BuildHasher + Default + 'static,
+    P: SharedPointerKind + 'static,
 {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
@@ -76,10 +77,11 @@ where
     }
 }
 
-impl<'a, A, S> Arbitrary<'a> for HashSet<A, S>
+impl<'a, A, S, P> Arbitrary<'a> for HashSet<A, S, P>
 where
     A: Arbitrary<'a> + Hash + Eq + Clone,
     S: BuildHasher + Default + 'static,
+    P: SharedPointerKind + 'static,
 {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()

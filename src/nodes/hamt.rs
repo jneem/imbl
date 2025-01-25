@@ -148,7 +148,7 @@ impl<A, P: SharedPointerKind> Node<A, P> {
             // Initialize the MaybeUninit node
             (&mut *result.get()).write(Node::new());
             // Safety: UnsafeCell<Self> and UnsafeCell<MaybeUninit<Self>> have the same memory representation
-            // Using ManuallyDrop to get around with mem::transumte requirement
+            // Using ManuallyDrop to get around the mem::transumte requirement
             let result: UnsafeCell<Self> = mem::transmute_copy(&mem::ManuallyDrop::new(result));
             let mut_ptr = UnsafeCell::raw_get(&result);
             with(&mut *mut_ptr);

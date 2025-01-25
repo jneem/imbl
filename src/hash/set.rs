@@ -263,7 +263,7 @@ impl<A, S, P: SharedPointerKind> HashSet<A, S, P> {
     #[must_use]
     pub fn with_pool_hasher<RS>(pool: &HashSetPool<A>, hasher: RS) -> Self
     where
-        Ref<S>: From<RS>,
+        SharedPointer<S>: From<RS>,
     {
         let root = SharedPointer::default();
         HashSet {
