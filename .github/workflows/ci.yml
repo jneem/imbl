@@ -15,8 +15,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo fmt --check
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: cargo fmt
+        run: cargo fmt --check
 
   test:
     runs-on: ${{ matrix.os }}
@@ -28,7 +30,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@master
+      - name: install toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
       - name: Run tests
@@ -40,9 +43,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: cargo clippy
         run: cargo clippy --all-features
 
   fuzz-tests:
@@ -50,6 +55,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@nightly
-      - run: cargo install cargo-fuzz
-      - run: for fuzz_test in `cargo fuzz list`; do cargo fuzz run $fuzz_test -- -max_total_time=10 || exit 1; done
+      - name: install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: run tests
+        run: for fuzz_test in `cargo fuzz list`; do cargo fuzz run $fuzz_test -- -max_total_time=10 || exit 1; done
