@@ -660,12 +660,13 @@ where
         match self {
             FocusMut::Single(_, chunk) => {
                 // FIXME: Stable polyfill for std `get_many_mut`
-                let chunk: *mut A = ptr::from_mut(*chunk).cast();
-                let mut arr = [const { MaybeUninit::uninit() }; N];
-                for idx in 0..N {
-                    arr[idx].write(unsafe { &mut *chunk.add(indices[idx]) });
-                }
-                unsafe { mem::transmute_copy(&arr) }
+                let chunk: *mut A = (*chunk).as_mut_ptr();
+                Some(indices.map(|index| {
+                    // Safety:
+                    // - `check_indices` ensures each index is `< self.len()`, which for `FocusMut::Single` is `chunk.len()`
+                    // - `check_indices` ensures the indexes do not overlap
+                    unsafe { &mut *chunk.add(index) }
+                }))
             }
             FocusMut::Full(pool, tree) => tree.get_many(pool, indices),
         }
@@ -980,18 +981,19 @@ where
         indices: [usize; N],
     ) -> Option<[&mut A; N]> {
         check_indices(self.len(), &indices)?;
-        let mut arr = [const { MaybeUninit::uninit() }; N];
-        for idx in 0..N {
-            let phys_idx = self.physical_index(indices[idx]);
+        Some(indices.map(|phys_idx| {
             if !contains(&self.target_range, &phys_idx) {
                 self.set_focus(pool, phys_idx);
             }
             let target_idx = phys_idx - self.target_range.start;
-            let chunk = self.get_focus_ptr();
-            let ptr = unsafe { Chunk::as_mut_slice_ptr(chunk) };
-            arr[idx].write(unsafe { &mut *ptr.cast::<A>().add(target_idx) });
-        }
-        unsafe { mem::transmute_copy(&arr) }
+            // Safety: we have called `set_focus` to get a valid chunk pointer
+            // and `target_idx` lies within it
+            unsafe {
+                let chunk = self.get_focus_ptr();
+                let ptr: *mut [A] = Chunk::as_mut_slice_ptr(chunk);
+                &mut *ptr.cast::<A>().add(target_idx)
+            }
+        }))
     }
 
     /// Gets the chunk for an index as a slice and its corresponding range within the TreeFocusMut.
