@@ -15,25 +15,23 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: -- --check
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: cargo fmt
+        run: cargo fmt --check
 
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        rust: [stable, beta, nightly, 1.51]
+        rust: [stable, beta, nightly, 1.76]
         os: [ubuntu-latest, windows-latest, macOS-latest]
 
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - name: install toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
       - name: Run tests
@@ -45,24 +43,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           components: clippy
-      - uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features
+      - name: cargo clippy
+        run: cargo clippy --all-features
 
   fuzz-tests:
-    name: Fuzz tests
+    name: fuzz
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-      - run: cargo install cargo-fuzz
-      - run: for fuzz_test in `cargo fuzz list`; do cargo fuzz run $fuzz_test -- -max_total_time=10 || exit 1; done
+      - name: install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: run tests
+        run: for fuzz_test in `cargo fuzz list`; do cargo fuzz run $fuzz_test -- -max_total_time=10 || exit 1; done
