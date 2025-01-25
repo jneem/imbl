@@ -17,7 +17,7 @@ appears to be unmaintained. The `1.0` release of `imbl` is compatible with the
 
 ## Minimum supported rust version
 
-This crate supports rust 1.79 and later. As const generics become more useful,
+This crate supports rust 1.76 and later. As const generics become more useful,
 the minimum supported rust version will increase.
 
 ## Licence
