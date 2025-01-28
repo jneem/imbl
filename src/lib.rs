@@ -389,12 +389,12 @@ compile_error!(
 
 pub mod shared_ptr;
 
-pub use crate::hashmap::HashMap;
-pub use crate::hashset::HashSet;
-pub use crate::ordmap::OrdMap;
-pub use crate::ordset::OrdSet;
+pub use crate::hashmap::{GenericHashMap, HashMap};
+pub use crate::hashset::{GenericHashSet, HashSet};
+pub use crate::ordmap::{GenericOrdMap, OrdMap};
+pub use crate::ordset::{GenericOrdSet, OrdSet};
 #[doc(inline)]
-pub use crate::vector::Vector;
+pub use crate::vector::{GenericVector, Vector};
 
 #[cfg(test)]
 mod test;
@@ -417,9 +417,9 @@ mod tests;
 /// # use std::sync::Arc;
 /// # use imbl::Vector;
 /// # fn main() {
-/// let vec_inside_vec: Vector<Vector<i64>> = vector![vector![1, 2, 3], vector![4, 5, 6]];
+/// let vec_inside_vec = vector![vector![1, 2, 3], vector![4, 5, 6]];
 ///
-/// let expected: Vector<Vector<i64>> = vector![vector![1, 2, 3], vector![4, 5, 1337]];
+/// let expected = vector![vector![1, 2, 3], vector![4, 5, 1337]];
 ///
 /// assert_eq!(expected, update_in![vec_inside_vec, 1 => 2, 1337]);
 /// # }

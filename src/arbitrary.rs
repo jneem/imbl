@@ -5,9 +5,14 @@
 use ::arbitrary::{size_hint, Arbitrary, Result, Unstructured};
 use std::hash::{BuildHasher, Hash};
 
-use crate::{HashMap, HashSet, OrdMap, OrdSet, Vector, shared_ptr::SharedPointerKind};
+use crate::{
+    shared_ptr::SharedPointerKind, GenericHashMap, GenericHashSet, GenericOrdMap, GenericOrdSet,
+    GenericVector,
+};
 
-impl<'a, A: Arbitrary<'a> + Clone, P: SharedPointerKind + 'static> Arbitrary<'a> for Vector<A, P> {
+impl<'a, A: Arbitrary<'a> + Clone, P: SharedPointerKind + 'static> Arbitrary<'a>
+    for GenericVector<A, P>
+{
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
     }
@@ -23,7 +28,13 @@ impl<'a, A: Arbitrary<'a> + Clone, P: SharedPointerKind + 'static> Arbitrary<'a>
     }
 }
 
-impl<'a, K: Arbitrary<'a> + Ord + Clone, V: Arbitrary<'a> + Clone, P: SharedPointerKind + 'static> Arbitrary<'a> for OrdMap<K, V, P> {
+impl<
+        'a,
+        K: Arbitrary<'a> + Ord + Clone,
+        V: Arbitrary<'a> + Clone,
+        P: SharedPointerKind + 'static,
+    > Arbitrary<'a> for GenericOrdMap<K, V, P>
+{
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
     }
@@ -39,7 +50,9 @@ impl<'a, K: Arbitrary<'a> + Ord + Clone, V: Arbitrary<'a> + Clone, P: SharedPoin
     }
 }
 
-impl<'a, A: Arbitrary<'a> + Ord + Clone, P: SharedPointerKind + 'static> Arbitrary<'a> for OrdSet<A, P> {
+impl<'a, A: Arbitrary<'a> + Ord + Clone, P: SharedPointerKind + 'static> Arbitrary<'a>
+    for GenericOrdSet<A, P>
+{
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
     }
@@ -55,7 +68,7 @@ impl<'a, A: Arbitrary<'a> + Ord + Clone, P: SharedPointerKind + 'static> Arbitra
     }
 }
 
-impl<'a, K, V, S, P> Arbitrary<'a> for HashMap<K, V, S, P>
+impl<'a, K, V, S, P> Arbitrary<'a> for GenericHashMap<K, V, S, P>
 where
     K: Arbitrary<'a> + Hash + Eq + Clone,
     V: Arbitrary<'a> + Clone,
@@ -77,7 +90,7 @@ where
     }
 }
 
-impl<'a, A, S, P> Arbitrary<'a> for HashSet<A, S, P>
+impl<'a, A, S, P> Arbitrary<'a> for GenericHashSet<A, S, P>
 where
     A: Arbitrary<'a> + Hash + Eq + Clone,
     S: BuildHasher + Default + 'static,

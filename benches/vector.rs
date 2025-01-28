@@ -26,7 +26,7 @@ where
 
 fn vector_push_front_mut(b: &mut Bencher, count: usize) {
     b.iter(|| {
-        let mut l = Vector::<i32>::new();
+        let mut l = Vector::new();
         for i in 0..count as i32 {
             l.push_front(i);
         }
@@ -55,7 +55,7 @@ fn vector_push_front_mut_100000(b: &mut Bencher) {
 
 fn vector_push_back_mut(b: &mut Bencher, count: usize) {
     b.iter(|| {
-        let mut l = Vector::<i32>::new();
+        let mut l = Vector::new();
         for i in 0..count as i32 {
             l.push_back(i);
         }
@@ -83,7 +83,7 @@ fn vector_push_back_mut_100000(b: &mut Bencher) {
 }
 
 fn vector_pop_front_mut(b: &mut Bencher, count: usize) {
-    let l = Vector::<i32>::from_iter(0..count as i32);
+    let l = Vector::from_iter(0..count as i32);
     b.iter(|| {
         let mut p = l.clone();
         for _ in 0..count {
@@ -113,7 +113,7 @@ fn vector_pop_front_mut_100000(b: &mut Bencher) {
 }
 
 fn vector_pop_back_mut(b: &mut Bencher, count: usize) {
-    let l = Vector::<i32>::from_iter(0..count as i32);
+    let l = Vector::from_iter(0..count as i32);
     b.iter(|| {
         let mut p = l.clone();
         for _ in 0..count {
@@ -143,7 +143,7 @@ fn vector_pop_back_mut_100000(b: &mut Bencher) {
 }
 
 fn vector_split(b: &mut Bencher, count: usize) {
-    let vec = Vector::<i32>::from_iter(0..count as i32);
+    let vec = Vector::from_iter(0..count as i32);
     b.iter(|| vec.clone().split_off(count / 2))
 }
 
@@ -169,8 +169,8 @@ fn vector_split_100000(b: &mut Bencher) {
 
 fn vector_append(b: &mut Bencher, count: usize) {
     let count = count as i32;
-    let vec1 = Vector::<i32>::from_iter(0..count / 2);
-    let vec2 = Vector::<i32>::from_iter(count / 2..count);
+    let vec1 = Vector::from_iter(0..count / 2);
+    let vec2 = Vector::from_iter(count / 2..count);
     b.iter(|| {
         let mut vec = vec1.clone();
         vec.append(vec2.clone());

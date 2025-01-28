@@ -8,7 +8,7 @@ use ::rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
-impl<'a, A, P: SharedPointerKind> IntoParallelRefIterator<'a> for Vector<A, P>
+impl<'a, A, P: SharedPointerKind> IntoParallelRefIterator<'a> for GenericVector<A, P>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + 'a,
@@ -23,7 +23,7 @@ where
     }
 }
 
-impl<'a, A, P> IntoParallelRefMutIterator<'a> for Vector<A, P>
+impl<'a, A, P> IntoParallelRefMutIterator<'a> for GenericVector<A, P>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + Sync + 'a,

@@ -14,7 +14,7 @@ use crate::nodes::chunk::Chunk;
 use crate::sync::Lock;
 use crate::util::to_range;
 use crate::vector::{
-    Iter, IterMut, RRBPool, Vector,
+    GenericVector, Iter, IterMut, RRBPool,
     VectorInner::{Full, Inline, Single},
     RRB,
 };
@@ -114,7 +114,7 @@ where
     /// Construct a `Focus` for a [`Vector`][Vector].
     ///
     /// [Vector]: enum.Vector.html
-    pub fn new(vector: &'a Vector<A, P>) -> Self {
+    pub fn new(vector: &'a GenericVector<A, P>) -> Self {
         match &vector.vector {
             Inline(_, chunk) => Focus::Single(chunk),
             Single(_, chunk) => Focus::Single(chunk),
@@ -633,7 +633,7 @@ where
     A: Clone + 'a,
 {
     /// Construct a `FocusMut` for a `Vector`.
-    pub fn new(vector: &'a mut Vector<A, P>) -> Self {
+    pub fn new(vector: &'a mut GenericVector<A, P>) -> Self {
         match &mut vector.vector {
             Inline(pool, chunk) => FocusMut::Single(pool.clone(), chunk),
             Single(pool, chunk) => {
