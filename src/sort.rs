@@ -3,6 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::vector::FocusMut;
+use archery::SharedPointerKind;
 use rand_core::{RngCore, SeedableRng};
 use std::cmp::Ordering;
 use std::mem;
@@ -19,11 +20,12 @@ fn gen_range<R: RngCore>(rng: &mut R, min: usize, max: usize) -> usize {
 // additional passes to find the exact partition places. This allows us to split the focus into
 // three correctly sized parts for less than, equal to and greater than items. As a bonus this
 // doesn't need to reorder the equal items to the center of the vector.
-fn do_quicksort<A, F, R>(vector: FocusMut<'_, A>, cmp: &F, rng: &mut R)
+fn do_quicksort<A, F, R, P>(vector: FocusMut<'_, A, P>, cmp: &F, rng: &mut R)
 where
     A: Clone,
     F: Fn(&A, &A) -> Ordering,
     R: RngCore,
+    P: SharedPointerKind,
 {
     if vector.len() <= 1 {
         return;
@@ -172,10 +174,11 @@ where
     }
 }
 
-pub(crate) fn quicksort<A, F>(vector: FocusMut<'_, A>, cmp: &F)
+pub(crate) fn quicksort<A, F, P>(vector: FocusMut<'_, A, P>, cmp: &F)
 where
     A: Clone,
     F: Fn(&A, &A) -> Ordering,
+    P: SharedPointerKind,
 {
     let mut rng = rand_xoshiro::Xoshiro256Plus::seed_from_u64(0);
     do_quicksort(vector, cmp, &mut rng);

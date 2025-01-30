@@ -29,10 +29,13 @@ use std::hash::{BuildHasher, Hash};
 use std::iter::{FromIterator, FusedIterator, Sum};
 use std::ops::{Add, Deref, Mul};
 
+use archery::{SharedPointer, SharedPointerKind};
+
 use crate::nodes::hamt::{hash_key, Drain as NodeDrain, HashValue, Iter as NodeIter, Node};
-use crate::ordset::OrdSet;
-use crate::util::{Pool, PoolRef, Ref};
-use crate::Vector;
+use crate::ordset::GenericOrdSet;
+use crate::shared_ptr::DefaultSharedPtr;
+use crate::util::Pool;
+use crate::GenericVector;
 
 /// Construct a set from a sequence of values.
 ///
@@ -40,7 +43,7 @@ use crate::Vector;
 ///
 /// ```
 /// # #[macro_use] extern crate imbl;
-/// # use imbl::hashset::HashSet;
+/// # use imbl::HashSet;
 /// # fn main() {
 /// assert_eq!(
 ///   hashset![1, 2, 3],
@@ -69,7 +72,14 @@ macro_rules! hashset {
     }};
 }
 
-def_pool!(HashSetPool<A>, Node<Value<A>>);
+/// Type alias for [`GenericHashSet`] that uses [`std::hash::RandomState`] as the default hasher and [`DefaultSharedPtr`] as the pointer type.
+///
+/// [GenericHashSet]: ./struct.GenericHashSet.html
+/// [`std::hash::RandomState`]: https://doc.rust-lang.org/stable/std/collections/hash_map/struct.RandomState.html
+/// [DefaultSharedPtr]: ../shared_ptr/type.DefaultSharedPtr.html
+pub type HashSet<A> = GenericHashSet<A, RandomState, DefaultSharedPtr>;
+
+def_pool!(HashSetPool<A>, Node<Value<A>, P>);
 
 /// An unordered set.
 ///
@@ -89,10 +99,10 @@ def_pool!(HashSetPool<A>, Node<Value<A>>);
 /// [std::cmp::Eq]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
 /// [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
 /// [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
-pub struct HashSet<A, S = RandomState> {
-    hasher: Ref<S>,
-    pool: HashSetPool<A>,
-    root: PoolRef<Node<Value<A>>>,
+pub struct GenericHashSet<A, S, P: SharedPointerKind> {
+    hasher: SharedPointer<S, P>,
+    pool: HashSetPool<A, P>,
+    root: SharedPointer<Node<Value<A>, P>, P>,
     size: usize,
 }
 
@@ -123,29 +133,11 @@ where
     }
 }
 
-impl<A> HashSet<A, RandomState> {
-    /// Construct an empty set.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Construct an empty set using a specific memory pool.
-    #[cfg(feature = "pool")]
-    #[must_use]
-    pub fn with_pool(pool: &HashSetPool<A>) -> Self {
-        Self {
-            pool: pool.clone(),
-            hasher: Default::default(),
-            size: 0,
-            root: PoolRef::default(&pool.0),
-        }
-    }
-}
-
-impl<A> HashSet<A, RandomState>
+impl<A, S, P> GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
+    S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     /// Construct a set with a single value.
     ///
@@ -161,11 +153,32 @@ where
     #[inline]
     #[must_use]
     pub fn unit(a: A) -> Self {
-        HashSet::new().update(a)
+        GenericHashSet::new().update(a)
     }
 }
 
-impl<A, S> HashSet<A, S> {
+impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
+    /// Construct an empty set.
+    #[must_use]
+    pub fn new() -> Self
+    where
+        S: Default,
+    {
+        Self::default()
+    }
+
+    /// Construct an empty set using a specific memory pool.
+    #[cfg(feature = "pool")]
+    #[must_use]
+    pub fn with_pool(pool: &HashSetPool<A>) -> Self {
+        Self {
+            pool: pool.clone(),
+            hasher: Default::default(),
+            size: 0,
+            root: SharedPointer::default(),
+        }
+    }
+
     /// Test whether a set is empty.
     ///
     /// Time: O(1)
@@ -215,7 +228,7 @@ impl<A, S> HashSet<A, S> {
     ///
     /// Time: O(1)
     pub fn ptr_eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other) || PoolRef::ptr_eq(&self.root, &other.root)
+        std::ptr::eq(self, other) || SharedPointer::ptr_eq(&self.root, &other.root)
     }
 
     /// Get a reference to the memory pool used by this set.
@@ -232,11 +245,11 @@ impl<A, S> HashSet<A, S> {
     #[must_use]
     pub fn with_hasher<RS>(hasher: RS) -> Self
     where
-        Ref<S>: From<RS>,
+        SharedPointer<S, P>: From<RS>,
     {
         let pool = HashSetPool::default();
-        let root = PoolRef::default(&pool.0);
-        HashSet {
+        let root = SharedPointer::default();
+        GenericHashSet {
             size: 0,
             pool,
             root,
@@ -250,10 +263,10 @@ impl<A, S> HashSet<A, S> {
     #[must_use]
     pub fn with_pool_hasher<RS>(pool: &HashSetPool<A>, hasher: RS) -> Self
     where
-        Ref<S>: From<RS>,
+        SharedPointer<S>: From<RS>,
     {
-        let root = PoolRef::default(&pool.0);
-        HashSet {
+        let root = SharedPointer::default();
+        GenericHashSet {
             size: 0,
             pool: pool.clone(),
             root,
@@ -265,20 +278,20 @@ impl<A, S> HashSet<A, S> {
     ///
     /// [BuildHasher]: https://doc.rust-lang.org/std/hash/trait.BuildHasher.html
     #[must_use]
-    pub fn hasher(&self) -> &Ref<S> {
+    pub fn hasher(&self) -> &SharedPointer<S, P> {
         &self.hasher
     }
 
     /// Construct an empty hash set using the same hasher as the current hash set.
     #[inline]
     #[must_use]
-    pub fn new_from<A1>(&self) -> HashSet<A1, S>
+    pub fn new_from<A2>(&self) -> GenericHashSet<A2, S, P>
     where
-        A1: Hash + Eq + Clone,
+        A2: Hash + Eq + Clone,
     {
         let pool = HashSetPool::default();
-        let root = PoolRef::default(&pool.0);
-        HashSet {
+        let root = SharedPointer::default();
+        GenericHashSet {
             size: 0,
             pool,
             root,
@@ -304,7 +317,7 @@ impl<A, S> HashSet<A, S> {
     /// ```
     pub fn clear(&mut self) {
         if !self.is_empty() {
-            self.root = PoolRef::default(&self.pool.0);
+            self.root = SharedPointer::default();
             self.size = 0;
         }
     }
@@ -317,19 +330,23 @@ impl<A, S> HashSet<A, S> {
     /// They will, however, come out in the same order every time for
     /// the same set.
     #[must_use]
-    pub fn iter(&self) -> Iter<'_, A> {
+    pub fn iter(&self) -> Iter<'_, A, P> {
         Iter {
             it: NodeIter::new(&self.root, self.size),
         }
     }
 }
 
-impl<A, S> HashSet<A, S>
+impl<A, S, P> GenericHashSet<A, S, P>
 where
     A: Hash + Eq,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
-    fn test_eq(&self, other: &Self) -> bool {
+    fn test_eq<S2: BuildHasher, P2: SharedPointerKind>(
+        &self,
+        other: &GenericHashSet<A, S2, P2>,
+    ) -> bool {
         if self.len() != other.len() {
             return false;
         }
@@ -387,10 +404,11 @@ where
     }
 }
 
-impl<A, S> HashSet<A, S>
+impl<A, S, P> GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     /// Insert a value into a set.
     ///
@@ -398,7 +416,7 @@ where
     #[inline]
     pub fn insert(&mut self, a: A) -> Option<A> {
         let hash = hash_key(&*self.hasher, &a);
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+        let root = SharedPointer::make_mut(&mut self.root);
         match root.insert(&self.pool.0, hash, 0, Value(a)) {
             None => {
                 self.size += 1;
@@ -416,7 +434,7 @@ where
         BA: Hash + Eq + ?Sized,
         A: Borrow<BA>,
     {
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+        let root = SharedPointer::make_mut(&mut self.root);
         let result = root.remove(&self.pool.0, hash_key(&*self.hasher, a), 0, a);
         if result.is_some() {
             self.size -= 1;
@@ -487,7 +505,7 @@ where
         F: FnMut(&A) -> bool,
     {
         let old_root = self.root.clone();
-        let root = PoolRef::make_mut(&self.pool.0, &mut self.root);
+        let root = SharedPointer::make_mut(&mut self.root);
         for (value, hash) in NodeIter::new(&old_root, self.size) {
             if !f(value) && root.remove(&self.pool.0, hash, 0, value).is_some() {
                 self.size -= 1;
@@ -595,10 +613,10 @@ where
     ///
     /// ```
     /// # #[macro_use] extern crate imbl;
-    /// # use imbl::ordset::OrdSet;
-    /// let set1 = ordset!{1, 2};
-    /// let set2 = ordset!{2, 3};
-    /// let expected = ordset!{1};
+    /// # use imbl::hashset::HashSet;
+    /// let set1 = hashset!{1, 2};
+    /// let set2 = hashset!{2, 3};
+    /// let expected = hashset!{1};
     /// assert_eq!(expected, set1.relative_complement(set2));
     /// ```
     #[must_use]
@@ -637,16 +655,17 @@ where
 
 // Core traits
 
-impl<A, S> Clone for HashSet<A, S>
+impl<A, S, P: SharedPointerKind> Clone for GenericHashSet<A, S, P>
 where
     A: Clone,
+    P: SharedPointerKind,
 {
     /// Clone a set.
     ///
     /// Time: O(1)
     #[inline]
     fn clone(&self) -> Self {
-        HashSet {
+        GenericHashSet {
             hasher: self.hasher.clone(),
             pool: self.pool.clone(),
             root: self.root.clone(),
@@ -655,32 +674,37 @@ where
     }
 }
 
-impl<A, S> PartialEq for HashSet<A, S>
+impl<A, S1, P1, S2, P2> PartialEq<GenericHashSet<A, S2, P2>> for GenericHashSet<A, S1, P1>
 where
     A: Hash + Eq,
-    S: BuildHasher + Default,
+    S1: BuildHasher,
+    S2: BuildHasher,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, other: &GenericHashSet<A, S2, P2>) -> bool {
         self.test_eq(other)
     }
 }
 
-impl<A, S> Eq for HashSet<A, S>
+impl<A, S, P> Eq for GenericHashSet<A, S, P>
 where
     A: Hash + Eq,
-    S: BuildHasher + Default,
+    S: BuildHasher,
+    P: SharedPointerKind,
 {
 }
 
-impl<A, S> Default for HashSet<A, S>
+impl<A, S, P> Default for GenericHashSet<A, S, P>
 where
-    S: BuildHasher + Default,
+    S: Default,
+    P: SharedPointerKind,
 {
     fn default() -> Self {
         let pool = HashSetPool::default();
-        let root = PoolRef::default(&pool.0);
-        HashSet {
-            hasher: Ref::<S>::default(),
+        let root = SharedPointer::default();
+        GenericHashSet {
+            hasher: SharedPointer::default(),
             pool,
             root,
             size: 0,
@@ -688,58 +712,63 @@ where
     }
 }
 
-impl<A, S> Add for HashSet<A, S>
+impl<A, S, P> Add for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
-    type Output = HashSet<A, S>;
+    type Output = GenericHashSet<A, S, P>;
 
     fn add(self, other: Self) -> Self::Output {
         self.union(other)
     }
 }
 
-impl<A, S> Mul for HashSet<A, S>
+impl<A, S, P> Mul for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
-    type Output = HashSet<A, S>;
+    type Output = GenericHashSet<A, S, P>;
 
     fn mul(self, other: Self) -> Self::Output {
         self.intersection(other)
     }
 }
 
-impl<'a, A, S> Add for &'a HashSet<A, S>
+impl<'a, A, S, P> Add for &'a GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
-    type Output = HashSet<A, S>;
+    type Output = GenericHashSet<A, S, P>;
 
     fn add(self, other: Self) -> Self::Output {
         self.clone().union(other.clone())
     }
 }
 
-impl<'a, A, S> Mul for &'a HashSet<A, S>
+impl<'a, A, S, P> Mul for &'a GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
-    type Output = HashSet<A, S>;
+    type Output = GenericHashSet<A, S, P>;
 
     fn mul(self, other: Self) -> Self::Output {
         self.clone().intersection(other.clone())
     }
 }
 
-impl<A, S> Sum for HashSet<A, S>
+impl<A, S, P: SharedPointerKind> Sum for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn sum<I>(it: I) -> Self
     where
@@ -749,7 +778,7 @@ where
     }
 }
 
-impl<A, S, R> Extend<R> for HashSet<A, S>
+impl<A, S, R, P: SharedPointerKind> Extend<R> for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone + From<R>,
     S: BuildHasher,
@@ -765,10 +794,11 @@ where
 }
 
 #[cfg(not(has_specialisation))]
-impl<A, S> Debug for HashSet<A, S>
+impl<A, S, P> Debug for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Debug,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         f.debug_set().entries(self.iter()).finish()
@@ -776,10 +806,11 @@ where
 }
 
 #[cfg(has_specialisation)]
-impl<A, S> Debug for HashSet<A, S>
+impl<A, S, P> Debug for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Debug,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     default fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         f.debug_set().entries(self.iter()).finish()
@@ -787,10 +818,11 @@ where
 }
 
 #[cfg(has_specialisation)]
-impl<A, S> Debug for HashSet<A, S>
+impl<A, S, P> Debug for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Debug + Ord,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         f.debug_set().entries(self.iter()).finish()
@@ -800,12 +832,12 @@ where
 // Iterators
 
 /// An iterator over the elements of a set.
-pub struct Iter<'a, A> {
-    it: NodeIter<'a, Value<A>>,
+pub struct Iter<'a, A, P: SharedPointerKind> {
+    it: NodeIter<'a, Value<A>, P>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
-impl<'a, A> Clone for Iter<'a, A> {
+impl<'a, A, P: SharedPointerKind> Clone for Iter<'a, A, P> {
     fn clone(&self) -> Self {
         Iter {
             it: self.it.clone(),
@@ -813,9 +845,10 @@ impl<'a, A> Clone for Iter<'a, A> {
     }
 }
 
-impl<'a, A> Iterator for Iter<'a, A>
+impl<'a, A, P> Iterator for Iter<'a, A, P>
 where
     A: 'a,
+    P: SharedPointerKind,
 {
     type Item = &'a A;
 
@@ -828,21 +861,23 @@ where
     }
 }
 
-impl<'a, A> ExactSizeIterator for Iter<'a, A> {}
+impl<'a, A, P: SharedPointerKind> ExactSizeIterator for Iter<'a, A, P> {}
 
-impl<'a, A> FusedIterator for Iter<'a, A> {}
+impl<'a, A, P: SharedPointerKind> FusedIterator for Iter<'a, A, P> {}
 
 /// A consuming iterator over the elements of a set.
-pub struct ConsumingIter<A>
+pub struct ConsumingIter<A, P>
 where
     A: Hash + Eq + Clone,
+    P: SharedPointerKind,
 {
-    it: NodeDrain<Value<A>>,
+    it: NodeDrain<Value<A>, P>,
 }
 
-impl<A> Iterator for ConsumingIter<A>
+impl<A, P> Iterator for ConsumingIter<A, P>
 where
     A: Hash + Eq + Clone,
+    P: SharedPointerKind,
 {
     type Item = A;
 
@@ -855,16 +890,27 @@ where
     }
 }
 
-impl<A> ExactSizeIterator for ConsumingIter<A> where A: Hash + Eq + Clone {}
+impl<A, P> ExactSizeIterator for ConsumingIter<A, P>
+where
+    A: Hash + Eq + Clone,
+    P: SharedPointerKind,
+{
+}
 
-impl<A> FusedIterator for ConsumingIter<A> where A: Hash + Eq + Clone {}
+impl<A, P> FusedIterator for ConsumingIter<A, P>
+where
+    A: Hash + Eq + Clone,
+    P: SharedPointerKind,
+{
+}
 
 // Iterator conversions
 
-impl<A, RA, S> FromIterator<RA> for HashSet<A, S>
+impl<A, RA, S, P> FromIterator<RA> for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone + From<RA>,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from_iter<T>(i: T) -> Self
     where
@@ -878,26 +924,28 @@ where
     }
 }
 
-impl<'a, A, S> IntoIterator for &'a HashSet<A, S>
+impl<'a, A, S, P> IntoIterator for &'a GenericHashSet<A, S, P>
 where
     A: Hash + Eq,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     type Item = &'a A;
-    type IntoIter = Iter<'a, A>;
+    type IntoIter = Iter<'a, A, P>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<A, S> IntoIterator for HashSet<A, S>
+impl<A, S, P> IntoIterator for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher,
+    P: SharedPointerKind,
 {
     type Item = A;
-    type IntoIter = ConsumingIter<Self::Item>;
+    type IntoIter = ConsumingIter<Self::Item, P>;
 
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter {
@@ -908,124 +956,142 @@ where
 
 // Conversions
 
-impl<'s, 'a, A, OA, SA, SB> From<&'s HashSet<&'a A, SA>> for HashSet<OA, SB>
+impl<'s, 'a, A, OA, SA, SB, P1, P2> From<&'s GenericHashSet<&'a A, SA, P1>>
+    for GenericHashSet<OA, SB, P2>
 where
     A: ToOwned<Owned = OA> + Hash + Eq + ?Sized,
     OA: Borrow<A> + Hash + Eq + Clone,
     SA: BuildHasher,
     SB: BuildHasher + Default,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    fn from(set: &HashSet<&A, SA>) -> Self {
+    fn from(set: &GenericHashSet<&A, SA, P1>) -> Self {
         set.iter().map(|a| (*a).to_owned()).collect()
     }
 }
 
-impl<A, S, const N: usize> From<[A; N]> for HashSet<A, S>
+impl<A, S, const N: usize, P> From<[A; N]> for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(arr: [A; N]) -> Self {
         IntoIterator::into_iter(arr).collect()
     }
 }
 
-impl<'a, A, S> From<&'a [A]> for HashSet<A, S>
+impl<'a, A, S, P> From<&'a [A]> for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(slice: &'a [A]) -> Self {
         slice.iter().cloned().collect()
     }
 }
 
-impl<A, S> From<Vec<A>> for HashSet<A, S>
+impl<A, S, P> From<Vec<A>> for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(vec: Vec<A>) -> Self {
         vec.into_iter().collect()
     }
 }
 
-impl<'a, A, S> From<&'a Vec<A>> for HashSet<A, S>
+impl<'a, A, S, P> From<&'a Vec<A>> for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(vec: &Vec<A>) -> Self {
         vec.iter().cloned().collect()
     }
 }
 
-impl<A, S> From<Vector<A>> for HashSet<A, S>
+impl<A, S, P1, P2> From<GenericVector<A, P2>> for GenericHashSet<A, S, P1>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    fn from(vector: Vector<A>) -> Self {
+    fn from(vector: GenericVector<A, P2>) -> Self {
         vector.into_iter().collect()
     }
 }
 
-impl<'a, A, S> From<&'a Vector<A>> for HashSet<A, S>
+impl<'a, A, S, P1, P2> From<&'a GenericVector<A, P2>> for GenericHashSet<A, S, P1>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    fn from(vector: &Vector<A>) -> Self {
+    fn from(vector: &GenericVector<A, P2>) -> Self {
         vector.iter().cloned().collect()
     }
 }
 
-impl<A, S> From<collections::HashSet<A>> for HashSet<A, S>
+impl<A, S, P> From<collections::HashSet<A>> for GenericHashSet<A, S, P>
 where
     A: Eq + Hash + Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(hash_set: collections::HashSet<A>) -> Self {
         hash_set.into_iter().collect()
     }
 }
 
-impl<'a, A, S> From<&'a collections::HashSet<A>> for HashSet<A, S>
+impl<'a, A, S, P> From<&'a collections::HashSet<A>> for GenericHashSet<A, S, P>
 where
     A: Eq + Hash + Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(hash_set: &collections::HashSet<A>) -> Self {
         hash_set.iter().cloned().collect()
     }
 }
 
-impl<'a, A, S> From<&'a BTreeSet<A>> for HashSet<A, S>
+impl<'a, A, S, P> From<&'a BTreeSet<A>> for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn from(btree_set: &BTreeSet<A>) -> Self {
         btree_set.iter().cloned().collect()
     }
 }
 
-impl<A, S> From<OrdSet<A>> for HashSet<A, S>
+impl<A, S, P1, P2> From<GenericOrdSet<A, P2>> for GenericHashSet<A, S, P1>
 where
     A: Ord + Hash + Eq + Clone,
     S: BuildHasher + Default,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    fn from(ordset: OrdSet<A>) -> Self {
+    fn from(ordset: GenericOrdSet<A, P2>) -> Self {
         ordset.into_iter().collect()
     }
 }
 
-impl<'a, A, S> From<&'a OrdSet<A>> for HashSet<A, S>
+impl<'a, A, S, P1, P2> From<&'a GenericOrdSet<A, P2>> for GenericHashSet<A, S, P1>
 where
     A: Ord + Hash + Eq + Clone,
     S: BuildHasher + Default,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
 {
-    fn from(ordset: &OrdSet<A>) -> Self {
+    fn from(ordset: &GenericOrdSet<A, P2>) -> Self {
         ordset.into_iter().cloned().collect()
     }
 }
@@ -1057,7 +1123,8 @@ mod test {
 
     #[test]
     fn insert_failing() {
-        let mut set: HashSet<i16, BuildHasherDefault<LolHasher>> = Default::default();
+        let mut set: GenericHashSet<i16, BuildHasherDefault<LolHasher>, DefaultSharedPtr> =
+            Default::default();
         set.insert(14658);
         assert_eq!(1, set.len());
         set.insert(-19198);
@@ -1090,8 +1157,9 @@ mod test {
             let mut lhs = vec![0, 1, 2];
             lhs.sort_unstable();
 
-            let hasher = Ref::from(MetroHashBuilder::new(i));
-            let mut iset: HashSet<_, MetroHashBuilder> = HashSet::with_hasher(hasher.clone());
+            let hasher = SharedPointer::new(MetroHashBuilder::new(i));
+            let mut iset: GenericHashSet<_, MetroHashBuilder, DefaultSharedPtr> =
+                GenericHashSet::with_hasher(hasher.clone());
             for &i in &lhs {
                 iset.insert(i);
             }

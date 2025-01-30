@@ -5,9 +5,12 @@
 use std::mem::replace;
 use std::ops::Range;
 
+use archery::{SharedPointer, SharedPointerKind};
+
 use crate::nodes::chunk::{Chunk, CHUNK_SIZE};
+use crate::util::clone_ref;
 use crate::util::{
-    Pool, PoolRef,
+    Pool,
     Side::{self, Left, Right},
 };
 use crate::vector::RRBPool;
@@ -17,12 +20,12 @@ use self::Entry::*;
 pub(crate) const NODE_SIZE: usize = CHUNK_SIZE;
 
 #[derive(Debug)]
-enum Size {
+enum Size<P: SharedPointerKind> {
     Size(usize),
-    Table(PoolRef<Chunk<usize>>),
+    Table(SharedPointer<Chunk<usize>, P>),
 }
 
-impl Clone for Size {
+impl<P: SharedPointerKind> Clone for Size<P> {
     fn clone(&self) -> Self {
         match *self {
             Size::Size(size) => Size::Size(size),
@@ -31,7 +34,7 @@ impl Clone for Size {
     }
 }
 
-impl Size {
+impl<P: SharedPointerKind> Size<P> {
     fn size(&self) -> usize {
         match self {
             Size::Size(s) => *s,
@@ -46,7 +49,7 @@ impl Size {
         }
     }
 
-    fn table_from_size(pool: &Pool<Chunk<usize>>, level: usize, size: usize) -> Self {
+    fn table_from_size(_pool: &Pool<Chunk<usize>>, level: usize, size: usize) -> Self {
         let mut chunk = Chunk::new();
         let mut remaining = size;
         if let Some(child_size) = NODE_SIZE.checked_pow(level as u32) {
@@ -60,7 +63,7 @@ impl Size {
             let next_value = chunk.last().unwrap_or(&0) + remaining;
             chunk.push_back(next_value);
         }
-        Size::Table(PoolRef::new(pool, chunk))
+        Size::Table(SharedPointer::new(chunk))
     }
 
     /// Enlarges this size table by inserting an extra element on one end.
@@ -72,7 +75,7 @@ impl Size {
             *self = Size::table_from_size(pool, level, *size);
         };
         if let Size::Table(ref mut size_ref) = self {
-            let size_table = PoolRef::make_mut(pool, size_ref);
+            let size_table = SharedPointer::make_mut(size_ref);
             debug_assert!(size_table.len() < NODE_SIZE);
             match side {
                 Left => {
@@ -102,7 +105,7 @@ impl Size {
                 }
             },
             Size::Table(ref mut size_ref) => {
-                let size_table = PoolRef::make_mut(pool, size_ref);
+                let size_table = SharedPointer::make_mut(size_ref);
                 match side {
                     Left => {
                         let first = size_table.pop_front();
@@ -128,7 +131,7 @@ impl Size {
         let size = match self {
             Size::Size(ref size) => *size,
             Size::Table(ref mut size_ref) => {
-                let size_table = PoolRef::make_mut(pool, size_ref);
+                let size_table = SharedPointer::make_mut(size_ref);
                 for entry in size_table.iter_mut().skip(index) {
                     *entry = (*entry as isize + value) as usize;
                 }
@@ -157,13 +160,13 @@ pub(crate) enum SplitResult {
 }
 
 // Invariants: Nodes only at level > 0, Values/Empty only at level = 0
-enum Entry<A> {
-    Nodes(Size, PoolRef<Chunk<Node<A>>>),
-    Values(PoolRef<Chunk<A>>),
+enum Entry<A, P: SharedPointerKind> {
+    Nodes(Size<P>, SharedPointer<Chunk<Node<A, P>>, P>),
+    Values(SharedPointer<Chunk<A>, P>),
     Empty,
 }
 
-impl<A: Clone> Clone for Entry<A> {
+impl<A: Clone, P: SharedPointerKind> Clone for Entry<A, P> {
     fn clone(&self) -> Self {
         match *self {
             Nodes(ref size, ref nodes) => Nodes(size.clone(), nodes.clone()),
@@ -173,7 +176,7 @@ impl<A: Clone> Clone for Entry<A> {
     }
 }
 
-impl<A> Entry<A> {
+impl<A, P: SharedPointerKind> Entry<A, P> {
     fn len(&self) -> usize {
         match self {
             Nodes(_, ref nodes) => nodes.len(),
@@ -197,7 +200,7 @@ impl<A> Entry<A> {
         }
     }
 
-    fn unwrap_nodes(&self) -> &Chunk<Node<A>> {
+    fn unwrap_nodes(&self) -> &Chunk<Node<A, P>> {
         match self {
             Nodes(_, ref nodes) => nodes,
             _ => panic!("rrb::Entry::unwrap_nodes: expected nodes, found values"),
@@ -209,31 +212,31 @@ impl<A> Entry<A> {
     }
 }
 
-impl<A: Clone> Entry<A> {
-    fn unwrap_values_mut(&mut self, pool: &RRBPool<A>) -> &mut Chunk<A> {
+impl<A: Clone, P: SharedPointerKind> Entry<A, P> {
+    fn unwrap_values_mut(&mut self, _pool: &RRBPool<A, P>) -> &mut Chunk<A> {
         match self {
-            Values(ref mut values) => PoolRef::make_mut(&pool.value_pool, values),
+            Values(ref mut values) => SharedPointer::make_mut(values),
             _ => panic!("rrb::Entry::unwrap_values_mut: expected values, found nodes"),
         }
     }
 
-    fn unwrap_nodes_mut(&mut self, pool: &RRBPool<A>) -> &mut Chunk<Node<A>> {
+    fn unwrap_nodes_mut(&mut self, _pool: &RRBPool<A, P>) -> &mut Chunk<Node<A, P>> {
         match self {
-            Nodes(_, ref mut nodes) => PoolRef::make_mut(&pool.node_pool, nodes),
+            Nodes(_, ref mut nodes) => SharedPointer::make_mut(nodes),
             _ => panic!("rrb::Entry::unwrap_nodes_mut: expected nodes, found values"),
         }
     }
 
     fn values(self) -> Chunk<A> {
         match self {
-            Values(values) => PoolRef::unwrap_or_clone(values),
+            Values(values) => clone_ref(values),
             _ => panic!("rrb::Entry::values: expected values, found nodes"),
         }
     }
 
-    fn nodes(self) -> Chunk<Node<A>> {
+    fn nodes(self) -> Chunk<Node<A, P>> {
         match self {
-            Nodes(_, nodes) => PoolRef::unwrap_or_clone(nodes),
+            Nodes(_, nodes) => clone_ref(nodes),
             _ => panic!("rrb::Entry::nodes: expected nodes, found values"),
         }
     }
@@ -241,11 +244,11 @@ impl<A: Clone> Entry<A> {
 
 // Node
 
-pub(crate) struct Node<A> {
-    children: Entry<A>,
+pub(crate) struct Node<A, P: SharedPointerKind> {
+    children: Entry<A, P>,
 }
 
-impl<A: Clone> Clone for Node<A> {
+impl<A: Clone, P: SharedPointerKind> Clone for Node<A, P> {
     fn clone(&self) -> Self {
         Node {
             children: self.children.clone(),
@@ -253,18 +256,18 @@ impl<A: Clone> Clone for Node<A> {
     }
 }
 
-impl<A> Default for Node<A> {
+impl<A, P: SharedPointerKind> Default for Node<A, P> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<A> Node<A> {
+impl<A, P: SharedPointerKind> Node<A, P> {
     pub(crate) fn new() -> Self {
         Node { children: Empty }
     }
 
-    pub(crate) fn parent(pool: &RRBPool<A>, level: usize, children: Chunk<Self>) -> Self {
+    pub(crate) fn parent(pool: &RRBPool<A, P>, level: usize, children: Chunk<Self>) -> Self {
         let mut size = Size::Size(0);
         let mut dense = true;
 
@@ -284,7 +287,7 @@ impl<A> Node<A> {
             dense &= child.is_completely_dense(level - 1);
         }
         Node {
-            children: Nodes(size, PoolRef::new(&pool.node_pool, children)),
+            children: Nodes(size, SharedPointer::new(children)),
         }
     }
 
@@ -292,38 +295,42 @@ impl<A> Node<A> {
         self.children = Empty;
     }
 
-    pub(crate) fn from_chunk(pool: &RRBPool<A>, level: usize, chunk: PoolRef<Chunk<A>>) -> Self {
+    pub(crate) fn from_chunk(
+        pool: &RRBPool<A, P>,
+        level: usize,
+        chunk: SharedPointer<Chunk<A>, P>,
+    ) -> Self {
         let node = Node {
             children: Values(chunk),
         };
         node.elevate(pool, level)
     }
 
-    pub(crate) fn single_parent(pool: &RRBPool<A>, node: Self) -> Self {
+    pub(crate) fn single_parent(_pool: &RRBPool<A, P>, node: Self) -> Self {
         let size = if node.is_dense() {
             Size::Size(node.len())
         } else {
             let size_table = Chunk::unit(node.len());
-            Size::Table(PoolRef::new(&pool.size_pool, size_table))
+            Size::Table(SharedPointer::new(size_table))
         };
-        let children = PoolRef::new(&pool.node_pool, Chunk::unit(node));
+        let children = SharedPointer::new(Chunk::unit(node));
         Node {
             children: Nodes(size, children),
         }
     }
 
-    pub(crate) fn join_dense(pool: &RRBPool<A>, left: Self, right: Self) -> Self {
+    pub(crate) fn join_dense(_pool: &RRBPool<A, P>, left: Self, right: Self) -> Self {
         let left_len = left.len();
         let right_len = right.len();
         Node {
             children: {
-                let children = PoolRef::new(&pool.node_pool, Chunk::pair(left, right));
+                let children = SharedPointer::new(Chunk::pair(left, right));
                 Nodes(Size::Size(left_len + right_len), children)
             },
         }
     }
 
-    pub(crate) fn elevate(self, pool: &RRBPool<A>, level_increment: usize) -> Self {
+    pub(crate) fn elevate(self, pool: &RRBPool<A, P>, level_increment: usize) -> Self {
         if level_increment > 0 {
             Self::single_parent(pool, self.elevate(pool, level_increment - 1))
         } else {
@@ -331,19 +338,19 @@ impl<A> Node<A> {
         }
     }
 
-    pub(crate) fn join_branches(self, pool: &RRBPool<A>, right: Self, level: usize) -> Self {
+    pub(crate) fn join_branches(self, _pool: &RRBPool<A, P>, right: Self, level: usize) -> Self {
         let left_len = self.len();
         let right_len = right.len();
         let size = if self.is_completely_dense(level) && right.is_dense() {
             Size::Size(left_len + right_len)
         } else {
             let size_table = Chunk::pair(left_len, left_len + right_len);
-            Size::Table(PoolRef::new(&pool.size_pool, size_table))
+            Size::Table(SharedPointer::new(size_table))
         };
         Node {
             children: {
                 let children = Chunk::pair(self, right);
-                Nodes(size, PoolRef::new(&pool.node_pool, children))
+                Nodes(size, SharedPointer::new(children))
             },
         }
     }
@@ -411,21 +418,21 @@ impl<A> Node<A> {
     }
 
     #[inline]
-    fn push_size(&mut self, pool: &RRBPool<A>, side: Side, level: usize, value: usize) {
+    fn push_size(&mut self, pool: &RRBPool<A, P>, side: Side, level: usize, value: usize) {
         if let Entry::Nodes(ref mut size, _) = self.children {
             size.push(&pool.size_pool, side, level, value)
         }
     }
 
     #[inline]
-    fn pop_size(&mut self, pool: &RRBPool<A>, side: Side, level: usize, value: usize) {
+    fn pop_size(&mut self, pool: &RRBPool<A, P>, side: Side, level: usize, value: usize) {
         if let Entry::Nodes(ref mut size, _) = self.children {
             size.pop(&pool.size_pool, side, level, value)
         }
     }
 
     #[inline]
-    fn update_size(&mut self, pool: &RRBPool<A>, index: usize, level: usize, value: isize) {
+    fn update_size(&mut self, pool: &RRBPool<A, P>, index: usize, level: usize, value: isize) {
         if let Entry::Nodes(ref mut size, _) = self.children {
             size.update(&pool.size_pool, index, level, value)
         }
@@ -605,8 +612,8 @@ impl<A> Node<A> {
     // }
 }
 
-impl<A: Clone> Node<A> {
-    pub(crate) fn index_mut(&mut self, pool: &RRBPool<A>, level: usize, index: usize) -> &mut A {
+impl<A: Clone, P: SharedPointerKind> Node<A, P> {
+    pub(crate) fn index_mut(&mut self, pool: &RRBPool<A, P>, level: usize, index: usize) -> &mut A {
         if level == 0 {
             &mut self.children.unwrap_values_mut(pool)[index]
         } else {
@@ -619,7 +626,7 @@ impl<A: Clone> Node<A> {
 
     pub(crate) fn lookup_chunk_mut(
         &mut self,
-        pool: &RRBPool<A>,
+        pool: &RRBPool<A, P>,
         level: usize,
         base: usize,
         index: usize,
@@ -639,7 +646,7 @@ impl<A: Clone> Node<A> {
         }
     }
 
-    fn push_child_node(&mut self, pool: &RRBPool<A>, side: Side, child: Node<A>) {
+    fn push_child_node(&mut self, pool: &RRBPool<A, P>, side: Side, child: Node<A, P>) {
         let children = self.children.unwrap_nodes_mut(pool);
         match side {
             Left => children.push_front(child),
@@ -647,7 +654,7 @@ impl<A: Clone> Node<A> {
         }
     }
 
-    fn pop_child_node(&mut self, pool: &RRBPool<A>, side: Side) -> Node<A> {
+    fn pop_child_node(&mut self, pool: &RRBPool<A, P>, side: Side) -> Node<A, P> {
         let children = self.children.unwrap_nodes_mut(pool);
         match side {
             Left => children.pop_front(),
@@ -657,11 +664,11 @@ impl<A: Clone> Node<A> {
 
     pub(crate) fn push_chunk(
         &mut self,
-        pool: &RRBPool<A>,
+        pool: &RRBPool<A, P>,
         level: usize,
         side: Side,
-        mut chunk: PoolRef<Chunk<A>>,
-    ) -> PushResult<PoolRef<Chunk<A>>> {
+        mut chunk: SharedPointer<Chunk<A>, P>,
+    ) -> PushResult<SharedPointer<Chunk<A>, P>> {
         if chunk.is_empty() {
             return PushResult::Done;
         }
@@ -674,7 +681,7 @@ impl<A: Clone> Node<A> {
             } else {
                 let values = self.children.unwrap_values_mut(pool);
                 if values.len() + chunk.len() <= NODE_SIZE {
-                    let chunk = PoolRef::make_mut(&pool.value_pool, &mut chunk);
+                    let chunk = SharedPointer::make_mut(&mut chunk);
                     match side {
                         Side::Left => {
                             chunk.append(values);
@@ -693,11 +700,9 @@ impl<A: Clone> Node<A> {
             let num_drained = match side {
                 Side::Right => {
                     if let Entry::Nodes(ref mut size, ref mut children) = self.children {
-                        let rightmost = PoolRef::make_mut(&pool.node_pool, children)
-                            .last_mut()
-                            .unwrap();
+                        let rightmost = SharedPointer::make_mut(children).last_mut().unwrap();
                         let old_size = rightmost.len();
-                        let chunk = PoolRef::make_mut(&pool.value_pool, &mut chunk);
+                        let chunk = SharedPointer::make_mut(&mut chunk);
                         let values = rightmost.children.unwrap_values_mut(pool);
                         let to_drain = chunk.len().min(NODE_SIZE - values.len());
                         values.drain_from_front(chunk, to_drain);
@@ -710,11 +715,9 @@ impl<A: Clone> Node<A> {
                 }
                 Side::Left => {
                     if let Entry::Nodes(ref mut size, ref mut children) = self.children {
-                        let leftmost = PoolRef::make_mut(&pool.node_pool, children)
-                            .first_mut()
-                            .unwrap();
+                        let leftmost = SharedPointer::make_mut(children).first_mut().unwrap();
                         let old_size = leftmost.len();
-                        let chunk = PoolRef::make_mut(&pool.value_pool, &mut chunk);
+                        let chunk = SharedPointer::make_mut(&mut chunk);
                         let values = leftmost.children.unwrap_values_mut(pool);
                         let to_drain = chunk.len().min(NODE_SIZE - values.len());
                         values.drain_from_back(chunk, to_drain);
@@ -761,7 +764,7 @@ impl<A: Clone> Node<A> {
                         match side {
                             Right => match self.children {
                                 Entry::Nodes(Size::Table(ref mut sizes), _) => {
-                                    let sizes = PoolRef::make_mut(&pool.size_pool, sizes);
+                                    let sizes = SharedPointer::make_mut(sizes);
                                     sizes[index] += num_drained;
                                 }
                                 Entry::Nodes(Size::Size(ref mut size), _) => {
@@ -804,10 +807,10 @@ impl<A: Clone> Node<A> {
 
     pub(crate) fn pop_chunk(
         &mut self,
-        pool: &RRBPool<A>,
+        pool: &RRBPool<A, P>,
         level: usize,
         side: Side,
-    ) -> PopResult<PoolRef<Chunk<A>>> {
+    ) -> PopResult<SharedPointer<Chunk<A>, P>> {
         if self.is_empty() {
             return PopResult::Empty;
         }
@@ -866,7 +869,7 @@ impl<A: Clone> Node<A> {
 
     pub(crate) fn split(
         &mut self,
-        pool: &RRBPool<A>,
+        pool: &RRBPool<A, P>,
         level: usize,
         drop_side: Side,
         index: usize,
@@ -904,7 +907,7 @@ impl<A: Clone> Node<A> {
             let size_up_to = self.size_up_to(level, target_idx);
             let (size, children) =
                 if let Entry::Nodes(ref mut size, ref mut children) = self.children {
-                    (size, PoolRef::make_mut(&pool.node_pool, children))
+                    (size, SharedPointer::make_mut(children))
                 } else {
                     unreachable!()
                 };
@@ -927,7 +930,7 @@ impl<A: Clone> Node<A> {
                         *size = Size::table_from_size(&pool.size_pool, level, value);
                     }
                     let size_table = if let Size::Table(ref mut size_ref) = size {
-                        PoolRef::make_mut(&pool.size_pool, size_ref)
+                        SharedPointer::make_mut(size_ref)
                     } else {
                         unreachable!()
                     };
@@ -969,7 +972,7 @@ impl<A: Clone> Node<A> {
                             }
                         }
                         Size::Table(ref mut size_ref) => {
-                            let size_table = PoolRef::make_mut(&pool.size_pool, size_ref);
+                            let size_table = SharedPointer::make_mut(size_ref);
                             let dropped_size =
                                 size_table[size_table.len() - 1] - size_table[target_idx];
                             if drop_from < size_table.len() {
@@ -989,7 +992,7 @@ impl<A: Clone> Node<A> {
         }
     }
 
-    fn merge_leaves(pool: &RRBPool<A>, mut left: Self, mut right: Self) -> Self {
+    fn merge_leaves(pool: &RRBPool<A, P>, mut left: Self, mut right: Self) -> Self {
         if left.children.is_empty_node() {
             // Left is empty, just use right
             Self::single_parent(pool, right)
@@ -1018,7 +1021,7 @@ impl<A: Clone> Node<A> {
     }
 
     fn merge_rebalance(
-        pool: &RRBPool<A>,
+        pool: &RRBPool<A, P>,
         level: usize,
         left: Self,
         middle: Self,
@@ -1047,8 +1050,7 @@ impl<A: Clone> Node<A> {
                 for value in subtree.children.values() {
                     next_leaf.push_back(value);
                     if next_leaf.is_full() {
-                        let new_node =
-                            Node::from_chunk(pool, 0, PoolRef::new(&pool.value_pool, next_leaf));
+                        let new_node = Node::from_chunk(pool, 0, SharedPointer::new(next_leaf));
                         next_subtree.push_back(new_node);
                         next_leaf = Chunk::new();
                         if next_subtree.is_full() {
@@ -1075,7 +1077,7 @@ impl<A: Clone> Node<A> {
             }
         }
         if !next_leaf.is_empty() {
-            let new_node = Node::from_chunk(pool, 0, PoolRef::new(&pool.value_pool, next_leaf));
+            let new_node = Node::from_chunk(pool, 0, SharedPointer::new(next_leaf));
             next_subtree.push_back(new_node);
         }
         if !next_node.is_empty() {
@@ -1089,7 +1091,12 @@ impl<A: Clone> Node<A> {
         Node::parent(pool, level + 1, root)
     }
 
-    pub(crate) fn merge(pool: &RRBPool<A>, mut left: Self, mut right: Self, level: usize) -> Self {
+    pub(crate) fn merge(
+        pool: &RRBPool<A, P>,
+        mut left: Self,
+        mut right: Self,
+        level: usize,
+    ) -> Self {
         if level == 0 {
             Self::merge_leaves(pool, left, right)
         } else {
@@ -1101,7 +1108,7 @@ impl<A: Clone> Node<A> {
                 } else {
                     let left_last =
                         if let Entry::Nodes(ref mut size, ref mut children) = left.children {
-                            let node = PoolRef::make_mut(&pool.node_pool, children).pop_back();
+                            let node = SharedPointer::make_mut(children).pop_back();
                             if !node.is_empty() {
                                 size.pop(&pool.size_pool, Side::Right, level, node.len());
                             }
@@ -1111,7 +1118,7 @@ impl<A: Clone> Node<A> {
                         };
                     let right_first =
                         if let Entry::Nodes(ref mut size, ref mut children) = right.children {
-                            let node = PoolRef::make_mut(&pool.node_pool, children).pop_front();
+                            let node = SharedPointer::make_mut(children).pop_front();
                             if !node.is_empty() {
                                 size.pop(&pool.size_pool, Side::Left, level, node.len());
                             }

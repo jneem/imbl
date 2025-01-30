@@ -304,6 +304,7 @@
 //! | [`rayon`](https://crates.io/crates/rayon) | parallel iterator implementations for [`Vector`][vector::Vector] |
 //! | [`serde`](https://crates.io/crates/serde) | [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) and [`Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) implementations for all `imbl` datatypes |
 //! | [`arbitrary`](https://crates.io/crates/arbitrary/) | [`arbitrary::Arbitrary`](https://docs.rs/arbitrary/latest/arbitrary/trait.Arbitrary.html) implementations for all `imbl` datatypes |
+//! | [`triomphe`](https://crates.io/crates/triomphe/) | Use [`triomphe::Arc`](https://docs.rs/triomphe/latest/triomphe/struct.Arc.html) for the default shared pointer.
 //!
 //! [std::collections]: https://doc.rust-lang.org/std/collections/index.html
 //! [std::collections::VecDeque]: https://doc.rust-lang.org/std/collections/struct.VecDeque.html
@@ -386,12 +387,14 @@ compile_error!(
     "The `pool` feature is not threadsafe but you've enabled it on a threadsafe version of `imbl`."
 );
 
-pub use crate::hashmap::HashMap;
-pub use crate::hashset::HashSet;
-pub use crate::ordmap::OrdMap;
-pub use crate::ordset::OrdSet;
+pub mod shared_ptr;
+
+pub use crate::hashmap::{GenericHashMap, HashMap};
+pub use crate::hashset::{GenericHashSet, HashSet};
+pub use crate::ordmap::{GenericOrdMap, OrdMap};
+pub use crate::ordset::{GenericOrdSet, OrdSet};
 #[doc(inline)]
-pub use crate::vector::Vector;
+pub use crate::vector::{GenericVector, Vector};
 
 #[cfg(test)]
 mod test;
@@ -412,6 +415,7 @@ mod tests;
 /// ```
 /// # #[macro_use] extern crate imbl;
 /// # use std::sync::Arc;
+/// # use imbl::Vector;
 /// # fn main() {
 /// let vec_inside_vec = vector![vector![1, 2, 3], vector![4, 5, 6]];
 ///
@@ -448,8 +452,9 @@ macro_rules! update_in {
 /// ```
 /// # #[macro_use] extern crate imbl;
 /// # use std::sync::Arc;
+/// # use imbl::Vector;
 /// # fn main() {
-/// let vec_inside_vec = vector![vector![1, 2, 3], vector![4, 5, 6]];
+/// let vec_inside_vec: Vector<Vector<i64>> = vector![vector![1, 2, 3], vector![4, 5, 6]];
 ///
 /// assert_eq!(Some(&6), get_in![vec_inside_vec, 1 => 2]);
 /// # }

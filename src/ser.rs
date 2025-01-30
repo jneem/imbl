@@ -2,17 +2,18 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use archery::SharedPointerKind;
 use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use std::fmt;
 use std::hash::{BuildHasher, Hash};
 use std::marker::PhantomData;
 
-use crate::hashmap::HashMap;
-use crate::hashset::HashSet;
-use crate::ordmap::OrdMap;
-use crate::ordset::OrdSet;
-use crate::vector::Vector;
+use crate::hashmap::GenericHashMap;
+use crate::hashset::GenericHashSet;
+use crate::ordmap::GenericOrdMap;
+use crate::ordset::GenericOrdSet;
+use crate::vector::GenericVector;
 
 struct SeqVisitor<'de, S, A> {
     phantom_s: PhantomData<S>,
@@ -103,7 +104,9 @@ where
 
 // Set
 
-impl<'de, A: Deserialize<'de> + Ord + Clone> Deserialize<'de> for OrdSet<A> {
+impl<'de, A: Deserialize<'de> + Ord + Clone, P: SharedPointerKind> Deserialize<'de>
+    for GenericOrdSet<A, P>
+{
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -112,7 +115,7 @@ impl<'de, A: Deserialize<'de> + Ord + Clone> Deserialize<'de> for OrdSet<A> {
     }
 }
 
-impl<A: Ord + Serialize> Serialize for OrdSet<A> {
+impl<A: Ord + Serialize, P: SharedPointerKind> Serialize for GenericOrdSet<A, P> {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -127,18 +130,18 @@ impl<A: Ord + Serialize> Serialize for OrdSet<A> {
 
 // Map
 
-impl<'de, K: Deserialize<'de> + Ord + Clone, V: Deserialize<'de> + Clone> Deserialize<'de>
-    for OrdMap<K, V>
+impl<'de, K: Deserialize<'de> + Ord + Clone, V: Deserialize<'de> + Clone, P: SharedPointerKind>
+    Deserialize<'de> for GenericOrdMap<K, V, P>
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        des.deserialize_map(MapVisitor::<'de, OrdMap<K, V>, K, V>::new())
+        des.deserialize_map(MapVisitor::<'de, GenericOrdMap<K, V, P>, K, V>::new())
     }
 }
 
-impl<K: Serialize + Ord, V: Serialize> Serialize for OrdMap<K, V> {
+impl<K: Serialize + Ord, V: Serialize, P: SharedPointerKind> Serialize for GenericOrdMap<K, V, P> {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -153,25 +156,27 @@ impl<K: Serialize + Ord, V: Serialize> Serialize for OrdMap<K, V> {
 
 // HashMap
 
-impl<'de, K, V, S> Deserialize<'de> for HashMap<K, V, S>
+impl<'de, K, V, S, P: SharedPointerKind> Deserialize<'de> for GenericHashMap<K, V, S, P>
 where
     K: Deserialize<'de> + Hash + Eq + Clone,
     V: Deserialize<'de> + Clone,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        des.deserialize_map(MapVisitor::<'de, HashMap<K, V, S>, K, V>::new())
+        des.deserialize_map(MapVisitor::<'de, GenericHashMap<K, V, S, P>, K, V>::new())
     }
 }
 
-impl<K, V, S> Serialize for HashMap<K, V, S>
+impl<K, V, S, P> Serialize for GenericHashMap<K, V, S, P>
 where
     K: Serialize + Hash + Eq,
     V: Serialize,
     S: BuildHasher + Default,
+    P: SharedPointerKind,
 {
     fn serialize<Ser>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error>
     where
@@ -187,8 +192,12 @@ where
 
 // HashSet
 
-impl<'de, A: Deserialize<'de> + Hash + Eq + Clone, S: BuildHasher + Default> Deserialize<'de>
-    for HashSet<A, S>
+impl<
+        'de,
+        A: Deserialize<'de> + Hash + Eq + Clone,
+        S: BuildHasher + Default,
+        P: SharedPointerKind,
+    > Deserialize<'de> for GenericHashSet<A, S, P>
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
@@ -198,7 +207,9 @@ impl<'de, A: Deserialize<'de> + Hash + Eq + Clone, S: BuildHasher + Default> Des
     }
 }
 
-impl<A: Serialize + Hash + Eq, S: BuildHasher + Default> Serialize for HashSet<A, S> {
+impl<A: Serialize + Hash + Eq, S: BuildHasher + Default, P: SharedPointerKind> Serialize
+    for GenericHashSet<A, S, P>
+{
     fn serialize<Ser>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error>
     where
         Ser: Serializer,
@@ -213,16 +224,18 @@ impl<A: Serialize + Hash + Eq, S: BuildHasher + Default> Serialize for HashSet<A
 
 // Vector
 
-impl<'de, A: Clone + Deserialize<'de>> Deserialize<'de> for Vector<A> {
+impl<'de, A: Clone + Deserialize<'de>, P: SharedPointerKind> Deserialize<'de>
+    for GenericVector<A, P>
+{
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        des.deserialize_seq(SeqVisitor::<'de, Vector<A>, A>::new())
+        des.deserialize_seq(SeqVisitor::<'de, GenericVector<A, P>, A>::new())
     }
 }
 
-impl<A: Serialize> Serialize for Vector<A> {
+impl<A: Serialize, P: SharedPointerKind> Serialize for GenericVector<A, P> {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -239,8 +252,10 @@ impl<A: Serialize> Serialize for Vector<A> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::proptest::{hash_map, hash_set, ord_map, ord_set, vector};
+    use crate::{
+        proptest::{hash_map, hash_set, ord_map, ord_set, vector},
+        HashMap, HashSet, OrdMap, OrdSet, Vector,
+    };
     use ::proptest::num::i32;
     use ::proptest::proptest;
     use serde_json::{from_str, to_string};

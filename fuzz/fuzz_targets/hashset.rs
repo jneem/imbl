@@ -35,7 +35,7 @@ fuzz_target!(|actions: Vec<Action<u32>>| {
         }
         assert_eq!(nat.len(), set.len());
     }
-    assert_eq!(HashSet::from(nat.clone()), set);
+    assert_eq!(HashSet::<_>::from(nat.clone()), set);
     assert_eq!(NatSet::from_iter(set.iter().cloned()), nat);
     assert_eq!(set.iter().count(), nat.len());
     assert_eq!(set.into_iter().count(), nat.len());

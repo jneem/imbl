@@ -2,19 +2,21 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use archery::SharedPointerKind;
+
 use crate::config::POOL_SIZE;
 use crate::nodes::chunk::Chunk;
 use crate::nodes::rrb::Node;
 use crate::util::Pool;
 
 /// A memory pool for `Vector`.
-pub struct RRBPool<A> {
-    pub(crate) node_pool: Pool<Chunk<Node<A>>>,
+pub struct RRBPool<A, P: SharedPointerKind> {
+    pub(crate) node_pool: Pool<Chunk<Node<A, P>>>,
     pub(crate) value_pool: Pool<Chunk<A>>,
     pub(crate) size_pool: Pool<Chunk<usize>>,
 }
 
-impl<A> RRBPool<A> {
+impl<A, P: SharedPointerKind> RRBPool<A, P> {
     /// Create a new memory pool with the given size.
     pub fn new(size: usize) -> Self {
         Self::with_sizes(size, size, size)
@@ -56,14 +58,14 @@ impl<A> RRBPool<A> {
     }
 }
 
-impl<A> Default for RRBPool<A> {
+impl<A, P: SharedPointerKind> Default for RRBPool<A, P> {
     /// Construct a pool with a reasonable default pool size.
     fn default() -> Self {
         Self::new(POOL_SIZE)
     }
 }
 
-impl<A> Clone for RRBPool<A> {
+impl<A, P: SharedPointerKind> Clone for RRBPool<A, P> {
     fn clone(&self) -> Self {
         Self {
             node_pool: self.node_pool.clone(),
