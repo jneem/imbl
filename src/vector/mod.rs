@@ -1331,8 +1331,14 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
     /// Time: O(log n)
     #[must_use]
     pub fn skip(&self, count: usize) -> Self {
-        // FIXME can be made more efficient by dropping the unwanted side without constructing it
-        self.clone().split_off(count)
+        match count {
+            0 => self.clone(),
+            count if count >= self.len() => Self::new(),
+            count => {
+                // FIXME can be made more efficient by dropping the unwanted side without constructing it
+                self.clone().split_off(count)
+            }
+        }
     }
 
     /// Construct a vector of the first `count` elements from the
@@ -2839,7 +2845,23 @@ mod test {
 
         #[cfg_attr(miri, ignore)]
         #[test]
-        fn split(ref vec in vec(i32::ANY, 1..2000), split_pos in usize::ANY) {
+        fn skip(ref vec in vec(i32::ANY, 1..2000), count in usize::ANY) {
+            let count = count % (vec.len() + 1);
+            let old = Vector::from_iter(vec.iter().cloned());
+            let new = old.skip(count);
+            assert_eq!(old.len(), vec.len());
+            assert_eq!(new.len(), vec.len() - count);
+            for (index, item) in old.iter().enumerate() {
+                assert_eq!(& vec[index], item);
+            }
+            for (index, item) in new.iter().enumerate() {
+                assert_eq!(&vec[count + index], item);
+            }
+        }
+
+        #[cfg_attr(miri, ignore)]
+        #[test]
+        fn split_off(ref vec in vec(i32::ANY, 1..2000), split_pos in usize::ANY) {
             let split_index = split_pos % (vec.len() + 1);
             let mut left = Vector::from_iter(vec.iter().cloned());
             let right = left.split_off(split_index);
