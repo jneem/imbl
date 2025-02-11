@@ -37,7 +37,6 @@ use crate::nodes::hamt::{
     Node,
 };
 use crate::shared_ptr::DefaultSharedPtr;
-use crate::util::Pool;
 
 /// Construct a hash map from a sequence of key/value pairs.
 ///
@@ -85,8 +84,6 @@ macro_rules! hashmap {
 /// [DefaultSharedPtr]: ../shared_ptr/type.DefaultSharedPtr.html
 pub type HashMap<K, V> = GenericHashMap<K, V, RandomState, DefaultSharedPtr>;
 
-def_pool!(HashMapPool<K, V>, Node<(K,V), P>);
-
 /// An unordered map.
 ///
 /// An immutable hash map using [hash array mapped tries] [1].
@@ -108,7 +105,6 @@ def_pool!(HashMapPool<K, V>, Node<(K,V), P>);
 
 pub struct GenericHashMap<K, V, S, P: SharedPointerKind> {
     size: usize,
-    pool: HashMapPool<K, V, P>,
     root: SharedPointer<Node<(K, V), P>, P>,
     hasher: SharedPointer<S, P>,
 }
@@ -228,12 +224,10 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
     where
         SharedPointer<S, P>: From<RS>,
     {
-        let pool = HashMapPool::default();
         let root = SharedPointer::default();
         GenericHashMap {
             size: 0,
             hasher: hasher.into(),
-            pool,
             root,
         }
     }
@@ -255,11 +249,9 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
         K1: Hash + Eq + Clone,
         V1: Clone,
     {
-        let pool = HashMapPool::default();
         let root = SharedPointer::default();
         GenericHashMap {
             size: 0,
-            pool,
             root,
             hasher: self.hasher.clone(),
         }
@@ -553,7 +545,7 @@ where
     pub fn iter_mut(&mut self) -> IterMut<'_, K, V, P> {
         let root = SharedPointer::make_mut(&mut self.root);
         IterMut {
-            it: NodeIterMut::new(&self.pool.0, root, self.size),
+            it: NodeIterMut::new(root, self.size),
         }
     }
 
@@ -583,7 +575,7 @@ where
         K: Borrow<BK>,
     {
         let root = SharedPointer::make_mut(&mut self.root);
-        match root.get_mut(&self.pool.0, hash_key(&*self.hasher, key), 0, key) {
+        match root.get_mut(hash_key(&*self.hasher, key), 0, key) {
             None => None,
             Some(&mut (_, ref mut value)) => Some(value),
         }
@@ -613,7 +605,7 @@ where
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
         let hash = hash_key(&*self.hasher, &k);
         let root = SharedPointer::make_mut(&mut self.root);
-        let result = root.insert(&self.pool.0, hash, 0, (k, v));
+        let result = root.insert(hash, 0, (k, v));
         if result.is_none() {
             self.size += 1;
         }
@@ -670,7 +662,7 @@ where
         K: Borrow<BK>,
     {
         let root = SharedPointer::make_mut(&mut self.root);
-        let result = root.remove(&self.pool.0, hash_key(&*self.hasher, k), 0, k);
+        let result = root.remove(hash_key(&*self.hasher, k), 0, k);
         if result.is_some() {
             self.size -= 1;
         }
@@ -860,7 +852,7 @@ where
         let old_root = self.root.clone();
         let root = SharedPointer::make_mut(&mut self.root);
         for ((key, value), hash) in NodeIter::new(&old_root, self.size) {
-            if !f(key, value) && root.remove(&self.pool.0, hash, 0, key).is_some() {
+            if !f(key, value) && root.remove(hash, 0, key).is_some() {
                 self.size -= 1;
             }
         }
@@ -1457,7 +1449,7 @@ where
     /// Remove this entry from the map and return the removed mapping.
     pub fn remove_entry(self) -> (K, V) {
         let root = SharedPointer::make_mut(&mut self.map.root);
-        let result = root.remove(&self.map.pool.0, self.hash, 0, &self.key);
+        let result = root.remove(self.hash, 0, &self.key);
         self.map.size -= 1;
         result.unwrap()
     }
@@ -1472,20 +1464,14 @@ where
     #[must_use]
     pub fn get_mut(&mut self) -> &mut V {
         let root = SharedPointer::make_mut(&mut self.map.root);
-        &mut root
-            .get_mut(&self.map.pool.0, self.hash, 0, &self.key)
-            .unwrap()
-            .1
+        &mut root.get_mut(self.hash, 0, &self.key).unwrap().1
     }
 
     /// Convert this entry into a mutable reference.
     #[must_use]
     pub fn into_mut(self) -> &'a mut V {
         let root = SharedPointer::make_mut(&mut self.map.root);
-        &mut root
-            .get_mut(&self.map.pool.0, self.hash, 0, &self.key)
-            .unwrap()
-            .1
+        &mut root.get_mut(self.hash, 0, &self.key).unwrap().1
     }
 
     /// Overwrite the current value.
@@ -1535,17 +1521,14 @@ where
     pub fn insert(self, value: V) -> &'a mut V {
         let root = SharedPointer::make_mut(&mut self.map.root);
         if root
-            .insert(&self.map.pool.0, self.hash, 0, (self.key.clone(), value))
+            .insert(self.hash, 0, (self.key.clone(), value))
             .is_none()
         {
             self.map.size += 1;
         }
         // TODO it's unfortunate that we need to look up the key again
         // here to get the mut ref.
-        &mut root
-            .get_mut(&self.map.pool.0, self.hash, 0, &self.key)
-            .unwrap()
-            .1
+        &mut root.get_mut(self.hash, 0, &self.key).unwrap().1
     }
 }
 
@@ -1564,7 +1547,6 @@ where
     fn clone(&self) -> Self {
         GenericHashMap {
             root: self.root.clone(),
-            pool: self.pool.clone(),
             size: self.size,
             hasher: self.hasher.clone(),
         }
@@ -1601,11 +1583,9 @@ where
 {
     #[inline]
     fn default() -> Self {
-        let pool = HashMapPool::default();
         let root = SharedPointer::default();
         GenericHashMap {
             size: 0,
-            pool,
             root,
             hasher: SharedPointer::default(),
         }
@@ -1699,7 +1679,7 @@ where
 {
     fn index_mut(&mut self, key: &BK) -> &mut Self::Output {
         let root = SharedPointer::make_mut(&mut self.root);
-        match root.get_mut(&self.pool.0, hash_key(&*self.hasher, key), 0, key) {
+        match root.get_mut(hash_key(&*self.hasher, key), 0, key) {
             None => panic!("HashMap::index_mut: invalid key"),
             Some(&mut (_, ref mut value)) => value,
         }
@@ -1895,7 +1875,7 @@ where
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter {
-            it: NodeDrain::new(&self.pool.0, self.root, self.size),
+            it: NodeDrain::new(self.root, self.size),
         }
     }
 }

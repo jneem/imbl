@@ -378,8 +378,6 @@ pub mod arbitrary;
 #[doc(hidden)]
 pub mod quickcheck;
 
-mod fakepool;
-
 pub mod shared_ptr;
 
 pub use crate::hashmap::{GenericHashMap, HashMap};

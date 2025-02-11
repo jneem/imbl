@@ -34,7 +34,6 @@ use archery::{SharedPointer, SharedPointerKind};
 use crate::nodes::hamt::{hash_key, Drain as NodeDrain, HashValue, Iter as NodeIter, Node};
 use crate::ordset::GenericOrdSet;
 use crate::shared_ptr::DefaultSharedPtr;
-use crate::util::Pool;
 use crate::GenericVector;
 
 /// Construct a set from a sequence of values.
@@ -79,8 +78,6 @@ macro_rules! hashset {
 /// [DefaultSharedPtr]: ../shared_ptr/type.DefaultSharedPtr.html
 pub type HashSet<A> = GenericHashSet<A, RandomState, DefaultSharedPtr>;
 
-def_pool!(HashSetPool<A>, Node<Value<A>, P>);
-
 /// An unordered set.
 ///
 /// An immutable hash set using [hash array mapped tries] [1].
@@ -101,7 +98,6 @@ def_pool!(HashSetPool<A>, Node<Value<A>, P>);
 /// [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 pub struct GenericHashSet<A, S, P: SharedPointerKind> {
     hasher: SharedPointer<S, P>,
-    pool: HashSetPool<A, P>,
     root: SharedPointer<Node<Value<A>, P>, P>,
     size: usize,
 }
@@ -226,11 +222,9 @@ impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
     where
         SharedPointer<S, P>: From<RS>,
     {
-        let pool = HashSetPool::default();
         let root = SharedPointer::default();
         GenericHashSet {
             size: 0,
-            pool,
             root,
             hasher: From::from(hasher),
         }
@@ -251,11 +245,9 @@ impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
     where
         A2: Hash + Eq + Clone,
     {
-        let pool = HashSetPool::default();
         let root = SharedPointer::default();
         GenericHashSet {
             size: 0,
-            pool,
             root,
             hasher: self.hasher.clone(),
         }
@@ -379,7 +371,7 @@ where
     pub fn insert(&mut self, a: A) -> Option<A> {
         let hash = hash_key(&*self.hasher, &a);
         let root = SharedPointer::make_mut(&mut self.root);
-        match root.insert(&self.pool.0, hash, 0, Value(a)) {
+        match root.insert(hash, 0, Value(a)) {
             None => {
                 self.size += 1;
                 None
@@ -397,7 +389,7 @@ where
         A: Borrow<BA>,
     {
         let root = SharedPointer::make_mut(&mut self.root);
-        let result = root.remove(&self.pool.0, hash_key(&*self.hasher, a), 0, a);
+        let result = root.remove(hash_key(&*self.hasher, a), 0, a);
         if result.is_some() {
             self.size -= 1;
         }
@@ -469,7 +461,7 @@ where
         let old_root = self.root.clone();
         let root = SharedPointer::make_mut(&mut self.root);
         for (value, hash) in NodeIter::new(&old_root, self.size) {
-            if !f(value) && root.remove(&self.pool.0, hash, 0, value).is_some() {
+            if !f(value) && root.remove(hash, 0, value).is_some() {
                 self.size -= 1;
             }
         }
@@ -629,7 +621,6 @@ where
     fn clone(&self) -> Self {
         GenericHashSet {
             hasher: self.hasher.clone(),
-            pool: self.pool.clone(),
             root: self.root.clone(),
             size: self.size,
         }
@@ -663,11 +654,9 @@ where
     P: SharedPointerKind,
 {
     fn default() -> Self {
-        let pool = HashSetPool::default();
         let root = SharedPointer::default();
         GenericHashSet {
             hasher: SharedPointer::default(),
-            pool,
             root,
             size: 0,
         }
@@ -886,7 +875,7 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter {
-            it: NodeDrain::new(&self.pool.0, self.root, self.size),
+            it: NodeDrain::new(self.root, self.size),
         }
     }
 }

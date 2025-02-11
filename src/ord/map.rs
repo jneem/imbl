@@ -31,7 +31,6 @@ use archery::{SharedPointer, SharedPointerKind};
 use crate::hashmap::GenericHashMap;
 use crate::nodes::btree::{BTreeValue, Insert, Iter as NodeIter, Node, Remove};
 use crate::shared_ptr::DefaultSharedPtr;
-use crate::util::Pool;
 
 pub use crate::nodes::btree::{ConsumingIter, DiffItem as NodeDiffItem, DiffIter as NodeDiffIter};
 
@@ -98,8 +97,6 @@ impl<K: Ord, V> BTreeValue for (K, V) {
     }
 }
 
-def_pool!(OrdMapPool<K, V>, Node<(K, V), P>);
-
 /// Type alias for [`GenericOrdMap`] that uses [`DefaultSharedPtr`] as the pointer type.
 ///
 /// [GenericOrdMap]: ./struct.GenericOrdMap.html
@@ -121,7 +118,6 @@ pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
 /// [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 pub struct GenericOrdMap<K, V, P: SharedPointerKind> {
     size: usize,
-    pool: OrdMapPool<K, V, P>,
     root: SharedPointer<Node<(K, V), P>, P>,
 }
 
@@ -130,13 +126,8 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        let pool = OrdMapPool::default();
         let root = SharedPointer::default();
-        GenericOrdMap {
-            size: 0,
-            pool,
-            root,
-        }
+        GenericOrdMap { size: 0, root }
     }
 
     /// Construct a map with a single mapping.
@@ -155,13 +146,8 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     #[inline]
     #[must_use]
     pub fn unit(key: K, value: V) -> Self {
-        let pool = OrdMapPool::default();
         let root = SharedPointer::new(Node::unit((key, value)));
-        GenericOrdMap {
-            size: 1,
-            pool,
-            root,
-        }
+        GenericOrdMap { size: 1, root }
     }
 
     /// Test whether a map is empty.
@@ -587,7 +573,7 @@ where
         K: Borrow<BK>,
     {
         let root = SharedPointer::make_mut(&mut self.root);
-        root.lookup_mut(&self.pool.0, key).map(|(_, v)| v)
+        root.lookup_mut(key).map(|(_, v)| v)
     }
 
     /// Get the closest smaller entry in a map to a given key
@@ -615,9 +601,8 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let pool = &self.pool.0;
         SharedPointer::make_mut(&mut self.root)
-            .lookup_prev_mut(pool, key)
+            .lookup_prev_mut(key)
             .map(|(ref k, ref mut v)| (k, v))
     }
 
@@ -646,9 +631,8 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let pool = &self.pool.0;
         SharedPointer::make_mut(&mut self.root)
-            .lookup_next_mut(pool, key)
+            .lookup_next_mut(key)
             .map(|(ref k, ref mut v)| (k, v))
     }
 
@@ -682,14 +666,14 @@ where
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         let new_root = {
             let root = SharedPointer::make_mut(&mut self.root);
-            match root.insert(&self.pool.0, (key, value)) {
+            match root.insert((key, value)) {
                 Insert::Replaced((_, old_value)) => return Some(old_value),
                 Insert::Added => {
                     self.size += 1;
                     return None;
                 }
                 Insert::Split(left, median, right) => {
-                    SharedPointer::new(Node::new_from_split(&self.pool.0, left, median, right))
+                    SharedPointer::new(Node::new_from_split(left, median, right))
                 }
             }
         };
@@ -734,7 +718,7 @@ where
     {
         let (new_root, removed_value) = {
             let root = SharedPointer::make_mut(&mut self.root);
-            match root.remove(&self.pool.0, k) {
+            match root.remove(k) {
                 Remove::NoChange => return None,
                 Remove::Removed(pair) => {
                     self.size -= 1;
@@ -1642,7 +1626,6 @@ impl<K, V, P: SharedPointerKind> Clone for GenericOrdMap<K, V, P> {
     fn clone(&self) -> Self {
         GenericOrdMap {
             size: self.size,
-            pool: self.pool.clone(),
             root: self.root.clone(),
         }
     }
@@ -1787,7 +1770,7 @@ where
 {
     fn index_mut(&mut self, key: &BK) -> &mut Self::Output {
         let root = SharedPointer::make_mut(&mut self.root);
-        match root.lookup_mut(&self.pool.0, key) {
+        match root.lookup_mut(key) {
             None => panic!("OrdMap::index: invalid key"),
             Some(&mut (_, ref mut value)) => value,
         }

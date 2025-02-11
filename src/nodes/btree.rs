@@ -11,7 +11,7 @@ use archery::{SharedPointer, SharedPointerKind};
 use imbl_sized_chunks::Chunk;
 
 pub(crate) use crate::config::ORD_CHUNK_SIZE as NODE_SIZE;
-use crate::util::{clone_ref, Pool};
+use crate::util::clone_ref;
 
 use self::Insert::*;
 use self::InsertAction::*;
@@ -132,12 +132,7 @@ impl<A, P: SharedPointerKind> Node<A, P> {
     }
 
     #[inline]
-    pub(crate) fn new_from_split(
-        _pool: &Pool<Node<A, P>>,
-        left: Node<A, P>,
-        median: A,
-        right: Node<A, P>,
-    ) -> Self {
+    pub(crate) fn new_from_split(left: Node<A, P>, median: A, right: Node<A, P>) -> Self {
         Node {
             keys: Chunk::unit(median),
             children: Chunk::pair(
@@ -267,7 +262,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
         }
     }
 
-    pub(crate) fn lookup_mut<BK>(&mut self, pool: &Pool<Node<A, P>>, key: &BK) -> Option<&mut A>
+    pub(crate) fn lookup_mut<BK>(&mut self, key: &BK) -> Option<&mut A>
     where
         A: Clone,
         BK: Ord + ?Sized,
@@ -285,7 +280,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
                 None => None,
                 Some(ref mut child_ref) => {
                     let child = SharedPointer::make_mut(child_ref);
-                    child.lookup_mut(pool, key)
+                    child.lookup_mut(key)
                 }
             },
         }
@@ -330,11 +325,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
         }
     }
 
-    pub(crate) fn lookup_prev_mut<BK>(
-        &mut self,
-        pool: &Pool<Node<A, P>>,
-        key: &BK,
-    ) -> Option<&mut A>
+    pub(crate) fn lookup_prev_mut<BK>(&mut self, key: &BK) -> Option<&mut A>
     where
         A: Clone,
         BK: Ord + ?Sized,
@@ -348,16 +339,12 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
             Ok(index) => Some(&mut keys[index]),
             Err(index) => self.children[index]
                 .as_mut()
-                .and_then(|node| SharedPointer::make_mut(node).lookup_prev_mut(pool, key))
+                .and_then(|node| SharedPointer::make_mut(node).lookup_prev_mut(key))
                 .or_else(|| index.checked_sub(1).and_then(move |i| keys.get_mut(i))),
         }
     }
 
-    pub(crate) fn lookup_next_mut<BK>(
-        &mut self,
-        pool: &Pool<Node<A, P>>,
-        key: &BK,
-    ) -> Option<&mut A>
+    pub(crate) fn lookup_next_mut<BK>(&mut self, key: &BK) -> Option<&mut A>
     where
         A: Clone,
         BK: Ord + ?Sized,
@@ -371,7 +358,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
             Ok(index) => Some(&mut keys[index]),
             Err(index) => self.children[index]
                 .as_mut()
-                .and_then(|node| SharedPointer::make_mut(node).lookup_next_mut(pool, key))
+                .and_then(|node| SharedPointer::make_mut(node).lookup_next_mut(key))
                 .or_else(move || keys.get_mut(index)),
         }
     }
@@ -514,7 +501,6 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
 
     fn split(
         &mut self,
-        _pool: &Pool<Node<A, P>>,
         value: A,
         ins_left: Option<Node<A, P>>,
         ins_right: Option<Node<A, P>>,
@@ -627,7 +613,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
         self.children[0].is_none()
     }
 
-    pub(crate) fn insert(&mut self, pool: &Pool<Node<A, P>>, value: A) -> Insert<A, P>
+    pub(crate) fn insert(&mut self, value: A) -> Insert<A, P>
     where
         A: Clone,
     {
@@ -650,7 +636,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
                     // Child at location, pass it on.
                     Some(ref mut child_ref) => {
                         let child = SharedPointer::make_mut(child_ref);
-                        match child.insert(pool, value.clone()) {
+                        match child.insert(value.clone()) {
                             Insert::Added => AddedAction,
                             Insert::Replaced(value) => ReplacedAction(value),
                             Insert::Split(left, median, right) => InsertSplit(left, median, right),
@@ -685,24 +671,20 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
                 }
             }
         };
-        self.split(pool, median, left, right)
+        self.split(median, left, right)
     }
 
-    pub(crate) fn remove<BK>(&mut self, pool: &Pool<Node<A, P>>, key: &BK) -> Remove<A, P>
+    pub(crate) fn remove<BK>(&mut self, key: &BK) -> Remove<A, P>
     where
         A: Clone,
         BK: Ord + ?Sized,
         A::Key: Borrow<BK>,
     {
         let index = A::search_key(&self.keys, key);
-        self.remove_index(pool, index, Ok(key))
+        self.remove_index(index, Ok(key))
     }
 
-    fn remove_target<BK>(
-        &mut self,
-        pool: &Pool<Node<A, P>>,
-        target: Result<&BK, Boundary>,
-    ) -> Remove<A, P>
+    fn remove_target<BK>(&mut self, target: Result<&BK, Boundary>) -> Remove<A, P>
     where
         A: Clone,
         BK: Ord + ?Sized,
@@ -713,12 +695,11 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
             Err(Boundary::Lowest) => Err(0),
             Err(Boundary::Highest) => Err(self.keys.len()),
         };
-        self.remove_index(pool, index, target)
+        self.remove_index(index, target)
     }
 
     fn remove_index<BK>(
         &mut self,
-        pool: &Pool<Node<A, P>>,
         index: Result<usize, usize>,
         target: Result<&BK, Boundary>,
     ) -> Remove<A, P>
@@ -798,7 +779,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
                 let value;
                 if let Some(&mut Some(ref mut child_ref)) = children.get_mut(child_index) {
                     let child = SharedPointer::make_mut(child_ref);
-                    match child.remove_target(pool, Err(boundary)) {
+                    match child.remove_target(Err(boundary)) {
                         Remove::NoChange => unreachable!(),
                         Remove::Removed(pulled_value) => {
                             value = self.keys.set(pull_to, pulled_value);
@@ -821,7 +802,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
                 let right = self.children[index].take().unwrap();
                 let value = self.keys.remove(index);
                 let mut merged_child = Node::merge(value, clone_ref(left), clone_ref(right));
-                let (removed, new_child) = match merged_child.remove_target(pool, target) {
+                let (removed, new_child) = match merged_child.remove_target(target) {
                     Remove::NoChange => unreachable!(),
                     Remove::Removed(removed) => (removed, merged_child),
                     Remove::Update(removed, updated_child) => (removed, updated_child),
@@ -848,7 +829,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
                         left.children.last().unwrap().clone(),
                         self.keys[index - 1].clone(),
                     );
-                    match child.remove_target(pool, target) {
+                    match child.remove_target(target) {
                         Remove::NoChange => {
                             // Key wasn't there, we need to revert the steal.
                             child.pop_min();
@@ -885,7 +866,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
                     let right = SharedPointer::make_mut(children.next().unwrap());
                     // Prepare the rebalanced node.
                     child.push_max(right.children[0].clone(), self.keys[index].clone());
-                    match child.remove_target(pool, target) {
+                    match child.remove_target(target) {
                         Remove::NoChange => {
                             // Key wasn't there, we need to revert the steal.
                             child.pop_max();
@@ -930,7 +911,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
                 let mut merged = Node::merge(middle, clone_ref(left), clone_ref(right));
                 let update;
                 let out_value;
-                match merged.remove_target(pool, target) {
+                match merged.remove_target(target) {
                     Remove::NoChange => {
                         panic!("nodes::btree::Node::remove: caught an absent key too late while merging");
                     }
@@ -957,7 +938,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
                 let out_value;
                 if let Some(&mut Some(ref mut child_ref)) = self.children.get_mut(index) {
                     let child = SharedPointer::make_mut(child_ref);
-                    match child.remove_target(pool, target) {
+                    match child.remove_target(target) {
                         Remove::NoChange => return Remove::NoChange,
                         Remove::Removed(value) => {
                             out_value = value;

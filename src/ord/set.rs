@@ -31,7 +31,6 @@ use crate::nodes::btree::{
     Iter as NodeIter, Node, Remove,
 };
 use crate::shared_ptr::DefaultSharedPtr;
-use crate::util::Pool;
 
 pub use crate::nodes::btree::DiffItem;
 
@@ -106,8 +105,6 @@ impl<A: Ord> BTreeValue for Value<A> {
     }
 }
 
-def_pool!(OrdSetPool<A>, Node<Value<A>, P>);
-
 /// Type alias for [`GenericOrdSet`] that uses [`DefaultSharedPtr`] as the pointer type.
 ///
 /// [GenericOrdSet]: ./struct.GenericOrdSet.html
@@ -128,7 +125,6 @@ pub type OrdSet<A> = GenericOrdSet<A, DefaultSharedPtr>;
 /// [1]: https://en.wikipedia.org/wiki/B-tree
 pub struct GenericOrdSet<A, P: SharedPointerKind> {
     size: usize,
-    pool: OrdSetPool<A, P>,
     root: SharedPointer<Node<Value<A>, P>, P>,
 }
 
@@ -137,13 +133,8 @@ impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        let pool = OrdSetPool::default();
         let root = SharedPointer::default();
-        GenericOrdSet {
-            size: 0,
-            pool,
-            root,
-        }
+        GenericOrdSet { size: 0, root }
     }
 
     /// Construct a set with a single value.
@@ -159,13 +150,8 @@ impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
     #[inline]
     #[must_use]
     pub fn unit(a: A) -> Self {
-        let pool = OrdSetPool::default();
         let root = SharedPointer::new(Node::unit(Value(a)));
-        GenericOrdSet {
-            size: 1,
-            pool,
-            root,
-        }
+        GenericOrdSet { size: 1, root }
     }
 
     /// Test whether a set is empty.
@@ -476,14 +462,14 @@ where
     pub fn insert(&mut self, a: A) -> Option<A> {
         let new_root = {
             let root = SharedPointer::make_mut(&mut self.root);
-            match root.insert(&self.pool.0, Value(a)) {
+            match root.insert(Value(a)) {
                 Insert::Replaced(Value(old_value)) => return Some(old_value),
                 Insert::Added => {
                     self.size += 1;
                     return None;
                 }
                 Insert::Split(left, median, right) => {
-                    SharedPointer::new(Node::new_from_split(&self.pool.0, left, median, right))
+                    SharedPointer::new(Node::new_from_split(left, median, right))
                 }
             }
         };
@@ -503,7 +489,7 @@ where
     {
         let (new_root, removed_value) = {
             let root = SharedPointer::make_mut(&mut self.root);
-            match root.remove(&self.pool.0, a) {
+            match root.remove(a) {
                 Remove::Update(value, root) => (SharedPointer::new(root), Some(value.0)),
                 Remove::Removed(value) => {
                     self.size -= 1;
@@ -823,7 +809,6 @@ impl<A, P: SharedPointerKind> Clone for GenericOrdSet<A, P> {
     fn clone(&self) -> Self {
         GenericOrdSet {
             size: self.size,
-            pool: self.pool.clone(),
             root: self.root.clone(),
         }
     }
