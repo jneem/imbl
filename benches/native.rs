@@ -14,10 +14,10 @@ use std::iter::FromIterator;
 use test::Bencher;
 
 fn random_keys(size: usize) -> Vec<i64> {
-    let mut gen = SmallRng::from_entropy();
+    let mut gen = SmallRng::seed_from_u64(1);
     let mut set = Vec::new();
     while set.len() < size {
-        let next = gen.gen::<i64>() % 10000;
+        let next = gen.random::<i64>() % 10000;
         if !set.contains(&next) {
             set.push(next);
         }
