@@ -9,7 +9,7 @@ extern crate rand;
 extern crate rayon;
 extern crate test;
 
-use rand::distributions::{Distribution, Standard};
+use rand::distr::{Distribution, StandardUniform};
 use rand::Rng;
 use std::iter::FromIterator;
 use test::Bencher;
@@ -18,10 +18,10 @@ use imbl::vector::Vector;
 
 fn rando<A>() -> impl Iterator<Item = A>
 where
-    Standard: Distribution<A>,
+    StandardUniform: Distribution<A>,
 {
-    let mut rng = rand::thread_rng();
-    std::iter::from_fn(move || Some(rng.gen()))
+    let mut rng = rand::rng();
+    std::iter::from_fn(move || Some(rng.random()))
 }
 
 fn vector_push_front_mut(b: &mut Bencher, count: usize) {

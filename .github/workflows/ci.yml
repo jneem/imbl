@@ -38,6 +38,10 @@ jobs:
         run: |
           cargo test --all-features
           cargo test --no-default-features
+      - name: Build benches
+        if: ${{ matrix.rust == 'nightly' }}
+        run: |
+          cargo test --no-run --all-targets
 
   clippy:
     runs-on: ubuntu-latest

@@ -15,10 +15,10 @@ use test::{black_box, Bencher};
 use imbl::hashmap::HashMap;
 
 fn random_keys(size: usize) -> Vec<i64> {
-    let mut gen = SmallRng::from_entropy();
+    let mut gen = SmallRng::seed_from_u64(1);
     let mut set = Vec::new();
     while set.len() < size {
-        let next = gen.gen::<i64>();
+        let next = gen.random::<i64>();
         if !set.contains(&next) {
             set.push(next);
         }
@@ -27,11 +27,11 @@ fn random_keys(size: usize) -> Vec<i64> {
 }
 
 fn reorder<A: Copy>(vec: &[A]) -> Vec<A> {
-    let mut gen = SmallRng::from_entropy();
+    let mut gen = SmallRng::seed_from_u64(1);
     let mut set = vec.to_owned();
     let mut out = Vec::new();
     while !set.is_empty() {
-        let i = gen.gen::<usize>() % set.len();
+        let i = gen.random::<u64>() as usize % set.len();
         let v = set.remove(i);
         out.push(v)
     }

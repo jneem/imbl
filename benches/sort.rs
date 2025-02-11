@@ -91,7 +91,7 @@ fn quicksort_reverse_sorted_list_2500(bench: &mut Bencher) {
 // shuffled
 #[bench]
 fn quicksort_shuffled_list_0500(bench: &mut Bencher) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     bench.iter(|| {
         let mut v1: Vec<_> = (0..500).collect();
         v1.shuffle(&mut rng);
@@ -102,7 +102,7 @@ fn quicksort_shuffled_list_0500(bench: &mut Bencher) {
 
 #[bench]
 fn quicksort_shuffled_list_1000(bench: &mut Bencher) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     bench.iter(|| {
         let mut v1: Vec<_> = (0..1000).collect();
         v1.shuffle(&mut rng);
@@ -113,7 +113,7 @@ fn quicksort_shuffled_list_1000(bench: &mut Bencher) {
 
 #[bench]
 fn quicksort_shuffled_list_1500(bench: &mut Bencher) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     bench.iter(|| {
         let mut v1: Vec<_> = (0..1500).collect();
         v1.shuffle(&mut rng);
@@ -124,7 +124,7 @@ fn quicksort_shuffled_list_1500(bench: &mut Bencher) {
 
 #[bench]
 fn quicksort_shuffled_list_2000(bench: &mut Bencher) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     bench.iter(|| {
         let mut v1: Vec<_> = (0..2000).collect();
         v1.shuffle(&mut rng);
@@ -135,7 +135,7 @@ fn quicksort_shuffled_list_2000(bench: &mut Bencher) {
 
 #[bench]
 fn quicksort_shuffled_list_2500(bench: &mut Bencher) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     bench.iter(|| {
         let mut v1: Vec<_> = (0..2500).collect();
         v1.shuffle(&mut rng);
