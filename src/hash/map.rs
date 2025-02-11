@@ -165,19 +165,6 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
         Self::default()
     }
 
-    /// Construct an empty hash map using a specific memory pool.
-    #[cfg(feature = "pool")]
-    #[must_use]
-    pub fn with_pool(pool: &HashMapPool<K, V>) -> Self {
-        let root = SharedPointer::default();
-        Self {
-            size: 0,
-            hasher: Default::default(),
-            pool: pool.clone(),
-            root,
-        }
-    }
-
     /// Test whether a hash map is empty.
     ///
     /// Time: O(1)
@@ -234,15 +221,6 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
         std::ptr::eq(self, other) || SharedPointer::ptr_eq(&self.root, &other.root)
     }
 
-    /// Get a reference to the memory pool used by this map.
-    ///
-    /// Note that if you didn't specifically construct it with a pool, you'll
-    /// get back a reference to a pool of size 0.
-    #[cfg(feature = "pool")]
-    pub fn pool(&self) -> &HashMapPool<K, V> {
-        &self.pool
-    }
-
     /// Construct an empty hash map using the provided hasher.
     #[inline]
     #[must_use]
@@ -256,22 +234,6 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
             size: 0,
             hasher: hasher.into(),
             pool,
-            root,
-        }
-    }
-
-    /// Construct an empty hash map using a specific memory pool and hasher.
-    #[cfg(feature = "pool")]
-    #[must_use]
-    pub fn with_pool_hasher<RS>(pool: &HashMapPool<K, V>, hasher: RS) -> Self
-    where
-        SharedPointer<S>: From<RS>,
-    {
-        let root = SharedPointer::default();
-        Self {
-            size: 0,
-            hasher: hasher.into(),
-            pool: pool.clone(),
             root,
         }
     }
@@ -1609,7 +1571,6 @@ where
     }
 }
 
-#[cfg(not(has_specialisation))]
 impl<K, V, S1, S2, P1, P2> PartialEq<GenericHashMap<K, V, S2, P2>> for GenericHashMap<K, V, S1, P1>
 where
     K: Hash + Eq,
@@ -1620,39 +1581,6 @@ where
     P2: SharedPointerKind,
 {
     fn eq(&self, other: &GenericHashMap<K, V, S2, P2>) -> bool {
-        self.test_eq(other)
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<K, V, S1, S2, P1, P2> PartialEq<GenericHashMap<K, V, S2, P2>> for GenericHashMap<K, V, S1, P1>
-where
-    K: Hash + Eq,
-    V: PartialEq,
-    S1: BuildHasher,
-    S2: BuildHasher,
-    P1: SharedPointerKind,
-    P2: SharedPointerKind,
-{
-    default fn eq(&self, other: &GenericHashMap<K, V, S1, P2>) -> bool {
-        self.test_eq(other)
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<K, V, S1, S2, P1, P2> PartialEq<GenericHashMap<K, V, S2, P2>> for GenericHashMap<K, V, S1, P1>
-where
-    K: Hash + Eq,
-    V: Eq,
-    S1: BuildHasher,
-    S2: BuildHasher,
-    P1: SharedPointerKind,
-    P2: SharedPointerKind,
-{
-    fn eq(&self, other: &Self) -> bool {
-        if SharedPointer::ptr_eq(&self.root, &other.root) {
-            return true;
-        }
         self.test_eq(other)
     }
 }
@@ -1778,7 +1706,6 @@ where
     }
 }
 
-#[cfg(not(has_specialisation))]
 impl<K, V, S, P> Debug for GenericHashMap<K, V, S, P>
 where
     K: Debug,
@@ -1789,40 +1716,6 @@ where
         let mut d = f.debug_map();
         for (k, v) in self {
             d.entry(k, v);
-        }
-        d.finish()
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<K, V, S, P> Debug for GenericHashMap<K, V, S, P>
-where
-    K: Debug,
-    V: Debug,
-    P: SharedPointerKind,
-{
-    default fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        let mut d = f.debug_map();
-        for (k, v) in self {
-            d.entry(k, v);
-        }
-        d.finish()
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<K, V, S, P> Debug for GenericHashMap<K, V, S, P>
-where
-    K: Ord + Debug,
-    V: Debug,
-    P: SharedPointerKind,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        let mut keys = collections::BTreeSet::new();
-        keys.extend(self.keys());
-        let mut d = f.debug_map();
-        for key in keys {
-            d.entry(key, &self[key]);
         }
         d.finish()
     }

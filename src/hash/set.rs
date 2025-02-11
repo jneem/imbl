@@ -167,18 +167,6 @@ impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
         Self::default()
     }
 
-    /// Construct an empty set using a specific memory pool.
-    #[cfg(feature = "pool")]
-    #[must_use]
-    pub fn with_pool(pool: &HashSetPool<A>) -> Self {
-        Self {
-            pool: pool.clone(),
-            hasher: Default::default(),
-            size: 0,
-            root: SharedPointer::default(),
-        }
-    }
-
     /// Test whether a set is empty.
     ///
     /// Time: O(1)
@@ -231,15 +219,6 @@ impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
         std::ptr::eq(self, other) || SharedPointer::ptr_eq(&self.root, &other.root)
     }
 
-    /// Get a reference to the memory pool used by this set.
-    ///
-    /// Note that if you didn't specifically construct it with a pool, you'll
-    /// get back a reference to a pool of size 0.
-    #[cfg(feature = "pool")]
-    pub fn pool(&self) -> &HashSetPool<A> {
-        &self.pool
-    }
-
     /// Construct an empty hash set using the provided hasher.
     #[inline]
     #[must_use]
@@ -252,23 +231,6 @@ impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
         GenericHashSet {
             size: 0,
             pool,
-            root,
-            hasher: From::from(hasher),
-        }
-    }
-
-    /// Construct an empty hash set using the provided memory pool and hasher.
-    #[cfg(feature = "pool")]
-    #[inline]
-    #[must_use]
-    pub fn with_pool_hasher<RS>(pool: &HashSetPool<A>, hasher: RS) -> Self
-    where
-        SharedPointer<S>: From<RS>,
-    {
-        let root = SharedPointer::default();
-        GenericHashSet {
-            size: 0,
-            pool: pool.clone(),
             root,
             hasher: From::from(hasher),
         }
@@ -793,34 +755,9 @@ where
     }
 }
 
-#[cfg(not(has_specialisation))]
 impl<A, S, P> Debug for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Debug,
-    S: BuildHasher,
-    P: SharedPointerKind,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        f.debug_set().entries(self.iter()).finish()
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<A, S, P> Debug for GenericHashSet<A, S, P>
-where
-    A: Hash + Eq + Debug,
-    S: BuildHasher,
-    P: SharedPointerKind,
-{
-    default fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        f.debug_set().entries(self.iter()).finish()
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<A, S, P> Debug for GenericHashSet<A, S, P>
-where
-    A: Hash + Eq + Debug + Ord,
     S: BuildHasher,
     P: SharedPointerKind,
 {

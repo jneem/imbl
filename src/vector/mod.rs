@@ -192,7 +192,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     ///
     /// Note that if you didn't specifically construct it with a pool, you'll
     /// get back a reference to a pool of size 0.
-    #[cfg_attr(not(feature = "pool"), doc(hidden))]
+    #[doc(hidden)]
     pub fn pool(&self) -> &RRBPool<A, P> {
         match self.vector {
             Inline(ref pool, _) => pool,
@@ -275,15 +275,6 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     pub fn new() -> Self {
         Self {
             vector: Inline(RRBPool::default(), InlineArray::new()),
-        }
-    }
-
-    /// Construct an empty vector using a specific memory pool.
-    #[cfg(feature = "pool")]
-    #[must_use]
-    pub fn with_pool(pool: &RRBPool<A, P>) -> Self {
-        Self {
-            vector: Inline(pool.clone(), InlineArray::new()),
         }
     }
 
@@ -1817,59 +1808,9 @@ impl<A: Debug, P: SharedPointerKind> Debug for GenericVector<A, P> {
     }
 }
 
-#[cfg(not(has_specialisation))]
 impl<A: PartialEq, P: SharedPointerKind> PartialEq for GenericVector<A, P> {
     fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.iter().eq(other.iter())
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<A: PartialEq, P: SharedPointerKind> PartialEq for GenericVector<A, P> {
-    default fn eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.iter().eq(other.iter())
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<A: Eq, P: SharedPointerKind> PartialEq for GenericVector<A, P> {
-    fn eq(&self, other: &Self) -> bool {
-        fn cmp_chunk<A>(
-            left: &SharedPointer<Chunk<A>, P>,
-            right: &SharedPointer<Chunk<A>, P>,
-        ) -> bool {
-            (left.is_empty() && right.is_empty()) || SharedPointer::ptr_eq(left, right)
-        }
-
-        if std::ptr::eq(self, other) {
-            return true;
-        }
-
-        match (&self.vector, &other.vector) {
-            (Single(_, left), Single(_, right)) => {
-                if cmp_chunk(left, right) {
-                    return true;
-                }
-                self.iter().eq(other.iter())
-            }
-            (Full(_, left), Full(_, right)) => {
-                if left.length != right.length {
-                    return false;
-                }
-
-                if cmp_chunk(&left.outer_f, &right.outer_f)
-                    && cmp_chunk(&left.inner_f, &right.inner_f)
-                    && cmp_chunk(&left.inner_b, &right.inner_b)
-                    && cmp_chunk(&left.outer_b, &right.outer_b)
-                    && ((left.middle.is_empty() && right.middle.is_empty())
-                        || Ref::ptr_eq(&left.middle, &right.middle))
-                {
-                    return true;
-                }
-                self.iter().eq(other.iter())
-            }
-            _ => self.len() == other.len() && self.iter().eq(other.iter()),
-        }
     }
 }
 

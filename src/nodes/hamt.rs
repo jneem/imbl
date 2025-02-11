@@ -14,7 +14,7 @@ use archery::{SharedPointer, SharedPointerKind};
 use bitmaps::{Bits, BitsImpl};
 use imbl_sized_chunks::sparse_chunk::{Iter as ChunkIter, IterMut as ChunkIterMut, SparseChunk};
 
-use crate::util::{clone_ref, Pool, PoolClone, PoolDefault};
+use crate::util::{clone_ref, Pool};
 
 pub(crate) use crate::config::HASH_LEVEL_SIZE as HASH_SHIFT;
 pub(crate) const HASH_WIDTH: usize = 2_usize.pow(HASH_SHIFT as u32);
@@ -48,36 +48,6 @@ impl<A: Clone, P: SharedPointerKind> Clone for Node<A, P> {
         Self {
             data: self.data.clone(),
         }
-    }
-}
-
-impl<A, P: SharedPointerKind> PoolDefault for Node<A, P> {
-    #[cfg(feature = "pool")]
-    unsafe fn default_uninit(target: &mut mem::MaybeUninit<Self>) {
-        SparseChunk::default_uninit(
-            target
-                .as_mut_ptr()
-                .cast::<mem::MaybeUninit<SparseChunk<Entry<A>, HASH_WIDTH>>>()
-                .as_mut()
-                .unwrap(),
-        )
-    }
-}
-
-impl<A, P> PoolClone for Node<A, P>
-where
-    A: Clone,
-    P: SharedPointerKind + Clone,
-{
-    #[cfg(feature = "pool")]
-    unsafe fn clone_uninit(&self, target: &mut mem::MaybeUninit<Self>) {
-        self.data.clone_uninit(
-            target
-                .as_mut_ptr()
-                .cast::<mem::MaybeUninit<SparseChunk<Entry<A>, HASH_WIDTH>>>()
-                .as_mut()
-                .unwrap(),
-        )
     }
 }
 

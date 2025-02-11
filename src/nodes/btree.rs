@@ -11,7 +11,7 @@ use archery::{SharedPointer, SharedPointerKind};
 use imbl_sized_chunks::Chunk;
 
 pub(crate) use crate::config::ORD_CHUNK_SIZE as NODE_SIZE;
-use crate::util::{clone_ref, Pool, PoolClone, PoolDefault};
+use crate::util::{clone_ref, Pool};
 
 use self::Insert::*;
 use self::InsertAction::*;
@@ -47,34 +47,6 @@ pub trait BTreeValue {
 pub(crate) struct Node<A, P: SharedPointerKind> {
     keys: Chunk<A, NODE_SIZE>,
     children: Chunk<Option<SharedPointer<Node<A, P>, P>>, NUM_CHILDREN>,
-}
-
-#[cfg(feature = "pool")]
-unsafe fn cast_uninit<A>(target: &mut A) -> &mut mem::MaybeUninit<A> {
-    &mut *(target as *mut A as *mut mem::MaybeUninit<A>)
-}
-
-impl<A, P: SharedPointerKind> PoolDefault for Node<A, P> {
-    #[cfg(feature = "pool")]
-    unsafe fn default_uninit(target: &mut mem::MaybeUninit<Self>) {
-        let ptr: *mut Self = target.as_mut_ptr();
-        Chunk::default_uninit(cast_uninit(&mut (*ptr).keys));
-        Chunk::default_uninit(cast_uninit(&mut (*ptr).children));
-        (*ptr).children.push_back(None);
-    }
-}
-
-impl<A, P: SharedPointerKind> PoolClone for Node<A, P>
-where
-    A: Clone,
-{
-    #[cfg(feature = "pool")]
-    unsafe fn clone_uninit(&self, target: &mut mem::MaybeUninit<Self>) {
-        self.keys
-            .clone_uninit(cast_uninit(&mut (*target.as_mut_ptr()).keys));
-        self.children
-            .clone_uninit(cast_uninit(&mut (*target.as_mut_ptr()).children));
-    }
 }
 
 pub(crate) enum Insert<A, P: SharedPointerKind> {
@@ -1010,7 +982,7 @@ impl<A: BTreeValue, P: SharedPointerKind> Node<A, P> {
 // Iterator
 
 /// An iterator over an ordered set.
-pub struct Iter<'a, A, P: SharedPointerKind> {
+pub(crate) struct Iter<'a, A, P: SharedPointerKind> {
     /// Path to the next element that we'll yield if we take a forward step.  Each element here is
     /// of the form `(node, index)`. For the last path element, `index` points to the next key to
     /// yield. For every other path element, `index` is the child index of the next node in the

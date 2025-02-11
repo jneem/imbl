@@ -8,10 +8,8 @@ use std::cmp::Ordering;
 use std::ops::{Bound, Range, RangeBounds};
 
 use archery::{SharedPointer, SharedPointerKind};
-#[cfg(feature = "pool")]
-pub(crate) use refpool::{PoolClone, PoolDefault};
 
-pub(crate) use crate::fakepool::{Pool, PoolClone, PoolDefault};
+pub(crate) use crate::fakepool::Pool;
 
 pub(crate) fn clone_ref<A, P>(r: SharedPointer<A, P>) -> A
 where
