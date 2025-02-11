@@ -31,9 +31,6 @@ use archery::{SharedPointer, SharedPointerKind};
 use crate::hashmap::GenericHashMap;
 use crate::nodes::btree::{BTreeValue, Insert, Iter as NodeIter, Node, Remove};
 use crate::shared_ptr::DefaultSharedPtr;
-#[cfg(has_specialisation)]
-use crate::util::linear_search_by;
-use crate::util::Pool;
 
 pub use crate::nodes::btree::{ConsumingIter, DiffItem as NodeDiffItem, DiffIter as NodeDiffIter};
 
@@ -68,7 +65,6 @@ macro_rules! ordmap {
     }};
 }
 
-#[cfg(not(has_specialisation))]
 impl<K: Ord, V> BTreeValue for (K, V) {
     type Key = K;
 
@@ -100,56 +96,6 @@ impl<K: Ord, V> BTreeValue for (K, V) {
         self.0.cmp(&other.0)
     }
 }
-
-#[cfg(has_specialisation)]
-impl<K: Ord, V> BTreeValue for (K, V) {
-    type Key = K;
-
-    fn ptr_eq(&self, _other: &Self) -> bool {
-        false
-    }
-
-    default fn search_key<BK>(slice: &[Self], key: &BK) -> Result<usize, usize>
-    where
-        BK: Ord + ?Sized,
-        Self::Key: Borrow<BK>,
-    {
-        slice.binary_search_by(|value| Self::Key::borrow(&value.0).cmp(key))
-    }
-
-    default fn search_value(slice: &[Self], key: &Self) -> Result<usize, usize> {
-        slice.binary_search_by(|value| value.0.cmp(&key.0))
-    }
-
-    fn cmp_keys<BK>(&self, other: &BK) -> Ordering
-    where
-        BK: Ord + ?Sized,
-        Self::Key: Borrow<BK>,
-    {
-        Self::Key::borrow(&self.0).cmp(other)
-    }
-
-    fn cmp_values(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<K: Ord + Copy, V> BTreeValue for (K, V) {
-    fn search_key<BK>(slice: &[Self], key: &BK) -> Result<usize, usize>
-    where
-        BK: Ord + ?Sized,
-        Self::Key: Borrow<BK>,
-    {
-        linear_search_by(slice, |value| Self::Key::borrow(&value.0).cmp(key))
-    }
-
-    fn search_value(slice: &[Self], key: &Self) -> Result<usize, usize> {
-        linear_search_by(slice, |value| value.0.cmp(&key.0))
-    }
-}
-
-def_pool!(OrdMapPool<K, V>, Node<(K, V), P>);
 
 /// Type alias for [`GenericOrdMap`] that uses [`DefaultSharedPtr`] as the pointer type.
 ///
@@ -172,7 +118,6 @@ pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
 /// [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 pub struct GenericOrdMap<K, V, P: SharedPointerKind> {
     size: usize,
-    pool: OrdMapPool<K, V, P>,
     root: SharedPointer<Node<(K, V), P>, P>,
 }
 
@@ -181,25 +126,8 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        let pool = OrdMapPool::default();
         let root = SharedPointer::default();
-        GenericOrdMap {
-            size: 0,
-            pool,
-            root,
-        }
-    }
-
-    /// Construct an empty map using a specific memory pool.
-    #[cfg(feature = "pool")]
-    #[must_use]
-    pub fn with_pool(pool: &OrdMapPool<K, V, P>) -> Self {
-        let root = SharedPointer::default();
-        GenericOrdMap {
-            size: 0,
-            pool: pool.clone(),
-            root,
-        }
+        GenericOrdMap { size: 0, root }
     }
 
     /// Construct a map with a single mapping.
@@ -218,13 +146,8 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     #[inline]
     #[must_use]
     pub fn unit(key: K, value: V) -> Self {
-        let pool = OrdMapPool::default();
         let root = SharedPointer::new(Node::unit((key, value)));
-        GenericOrdMap {
-            size: 1,
-            pool,
-            root,
-        }
+        GenericOrdMap { size: 1, root }
     }
 
     /// Test whether a map is empty.
@@ -281,15 +204,6 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     #[must_use]
     pub fn len(&self) -> usize {
         self.size
-    }
-
-    /// Get a reference to the memory pool used by this map.
-    ///
-    /// Note that if you didn't specifically construct it with a pool, you'll
-    /// get back a reference to a pool of size 0.
-    #[cfg(feature = "pool")]
-    pub fn pool(&self) -> &OrdMapPool<K, V> {
-        &self.pool
     }
 
     /// Discard all elements from the map.
@@ -659,7 +573,7 @@ where
         K: Borrow<BK>,
     {
         let root = SharedPointer::make_mut(&mut self.root);
-        root.lookup_mut(&self.pool.0, key).map(|(_, v)| v)
+        root.lookup_mut(key).map(|(_, v)| v)
     }
 
     /// Get the closest smaller entry in a map to a given key
@@ -687,9 +601,8 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let pool = &self.pool.0;
         SharedPointer::make_mut(&mut self.root)
-            .lookup_prev_mut(pool, key)
+            .lookup_prev_mut(key)
             .map(|(ref k, ref mut v)| (k, v))
     }
 
@@ -718,9 +631,8 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let pool = &self.pool.0;
         SharedPointer::make_mut(&mut self.root)
-            .lookup_next_mut(pool, key)
+            .lookup_next_mut(key)
             .map(|(ref k, ref mut v)| (k, v))
     }
 
@@ -754,14 +666,14 @@ where
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         let new_root = {
             let root = SharedPointer::make_mut(&mut self.root);
-            match root.insert(&self.pool.0, (key, value)) {
+            match root.insert((key, value)) {
                 Insert::Replaced((_, old_value)) => return Some(old_value),
                 Insert::Added => {
                     self.size += 1;
                     return None;
                 }
                 Insert::Split(left, median, right) => {
-                    SharedPointer::new(Node::new_from_split(&self.pool.0, left, median, right))
+                    SharedPointer::new(Node::new_from_split(left, median, right))
                 }
             }
         };
@@ -806,7 +718,7 @@ where
     {
         let (new_root, removed_value) = {
             let root = SharedPointer::make_mut(&mut self.root);
-            match root.remove(&self.pool.0, k) {
+            match root.remove(k) {
                 Remove::NoChange => return None,
                 Remove::Removed(pair) => {
                     self.size -= 1;
@@ -1714,14 +1626,12 @@ impl<K, V, P: SharedPointerKind> Clone for GenericOrdMap<K, V, P> {
     fn clone(&self) -> Self {
         GenericOrdMap {
             size: self.size,
-            pool: self.pool.clone(),
             root: self.root.clone(),
         }
     }
 }
 
 // TODO: Support PartialEq for OrdMap that have different P
-#[cfg(not(has_specialisation))]
 impl<K, V, P> PartialEq for GenericOrdMap<K, V, P>
 where
     K: Ord + PartialEq,
@@ -1730,32 +1640,6 @@ where
 {
     fn eq(&self, other: &GenericOrdMap<K, V, P>) -> bool {
         self.len() == other.len() && self.diff(other).next().is_none()
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<K, V, P1, P2> PartialEq<Ord<K, V, P2>> for GenericOrdMap<K, V, P1>
-where
-    K: Ord + PartialEq,
-    V: PartialEq,
-    P1: SharedPointerKind,
-    P2: SharedPointerKind,
-{
-    default fn eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.diff(other).next().is_none()
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<K, V, P> PartialEq for GenericOrdMap<K, V, P>
-where
-    K: Ord + Eq,
-    V: Eq,
-    P: SharedPointerKind,
-{
-    fn eq(&self, other: &Self) -> bool {
-        SharedPointer::ptr_eq(&self.root, &other.root)
-            || (self.len() == other.len() && self.diff(other).next().is_none())
     }
 }
 
@@ -1886,7 +1770,7 @@ where
 {
     fn index_mut(&mut self, key: &BK) -> &mut Self::Output {
         let root = SharedPointer::make_mut(&mut self.root);
-        match root.lookup_mut(&self.pool.0, key) {
+        match root.lookup_mut(key) {
             None => panic!("OrdMap::index: invalid key"),
             Some(&mut (_, ref mut value)) => value,
         }

@@ -334,8 +334,7 @@
 #![forbid(rust_2018_idioms)]
 #![deny(nonstandard_style)]
 #![warn(unreachable_pub, missing_docs)]
-#![cfg_attr(has_specialisation, feature(specialization))]
-#![cfg_attr(not(feature = "pool"), deny(unsafe_code))]
+#![deny(unsafe_code)]
 
 #[cfg(test)]
 #[macro_use]
@@ -378,14 +377,6 @@ pub mod arbitrary;
 #[cfg(feature = "quickcheck")]
 #[doc(hidden)]
 pub mod quickcheck;
-
-#[cfg(not(feature = "pool"))]
-mod fakepool;
-
-#[cfg(feature = "pool")]
-compile_error!(
-    "The `pool` feature is not threadsafe but you've enabled it on a threadsafe version of `imbl`."
-);
 
 pub mod shared_ptr;
 

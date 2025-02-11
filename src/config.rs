@@ -21,8 +21,3 @@ pub(crate) const ORD_CHUNK_SIZE: usize = 64;
 pub(crate) const HASH_LEVEL_SIZE: usize = 2;
 #[cfg(not(feature = "small-chunks"))]
 pub(crate) const HASH_LEVEL_SIZE: usize = 5;
-
-/// The size of per-instance memory pools if the `pool` feature is enabled.
-/// This is set to 0, meaning you have to opt in to using a pool by constructing
-/// with eg. `Vector::with_pool(pool)` even if the `pool` feature is enabled.
-pub(crate) const POOL_SIZE: usize = 0;

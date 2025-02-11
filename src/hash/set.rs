@@ -34,7 +34,6 @@ use archery::{SharedPointer, SharedPointerKind};
 use crate::nodes::hamt::{hash_key, Drain as NodeDrain, HashValue, Iter as NodeIter, Node};
 use crate::ordset::GenericOrdSet;
 use crate::shared_ptr::DefaultSharedPtr;
-use crate::util::Pool;
 use crate::GenericVector;
 
 /// Construct a set from a sequence of values.
@@ -79,8 +78,6 @@ macro_rules! hashset {
 /// [DefaultSharedPtr]: ../shared_ptr/type.DefaultSharedPtr.html
 pub type HashSet<A> = GenericHashSet<A, RandomState, DefaultSharedPtr>;
 
-def_pool!(HashSetPool<A>, Node<Value<A>, P>);
-
 /// An unordered set.
 ///
 /// An immutable hash set using [hash array mapped tries] [1].
@@ -101,7 +98,6 @@ def_pool!(HashSetPool<A>, Node<Value<A>, P>);
 /// [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 pub struct GenericHashSet<A, S, P: SharedPointerKind> {
     hasher: SharedPointer<S, P>,
-    pool: HashSetPool<A, P>,
     root: SharedPointer<Node<Value<A>, P>, P>,
     size: usize,
 }
@@ -167,18 +163,6 @@ impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
         Self::default()
     }
 
-    /// Construct an empty set using a specific memory pool.
-    #[cfg(feature = "pool")]
-    #[must_use]
-    pub fn with_pool(pool: &HashSetPool<A>) -> Self {
-        Self {
-            pool: pool.clone(),
-            hasher: Default::default(),
-            size: 0,
-            root: SharedPointer::default(),
-        }
-    }
-
     /// Test whether a set is empty.
     ///
     /// Time: O(1)
@@ -231,15 +215,6 @@ impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
         std::ptr::eq(self, other) || SharedPointer::ptr_eq(&self.root, &other.root)
     }
 
-    /// Get a reference to the memory pool used by this set.
-    ///
-    /// Note that if you didn't specifically construct it with a pool, you'll
-    /// get back a reference to a pool of size 0.
-    #[cfg(feature = "pool")]
-    pub fn pool(&self) -> &HashSetPool<A> {
-        &self.pool
-    }
-
     /// Construct an empty hash set using the provided hasher.
     #[inline]
     #[must_use]
@@ -247,28 +222,9 @@ impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
     where
         SharedPointer<S, P>: From<RS>,
     {
-        let pool = HashSetPool::default();
         let root = SharedPointer::default();
         GenericHashSet {
             size: 0,
-            pool,
-            root,
-            hasher: From::from(hasher),
-        }
-    }
-
-    /// Construct an empty hash set using the provided memory pool and hasher.
-    #[cfg(feature = "pool")]
-    #[inline]
-    #[must_use]
-    pub fn with_pool_hasher<RS>(pool: &HashSetPool<A>, hasher: RS) -> Self
-    where
-        SharedPointer<S>: From<RS>,
-    {
-        let root = SharedPointer::default();
-        GenericHashSet {
-            size: 0,
-            pool: pool.clone(),
             root,
             hasher: From::from(hasher),
         }
@@ -289,11 +245,9 @@ impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
     where
         A2: Hash + Eq + Clone,
     {
-        let pool = HashSetPool::default();
         let root = SharedPointer::default();
         GenericHashSet {
             size: 0,
-            pool,
             root,
             hasher: self.hasher.clone(),
         }
@@ -417,7 +371,7 @@ where
     pub fn insert(&mut self, a: A) -> Option<A> {
         let hash = hash_key(&*self.hasher, &a);
         let root = SharedPointer::make_mut(&mut self.root);
-        match root.insert(&self.pool.0, hash, 0, Value(a)) {
+        match root.insert(hash, 0, Value(a)) {
             None => {
                 self.size += 1;
                 None
@@ -435,7 +389,7 @@ where
         A: Borrow<BA>,
     {
         let root = SharedPointer::make_mut(&mut self.root);
-        let result = root.remove(&self.pool.0, hash_key(&*self.hasher, a), 0, a);
+        let result = root.remove(hash_key(&*self.hasher, a), 0, a);
         if result.is_some() {
             self.size -= 1;
         }
@@ -507,7 +461,7 @@ where
         let old_root = self.root.clone();
         let root = SharedPointer::make_mut(&mut self.root);
         for (value, hash) in NodeIter::new(&old_root, self.size) {
-            if !f(value) && root.remove(&self.pool.0, hash, 0, value).is_some() {
+            if !f(value) && root.remove(hash, 0, value).is_some() {
                 self.size -= 1;
             }
         }
@@ -667,7 +621,6 @@ where
     fn clone(&self) -> Self {
         GenericHashSet {
             hasher: self.hasher.clone(),
-            pool: self.pool.clone(),
             root: self.root.clone(),
             size: self.size,
         }
@@ -701,11 +654,9 @@ where
     P: SharedPointerKind,
 {
     fn default() -> Self {
-        let pool = HashSetPool::default();
         let root = SharedPointer::default();
         GenericHashSet {
             hasher: SharedPointer::default(),
-            pool,
             root,
             size: 0,
         }
@@ -793,34 +744,9 @@ where
     }
 }
 
-#[cfg(not(has_specialisation))]
 impl<A, S, P> Debug for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Debug,
-    S: BuildHasher,
-    P: SharedPointerKind,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        f.debug_set().entries(self.iter()).finish()
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<A, S, P> Debug for GenericHashSet<A, S, P>
-where
-    A: Hash + Eq + Debug,
-    S: BuildHasher,
-    P: SharedPointerKind,
-{
-    default fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        f.debug_set().entries(self.iter()).finish()
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<A, S, P> Debug for GenericHashSet<A, S, P>
-where
-    A: Hash + Eq + Debug + Ord,
     S: BuildHasher,
     P: SharedPointerKind,
 {
@@ -949,7 +875,7 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter {
-            it: NodeDrain::new(&self.pool.0, self.root, self.size),
+            it: NodeDrain::new(self.root, self.size),
         }
     }
 }

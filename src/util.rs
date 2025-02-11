@@ -8,10 +8,6 @@ use std::cmp::Ordering;
 use std::ops::{Bound, Range, RangeBounds};
 
 use archery::{SharedPointer, SharedPointerKind};
-#[cfg(feature = "pool")]
-pub(crate) use refpool::{PoolClone, PoolDefault};
-
-pub(crate) use crate::fakepool::{Pool, PoolClone, PoolDefault};
 
 pub(crate) fn clone_ref<A, P>(r: SharedPointer<A, P>) -> A
 where
@@ -61,42 +57,6 @@ where
         Bound::Unbounded => right_unbounded,
     };
     start_index..end_index
-}
-
-macro_rules! def_pool {
-    ($name:ident<$($arg:tt),*>, $pooltype:ty) => {
-        /// A memory pool for the appropriate node type.
-        pub struct $name<$($arg,)* P: ::archery::SharedPointerKind>(Pool<$pooltype>);
-
-        impl<$($arg,)* P: ::archery::SharedPointerKind> $name<$($arg,)* P> {
-            /// Create a new pool with the given size.
-            pub fn new(size: usize) -> Self {
-                Self(Pool::new(size))
-            }
-
-            /// Fill the pool with preallocated chunks.
-            pub fn fill(&self) {
-                self.0.fill();
-            }
-
-            ///Get the current size of the pool.
-            pub fn pool_size(&self) -> usize {
-                self.0.get_pool_size()
-            }
-        }
-
-        impl<$($arg,)* P: ::archery::SharedPointerKind> Default for $name<$($arg,)* P> {
-            fn default() -> Self {
-                Self::new($crate::config::POOL_SIZE)
-            }
-        }
-
-        impl<$($arg,)* P: ::archery::SharedPointerKind> Clone for $name<$($arg,)* P> {
-            fn clone(&self) -> Self {
-                Self(self.0.clone())
-            }
-        }
-    };
 }
 
 #[cfg(test)]

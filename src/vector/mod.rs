@@ -61,16 +61,13 @@ use crate::nodes::chunk::{Chunk, CHUNK_SIZE};
 use crate::nodes::rrb::{Node, PopResult, PushResult, SplitResult};
 use crate::shared_ptr::DefaultSharedPtr;
 use crate::sort;
-use crate::util::{clone_ref, to_range, Pool, Side};
+use crate::util::{clone_ref, to_range, Side};
 
 use self::VectorInner::{Full, Inline, Single};
 
 mod focus;
 
 pub use self::focus::{Focus, FocusMut};
-
-mod pool;
-pub use self::pool::RRBPool;
 
 #[cfg(any(test, feature = "rayon"))]
 pub mod rayon;
@@ -157,9 +154,9 @@ pub struct GenericVector<A, P: SharedPointerKind> {
 }
 
 enum VectorInner<A, P: SharedPointerKind> {
-    Inline(RRBPool<A, P>, InlineArray<A, RRB<A, P>>),
-    Single(RRBPool<A, P>, SharedPointer<Chunk<A>, P>),
-    Full(RRBPool<A, P>, RRB<A, P>),
+    Inline(InlineArray<A, RRB<A, P>>),
+    Single(SharedPointer<Chunk<A>, P>),
+    Full(RRB<A, P>),
 }
 
 #[doc(hidden)]
@@ -188,19 +185,6 @@ impl<A, P: SharedPointerKind> Clone for RRB<A, P> {
 }
 
 impl<A, P: SharedPointerKind> GenericVector<A, P> {
-    /// Get a reference to the memory pool this `Vector` is using.
-    ///
-    /// Note that if you didn't specifically construct it with a pool, you'll
-    /// get back a reference to a pool of size 0.
-    #[cfg_attr(not(feature = "pool"), doc(hidden))]
-    pub fn pool(&self) -> &RRBPool<A, P> {
-        match self.vector {
-            Inline(ref pool, _) => pool,
-            Single(ref pool, _) => pool,
-            Full(ref pool, _) => pool,
-        }
-    }
-
     /// True if a vector is a full inline or single chunk, ie. must be promoted
     /// to grow further.
     fn needs_promotion(&self) -> bool {
@@ -209,16 +193,16 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
             // can always promote `Inline` to `Single`, even when we're configured to have a small
             // chunk size. (TODO: it might be better to just never use `Single` in this situation,
             // but that's a more invasive change.)
-            Inline(_, chunk) => chunk.is_full() || chunk.len() + 1 >= CHUNK_SIZE,
-            Single(_, chunk) => chunk.is_full(),
+            Inline(chunk) => chunk.is_full() || chunk.len() + 1 >= CHUNK_SIZE,
+            Single(chunk) => chunk.is_full(),
             _ => false,
         }
     }
 
     /// Promote an inline to a single.
     fn promote_inline(&mut self) {
-        if let Inline(pool, chunk) = &mut self.vector {
-            self.vector = Single(pool.clone(), SharedPointer::new(chunk.into()));
+        if let Inline(chunk) = &mut self.vector {
+            self.vector = Single(SharedPointer::new(chunk.into()));
         }
     }
 
@@ -226,23 +210,20 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// promote an inline to a single.
     fn promote_front(&mut self) {
         self.vector = match &mut self.vector {
-            Inline(pool, chunk) => Single(pool.clone(), SharedPointer::new(chunk.into())),
-            Single(pool, chunk) => {
+            Inline(chunk) => Single(SharedPointer::new(chunk.into())),
+            Single(chunk) => {
                 let chunk = chunk.clone();
-                Full(
-                    pool.clone(),
-                    RRB {
-                        length: chunk.len(),
-                        middle_level: 0,
-                        outer_f: SharedPointer::default(),
-                        inner_f: chunk,
-                        middle: SharedPointer::new(Node::new()),
-                        inner_b: SharedPointer::default(),
-                        outer_b: SharedPointer::default(),
-                    },
-                )
+                Full(RRB {
+                    length: chunk.len(),
+                    middle_level: 0,
+                    outer_f: SharedPointer::default(),
+                    inner_f: chunk,
+                    middle: SharedPointer::new(Node::new()),
+                    inner_b: SharedPointer::default(),
+                    outer_b: SharedPointer::default(),
+                })
             }
-            Full(_, _) => return,
+            Full(_) => return,
         }
     }
 
@@ -250,23 +231,20 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// promote an inline to a single.
     fn promote_back(&mut self) {
         self.vector = match &mut self.vector {
-            Inline(pool, chunk) => Single(pool.clone(), SharedPointer::new(chunk.into())),
-            Single(pool, chunk) => {
+            Inline(chunk) => Single(SharedPointer::new(chunk.into())),
+            Single(chunk) => {
                 let chunk = chunk.clone();
-                Full(
-                    pool.clone(),
-                    RRB {
-                        length: chunk.len(),
-                        middle_level: 0,
-                        outer_f: SharedPointer::default(),
-                        inner_f: SharedPointer::default(),
-                        middle: SharedPointer::new(Node::new()),
-                        inner_b: chunk,
-                        outer_b: SharedPointer::default(),
-                    },
-                )
+                Full(RRB {
+                    length: chunk.len(),
+                    middle_level: 0,
+                    outer_f: SharedPointer::default(),
+                    inner_f: SharedPointer::default(),
+                    middle: SharedPointer::new(Node::new()),
+                    inner_b: chunk,
+                    outer_b: SharedPointer::default(),
+                })
             }
-            Full(_, _) => return,
+            Full(_) => return,
         }
     }
 
@@ -274,16 +252,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            vector: Inline(RRBPool::default(), InlineArray::new()),
-        }
-    }
-
-    /// Construct an empty vector using a specific memory pool.
-    #[cfg(feature = "pool")]
-    #[must_use]
-    pub fn with_pool(pool: &RRBPool<A, P>) -> Self {
-        Self {
-            vector: Inline(pool.clone(), InlineArray::new()),
+            vector: Inline(InlineArray::new()),
         }
     }
 
@@ -303,9 +272,9 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     #[must_use]
     pub fn len(&self) -> usize {
         match &self.vector {
-            Inline(_, chunk) => chunk.len(),
-            Single(_, chunk) => chunk.len(),
-            Full(_, tree) => tree.length,
+            Inline(chunk) => chunk.len(),
+            Single(chunk) => chunk.len(),
+            Full(tree) => tree.length,
         }
     }
 
@@ -346,7 +315,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     #[inline]
     #[must_use]
     pub fn is_inline(&self) -> bool {
-        matches!(self.vector, Inline(_, _))
+        matches!(self.vector, Inline(_))
     }
 
     /// Test whether two vectors refer to the same content in memory.
@@ -377,8 +346,8 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
         }
 
         match (&self.vector, &other.vector) {
-            (Single(_, left), Single(_, right)) => cmp_chunk(left, right),
-            (Full(_, left), Full(_, right)) => {
+            (Single(left), Single(right)) => cmp_chunk(left, right),
+            (Full(left), Full(right)) => {
                 cmp_chunk(&left.outer_f, &right.outer_f)
                     && cmp_chunk(&left.inner_f, &right.inner_f)
                     && cmp_chunk(&left.inner_b, &right.inner_b)
@@ -446,9 +415,9 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
         }
 
         match &self.vector {
-            Inline(_, chunk) => chunk.get(index),
-            Single(_, chunk) => chunk.get(index),
-            Full(_, tree) => {
+            Inline(chunk) => chunk.get(index),
+            Single(chunk) => chunk.get(index),
+            Full(tree) => {
                 let mut local_index = index;
 
                 if local_index < tree.outer_f.len() {
@@ -593,7 +562,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// Time: O(n)
     pub fn clear(&mut self) {
         if !self.is_empty() {
-            self.vector = Inline(self.pool().clone(), InlineArray::new());
+            self.vector = Inline(InlineArray::new());
         }
     }
 
@@ -690,17 +659,16 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     #[inline]
     #[must_use]
     pub fn unit(a: A) -> Self {
-        let pool = RRBPool::default();
         if InlineArray::<A, RRB<A, P>>::CAPACITY > 0 {
             let mut array = InlineArray::new();
             array.push(a);
             Self {
-                vector: Inline(pool, array),
+                vector: Inline(array),
             }
         } else {
             let chunk = SharedPointer::new(Chunk::unit(a));
             Self {
-                vector: Single(pool, chunk),
+                vector: Single(chunk),
             }
         }
     }
@@ -710,7 +678,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// This method requires the `debug` feature flag.
     #[cfg(any(test, feature = "debug"))]
     pub fn dot<W: std::io::Write>(&self, write: W) -> std::io::Result<()> {
-        if let Full(_, ref tree) = self.vector {
+        if let Full(ref tree) = self.vector {
             tree.middle.dot(write)
         } else {
             Ok(())
@@ -726,7 +694,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// This method requires the `debug` feature flag.
     #[cfg(any(test, feature = "debug"))]
     pub fn assert_invariants(&self) {
-        if let Full(_, ref tree) = self.vector {
+        if let Full(ref tree) = self.vector {
             tree.assert_invariants();
         }
     }
@@ -759,9 +727,9 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
         }
 
         match &mut self.vector {
-            Inline(_, chunk) => chunk.get_mut(index),
-            Single(_pool, chunk) => SharedPointer::make_mut(chunk).get_mut(index),
-            Full(pool, tree) => {
+            Inline(chunk) => chunk.get_mut(index),
+            Single(chunk) => SharedPointer::make_mut(chunk).get_mut(index),
+            Full(tree) => {
                 let mut local_index = index;
 
                 if local_index < tree.outer_f.len() {
@@ -778,7 +746,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
 
                 if local_index < tree.middle.len() {
                     let middle = SharedPointer::make_mut(&mut tree.middle);
-                    return Some(middle.index_mut(pool, tree.middle_level, local_index));
+                    return Some(middle.index_mut(tree.middle_level, local_index));
                 }
                 local_index -= tree.middle.len();
 
@@ -920,11 +888,11 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
             self.promote_back();
         }
         match &mut self.vector {
-            Inline(_, chunk) => {
+            Inline(chunk) => {
                 chunk.insert(0, value);
             }
-            Single(_pool, chunk) => SharedPointer::make_mut(chunk).push_front(value),
-            Full(pool, tree) => tree.push_front(pool, value),
+            Single(chunk) => SharedPointer::make_mut(chunk).push_front(value),
+            Full(tree) => tree.push_front(value),
         }
     }
 
@@ -945,11 +913,11 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
             self.promote_front();
         }
         match &mut self.vector {
-            Inline(_, chunk) => {
+            Inline(chunk) => {
                 chunk.push(value);
             }
-            Single(_pool, chunk) => SharedPointer::make_mut(chunk).push_back(value),
-            Full(pool, tree) => tree.push_back(pool, value),
+            Single(chunk) => SharedPointer::make_mut(chunk).push_back(value),
+            Full(tree) => tree.push_back(value),
         }
     }
 
@@ -970,9 +938,9 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
             None
         } else {
             match &mut self.vector {
-                Inline(_, chunk) => chunk.remove(0),
-                Single(_pool, chunk) => Some(SharedPointer::make_mut(chunk).pop_front()),
-                Full(pool, tree) => tree.pop_front(pool),
+                Inline(chunk) => chunk.remove(0),
+                Single(chunk) => Some(SharedPointer::make_mut(chunk).pop_front()),
+                Full(tree) => tree.pop_front(),
             }
         }
     }
@@ -995,9 +963,9 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
             None
         } else {
             match &mut self.vector {
-                Inline(_, chunk) => chunk.pop(),
-                Single(_pool, chunk) => Some(SharedPointer::make_mut(chunk).pop_back()),
-                Full(pool, tree) => tree.pop_back(pool),
+                Inline(chunk) => chunk.pop(),
+                Single(chunk) => Some(SharedPointer::make_mut(chunk).pop_back()),
+                Full(tree) => tree.pop_back(),
             }
         }
     }
@@ -1033,13 +1001,13 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
             .expect("Vector length overflow");
 
         match &mut self.vector {
-            Inline(_, _) => unreachable!("inline vecs should have been promoted"),
-            Single(_pool, left) => {
+            Inline(_) => unreachable!("inline vecs should have been promoted"),
+            Single(left) => {
                 match &mut other.vector {
-                    Inline(_, _) => unreachable!("inline vecs should have been promoted"),
+                    Inline(_) => unreachable!("inline vecs should have been promoted"),
                     // If both are single chunks and left has room for right: directly
                     // memcpy right into left
-                    Single(_, ref mut right) if total_length <= CHUNK_SIZE => {
+                    Single(ref mut right) if total_length <= CHUNK_SIZE => {
                         SharedPointer::make_mut(left).append(SharedPointer::make_mut(right));
                         return;
                     }
@@ -1054,8 +1022,8 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                     _ => {}
                 }
             }
-            Full(pool, left) => {
-                if let Full(_, mut right) = other.vector {
+            Full(left) => {
+                if let Full(mut right) = other.vector {
                     // If left and right are trees with empty middles, left has no back
                     // buffers, and right has no front buffers: copy right's back
                     // buffers over to left
@@ -1077,37 +1045,37 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                         && right.middle.is_empty()
                         && total_length <= CHUNK_SIZE * 4
                     {
-                        while let Some(value) = right.pop_front(pool) {
-                            left.push_back(pool, value);
+                        while let Some(value) = right.pop_front() {
+                            left.push_back(value);
                         }
                         return;
                     }
                     // Both are full and big: do the full RRB join
                     let inner_b1 = left.inner_b.clone();
-                    left.push_middle(pool, Side::Right, inner_b1);
+                    left.push_middle(Side::Right, inner_b1);
                     let outer_b1 = left.outer_b.clone();
-                    left.push_middle(pool, Side::Right, outer_b1);
+                    left.push_middle(Side::Right, outer_b1);
                     let inner_f2 = right.inner_f.clone();
-                    right.push_middle(pool, Side::Left, inner_f2);
+                    right.push_middle(Side::Left, inner_f2);
                     let outer_f2 = right.outer_f.clone();
-                    right.push_middle(pool, Side::Left, outer_f2);
+                    right.push_middle(Side::Left, outer_f2);
 
                     let mut middle1 =
                         clone_ref(replace(&mut left.middle, SharedPointer::new(Node::new())));
                     let mut middle2 = clone_ref(right.middle);
                     let normalised_middle = match left.middle_level.cmp(&right.middle_level) {
                         Ordering::Greater => {
-                            middle2 = middle2.elevate(pool, left.middle_level - right.middle_level);
+                            middle2 = middle2.elevate(left.middle_level - right.middle_level);
                             left.middle_level
                         }
                         Ordering::Less => {
-                            middle1 = middle1.elevate(pool, right.middle_level - left.middle_level);
+                            middle1 = middle1.elevate(right.middle_level - left.middle_level);
                             right.middle_level
                         }
                         Ordering::Equal => left.middle_level,
                     };
                     left.middle =
-                        SharedPointer::new(Node::merge(pool, middle1, middle2, normalised_middle));
+                        SharedPointer::new(Node::merge(middle1, middle2, normalised_middle));
                     left.middle_level = normalised_middle + 1;
 
                     left.inner_b = right.inner_b;
@@ -1196,16 +1164,15 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
         assert!(index <= self.len());
 
         match &mut self.vector {
-            Inline(pool, chunk) => Self {
-                vector: Inline(pool.clone(), chunk.split_off(index)),
+            Inline(chunk) => Self {
+                vector: Inline(chunk.split_off(index)),
             },
-            Single(pool, chunk) => Self {
-                vector: Single(
-                    pool.clone(),
-                    SharedPointer::new(SharedPointer::make_mut(chunk).split_off(index)),
-                ),
+            Single(chunk) => Self {
+                vector: Single(SharedPointer::new(
+                    SharedPointer::make_mut(chunk).split_off(index),
+                )),
             },
-            Full(pool, tree) => {
+            Full(tree) => {
                 let mut local_index = index;
 
                 if local_index < tree.outer_f.len() {
@@ -1214,15 +1181,15 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                         length: tree.length - index,
                         middle_level: tree.middle_level,
                         outer_f: SharedPointer::new(of2),
-                        inner_f: replace_shared_pointer(&pool.value_pool, &mut tree.inner_f),
+                        inner_f: replace_shared_pointer(&mut tree.inner_f),
                         middle: std::mem::take(&mut tree.middle),
-                        inner_b: replace_shared_pointer(&pool.value_pool, &mut tree.inner_b),
-                        outer_b: replace_shared_pointer(&pool.value_pool, &mut tree.outer_b),
+                        inner_b: replace_shared_pointer(&mut tree.inner_b),
+                        outer_b: replace_shared_pointer(&mut tree.outer_b),
                     };
                     tree.length = index;
                     tree.middle_level = 0;
                     return Self {
-                        vector: Full(pool.clone(), right),
+                        vector: Full(right),
                     };
                 }
 
@@ -1236,14 +1203,14 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                         outer_f: SharedPointer::new(if2),
                         inner_f: SharedPointer::default(),
                         middle: std::mem::take(&mut tree.middle),
-                        inner_b: replace_shared_pointer(&pool.value_pool, &mut tree.inner_b),
-                        outer_b: replace_shared_pointer(&pool.value_pool, &mut tree.outer_b),
+                        inner_b: replace_shared_pointer(&mut tree.inner_b),
+                        outer_b: replace_shared_pointer(&mut tree.outer_b),
                     };
                     tree.length = index;
                     tree.middle_level = 0;
                     swap(&mut tree.outer_b, &mut tree.inner_f);
                     return Self {
-                        vector: Full(pool.clone(), right),
+                        vector: Full(right),
                     };
                 }
 
@@ -1254,15 +1221,15 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                     let (c1, c2) = {
                         let m1 = SharedPointer::make_mut(&mut tree.middle);
                         let m2 = SharedPointer::make_mut(&mut right_middle);
-                        match m1.split(pool, tree.middle_level, Side::Right, local_index) {
+                        match m1.split(tree.middle_level, Side::Right, local_index) {
                             SplitResult::Dropped(_) => (),
                             SplitResult::OutOfBounds => unreachable!(),
                         };
-                        match m2.split(pool, tree.middle_level, Side::Left, local_index) {
+                        match m2.split(tree.middle_level, Side::Left, local_index) {
                             SplitResult::Dropped(_) => (),
                             SplitResult::OutOfBounds => unreachable!(),
                         };
-                        let c1 = match m1.pop_chunk(pool, tree.middle_level, Side::Right) {
+                        let c1 = match m1.pop_chunk(tree.middle_level, Side::Right) {
                             PopResult::Empty => SharedPointer::default(),
                             PopResult::Done(chunk) => chunk,
                             PopResult::Drained(chunk) => {
@@ -1270,7 +1237,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                                 chunk
                             }
                         };
-                        let c2 = match m2.pop_chunk(pool, tree.middle_level, Side::Left) {
+                        let c2 = match m2.pop_chunk(tree.middle_level, Side::Left) {
                             PopResult::Empty => SharedPointer::default(),
                             PopResult::Done(chunk) => chunk,
                             PopResult::Drained(chunk) => {
@@ -1286,14 +1253,14 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                         outer_f: c2,
                         inner_f: SharedPointer::default(),
                         middle: right_middle,
-                        inner_b: replace_shared_pointer(&pool.value_pool, &mut tree.inner_b),
+                        inner_b: replace_shared_pointer(&mut tree.inner_b),
                         outer_b: replace(&mut tree.outer_b, c1),
                     };
                     tree.length = index;
                     tree.prune();
                     right.prune();
                     return Self {
-                        vector: Full(pool.clone(), right),
+                        vector: Full(right),
                     };
                 }
 
@@ -1303,14 +1270,14 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                     let ib2 = SharedPointer::make_mut(&mut tree.inner_b).split_off(local_index);
                     let right = RRB {
                         length: tree.length - index,
-                        outer_b: replace_shared_pointer(&pool.value_pool, &mut tree.outer_b),
+                        outer_b: replace_shared_pointer(&mut tree.outer_b),
                         outer_f: SharedPointer::new(ib2),
-                        ..RRB::new(pool)
+                        ..RRB::new()
                     };
                     tree.length = index;
                     swap(&mut tree.outer_b, &mut tree.inner_b);
                     return Self {
-                        vector: Full(pool.clone(), right),
+                        vector: Full(right),
                     };
                 }
 
@@ -1319,7 +1286,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                 let ob2 = SharedPointer::make_mut(&mut tree.outer_b).split_off(local_index);
                 tree.length = index;
                 Self {
-                    vector: Single(pool.clone(), SharedPointer::new(ob2)),
+                    vector: Single(SharedPointer::new(ob2)),
                 }
             }
         }
@@ -1413,14 +1380,14 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
             return self.push_back(value);
         }
         assert!(index < self.len());
-        if matches!(&self.vector, Inline(_, _)) && self.needs_promotion() {
+        if matches!(&self.vector, Inline(_)) && self.needs_promotion() {
             self.promote_inline();
         }
         match &mut self.vector {
-            Inline(_, chunk) => {
+            Inline(chunk) => {
                 chunk.insert(index, value);
             }
-            Single(_pool, chunk) if chunk.len() < CHUNK_SIZE => {
+            Single(chunk) if chunk.len() < CHUNK_SIZE => {
                 SharedPointer::make_mut(chunk).insert(index, value)
             }
             // TODO a lot of optimisations still possible here
@@ -1451,8 +1418,8 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
     pub fn remove(&mut self, index: usize) -> A {
         assert!(index < self.len());
         match &mut self.vector {
-            Inline(_, chunk) => chunk.remove(index).unwrap(),
-            Single(_pool, chunk) => SharedPointer::make_mut(chunk).remove(index),
+            Inline(chunk) => chunk.remove(index).unwrap(),
+            Single(chunk) => SharedPointer::make_mut(chunk).remove(index),
             _ => {
                 if index == 0 {
                     return self.pop_front().unwrap();
@@ -1620,7 +1587,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
 // Implementation details
 
 impl<A, P: SharedPointerKind> RRB<A, P> {
-    fn new(_pool: &RRBPool<A, P>) -> Self {
+    fn new() -> Self {
         RRB {
             length: 0,
             middle_level: 0,
@@ -1656,7 +1623,7 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
         }
     }
 
-    fn pop_front(&mut self, pool: &RRBPool<A, P>) -> Option<A> {
+    fn pop_front(&mut self) -> Option<A> {
         if self.length == 0 {
             return None;
         }
@@ -1669,7 +1636,7 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
                         swap(&mut self.outer_f, &mut self.inner_b);
                     }
                 } else {
-                    self.outer_f = self.pop_middle(pool, Side::Left).unwrap();
+                    self.outer_f = self.pop_middle(Side::Left).unwrap();
                 }
             } else {
                 swap(&mut self.outer_f, &mut self.inner_f);
@@ -1680,7 +1647,7 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
         Some(outer_f.pop_front())
     }
 
-    fn pop_back(&mut self, pool: &RRBPool<A, P>) -> Option<A> {
+    fn pop_back(&mut self) -> Option<A> {
         if self.length == 0 {
             return None;
         }
@@ -1693,7 +1660,7 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
                         swap(&mut self.outer_b, &mut self.inner_f);
                     }
                 } else {
-                    self.outer_b = self.pop_middle(pool, Side::Right).unwrap();
+                    self.outer_b = self.pop_middle(Side::Right).unwrap();
                 }
             } else {
                 swap(&mut self.outer_b, &mut self.inner_b);
@@ -1704,13 +1671,13 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
         Some(outer_b.pop_back())
     }
 
-    fn push_front(&mut self, pool: &RRBPool<A, P>, value: A) {
+    fn push_front(&mut self, value: A) {
         if self.outer_f.is_full() {
             swap(&mut self.outer_f, &mut self.inner_f);
             if !self.outer_f.is_empty() {
                 let mut chunk = SharedPointer::new(Chunk::new());
                 swap(&mut chunk, &mut self.outer_f);
-                self.push_middle(pool, Side::Left, chunk);
+                self.push_middle(Side::Left, chunk);
             }
         }
         self.length = self.length.checked_add(1).expect("Vector length overflow");
@@ -1718,13 +1685,13 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
         outer_f.push_front(value)
     }
 
-    fn push_back(&mut self, pool: &RRBPool<A, P>, value: A) {
+    fn push_back(&mut self, value: A) {
         if self.outer_b.is_full() {
             swap(&mut self.outer_b, &mut self.inner_b);
             if !self.outer_b.is_empty() {
                 let mut chunk = SharedPointer::new(Chunk::new());
                 swap(&mut chunk, &mut self.outer_b);
-                self.push_middle(pool, Side::Right, chunk);
+                self.push_middle(Side::Right, chunk);
             }
         }
         self.length = self.length.checked_add(1).expect("Vector length overflow");
@@ -1732,21 +1699,20 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
         outer_b.push_back(value)
     }
 
-    fn push_middle(&mut self, pool: &RRBPool<A, P>, side: Side, chunk: SharedPointer<Chunk<A>, P>) {
+    fn push_middle(&mut self, side: Side, chunk: SharedPointer<Chunk<A>, P>) {
         if chunk.is_empty() {
             return;
         }
         let new_middle = {
             let middle = SharedPointer::make_mut(&mut self.middle);
-            match middle.push_chunk(pool, self.middle_level, side, chunk) {
+            match middle.push_chunk(self.middle_level, side, chunk) {
                 PushResult::Done => return,
                 PushResult::Full(chunk, _num_drained) => SharedPointer::new({
                     match side {
-                        Side::Left => Node::from_chunk(pool, self.middle_level, chunk)
-                            .join_branches(pool, middle.clone(), self.middle_level),
+                        Side::Left => Node::from_chunk(self.middle_level, chunk)
+                            .join_branches(middle.clone(), self.middle_level),
                         Side::Right => middle.clone().join_branches(
-                            pool,
-                            Node::from_chunk(pool, self.middle_level, chunk),
+                            Node::from_chunk(self.middle_level, chunk),
                             self.middle_level,
                         ),
                     }
@@ -1757,14 +1723,10 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
         self.middle = new_middle;
     }
 
-    fn pop_middle(
-        &mut self,
-        pool: &RRBPool<A, P>,
-        side: Side,
-    ) -> Option<SharedPointer<Chunk<A>, P>> {
+    fn pop_middle(&mut self, side: Side) -> Option<SharedPointer<Chunk<A>, P>> {
         let chunk = {
             let middle = SharedPointer::make_mut(&mut self.middle);
-            match middle.pop_chunk(pool, self.middle_level, side) {
+            match middle.pop_chunk(self.middle_level, side) {
                 PopResult::Empty => return None,
                 PopResult::Done(chunk) => chunk,
                 PopResult::Drained(chunk) => {
@@ -1780,7 +1742,6 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
 
 #[inline]
 fn replace_shared_pointer<A: Default, P: SharedPointerKind>(
-    _pool: &Pool<A>,
     dest: &mut SharedPointer<A, P>,
 ) -> SharedPointer<A, P> {
     std::mem::take(dest)
@@ -1801,9 +1762,9 @@ impl<A: Clone, P: SharedPointerKind> Clone for GenericVector<A, P> {
     fn clone(&self) -> Self {
         Self {
             vector: match &self.vector {
-                Inline(pool, chunk) => Inline(pool.clone(), chunk.clone()),
-                Single(pool, chunk) => Single(pool.clone(), chunk.clone()),
-                Full(pool, tree) => Full(pool.clone(), tree.clone()),
+                Inline(chunk) => Inline(chunk.clone()),
+                Single(chunk) => Single(chunk.clone()),
+                Full(tree) => Full(tree.clone()),
             },
         }
     }
@@ -1823,59 +1784,9 @@ impl<A: Debug, P: SharedPointerKind> Debug for GenericVector<A, P> {
     }
 }
 
-#[cfg(not(has_specialisation))]
 impl<A: PartialEq, P: SharedPointerKind> PartialEq for GenericVector<A, P> {
     fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.iter().eq(other.iter())
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<A: PartialEq, P: SharedPointerKind> PartialEq for GenericVector<A, P> {
-    default fn eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.iter().eq(other.iter())
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<A: Eq, P: SharedPointerKind> PartialEq for GenericVector<A, P> {
-    fn eq(&self, other: &Self) -> bool {
-        fn cmp_chunk<A>(
-            left: &SharedPointer<Chunk<A>, P>,
-            right: &SharedPointer<Chunk<A>, P>,
-        ) -> bool {
-            (left.is_empty() && right.is_empty()) || SharedPointer::ptr_eq(left, right)
-        }
-
-        if std::ptr::eq(self, other) {
-            return true;
-        }
-
-        match (&self.vector, &other.vector) {
-            (Single(_, left), Single(_, right)) => {
-                if cmp_chunk(left, right) {
-                    return true;
-                }
-                self.iter().eq(other.iter())
-            }
-            (Full(_, left), Full(_, right)) => {
-                if left.length != right.length {
-                    return false;
-                }
-
-                if cmp_chunk(&left.outer_f, &right.outer_f)
-                    && cmp_chunk(&left.inner_f, &right.inner_f)
-                    && cmp_chunk(&left.inner_b, &right.inner_b)
-                    && cmp_chunk(&left.outer_b, &right.outer_b)
-                    && ((left.middle.is_empty() && right.middle.is_empty())
-                        || Ref::ptr_eq(&left.middle, &right.middle))
-                {
-                    return true;
-                }
-                self.iter().eq(other.iter())
-            }
-            _ => self.len() == other.len() && self.iter().eq(other.iter()),
-        }
     }
 }
 
@@ -2568,7 +2479,7 @@ mod test {
         // respectively. Previously the next `push_back()` would append another
         // zero-sized chunk to middle even though there is enough space left.
         match x.vector {
-            VectorInner::Full(_, ref tree) => {
+            VectorInner::Full(ref tree) => {
                 assert_eq!(129, tree.middle.len());
                 assert_eq!(3, tree.middle.number_of_children());
             }
@@ -2576,7 +2487,7 @@ mod test {
         }
         x.push_back(0);
         match x.vector {
-            VectorInner::Full(_, ref tree) => {
+            VectorInner::Full(ref tree) => {
                 assert_eq!(131, tree.middle.len());
                 assert_eq!(3, tree.middle.number_of_children())
             }
@@ -2630,7 +2541,7 @@ mod test {
         // remaining 63 elements will end up in a new node.
         x.push_back(0u32);
         match x.vector {
-            VectorInner::Full(_, tree) => {
+            VectorInner::Full(tree) => {
                 if CHUNK_SIZE == 64 {
                     assert_eq!(3, tree.middle.number_of_children());
                 }
@@ -2745,7 +2656,7 @@ mod test {
         let mut a = Vector::from_iter(0..128);
         let b = Vector::from_iter(128..256);
         a.append(b);
-        assert!(matches!(a.vector, Full(_, _)));
+        assert!(matches!(a.vector, Full(_)));
         a.retain(|i| *i % 2 == 0);
         assert_eq!(a.len(), 128);
     }

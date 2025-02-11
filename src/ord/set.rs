@@ -31,9 +31,6 @@ use crate::nodes::btree::{
     Iter as NodeIter, Node, Remove,
 };
 use crate::shared_ptr::DefaultSharedPtr;
-#[cfg(has_specialisation)]
-use crate::util::linear_search_by;
-use crate::util::Pool;
 
 pub use crate::nodes::btree::DiffItem;
 
@@ -76,7 +73,6 @@ impl<A> Deref for Value<A> {
 
 // FIXME lacking specialisation, we can't simply implement `BTreeValue`
 // for `A`, we have to use the `Value<A>` indirection.
-#[cfg(not(has_specialisation))]
 impl<A: Ord> BTreeValue for Value<A> {
     type Key = A;
 
@@ -108,55 +104,6 @@ impl<A: Ord> BTreeValue for Value<A> {
         self.cmp(other)
     }
 }
-
-#[cfg(has_specialisation)]
-impl<A: Ord> BTreeValue for Value<A> {
-    type Key = A;
-
-    fn ptr_eq(&self, _other: &Self) -> bool {
-        false
-    }
-
-    default fn search_key<BK>(slice: &[Self], key: &BK) -> Result<usize, usize>
-    where
-        BK: Ord + ?Sized,
-        Self::Key: Borrow<BK>,
-    {
-        slice.binary_search_by(|value| Self::Key::borrow(value).cmp(key))
-    }
-
-    default fn search_value(slice: &[Self], key: &Self) -> Result<usize, usize> {
-        slice.binary_search_by(|value| value.cmp(key))
-    }
-
-    fn cmp_keys<BK>(&self, other: &BK) -> Ordering
-    where
-        BK: Ord + ?Sized,
-        Self::Key: Borrow<BK>,
-    {
-        Self::Key::borrow(self).cmp(other)
-    }
-
-    fn cmp_values(&self, other: &Self) -> Ordering {
-        self.cmp(other)
-    }
-}
-
-#[cfg(has_specialisation)]
-impl<A: Ord + Copy> BTreeValue for Value<A> {
-    fn search_key<BK>(slice: &[Self], key: &BK) -> Result<usize, usize>
-    where
-        BK: Ord + ?Sized,
-        Self::Key: Borrow<BK>,
-    {
-        linear_search_by(slice, |value| Self::Key::borrow(value).cmp(key))
-    }
-
-    fn search_value(slice: &[Self], key: &Self) -> Result<usize, usize> {
-        linear_search_by(slice, |value| value.cmp(key))
-    }
-}
-def_pool!(OrdSetPool<A>, Node<Value<A>, P>);
 
 /// Type alias for [`GenericOrdSet`] that uses [`DefaultSharedPtr`] as the pointer type.
 ///
@@ -178,7 +125,6 @@ pub type OrdSet<A> = GenericOrdSet<A, DefaultSharedPtr>;
 /// [1]: https://en.wikipedia.org/wiki/B-tree
 pub struct GenericOrdSet<A, P: SharedPointerKind> {
     size: usize,
-    pool: OrdSetPool<A, P>,
     root: SharedPointer<Node<Value<A>, P>, P>,
 }
 
@@ -187,25 +133,8 @@ impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        let pool = OrdSetPool::default();
         let root = SharedPointer::default();
-        GenericOrdSet {
-            size: 0,
-            pool,
-            root,
-        }
-    }
-
-    /// Construct an empty set using a specific memory pool.
-    #[cfg(feature = "pool")]
-    #[must_use]
-    pub fn with_pool(pool: &OrdSetPool<A>) -> Self {
-        let root = SharedPointer::default();
-        GenericOrdSet {
-            size: 0,
-            pool: pool.clone(),
-            root,
-        }
+        GenericOrdSet { size: 0, root }
     }
 
     /// Construct a set with a single value.
@@ -221,13 +150,8 @@ impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
     #[inline]
     #[must_use]
     pub fn unit(a: A) -> Self {
-        let pool = OrdSetPool::default();
         let root = SharedPointer::new(Node::unit(Value(a)));
-        GenericOrdSet {
-            size: 1,
-            pool,
-            root,
-        }
+        GenericOrdSet { size: 1, root }
     }
 
     /// Test whether a set is empty.
@@ -280,15 +204,6 @@ impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
     /// Time: O(1)
     pub fn ptr_eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other) || SharedPointer::ptr_eq(&self.root, &other.root)
-    }
-
-    /// Get a reference to the memory pool used by this set.
-    ///
-    /// Note that if you didn't specifically construct it with a pool, you'll
-    /// get back a reference to a pool of size 0.
-    #[cfg(feature = "pool")]
-    pub fn pool(&self) -> &OrdSetPool<A> {
-        &self.pool
     }
 
     /// Discard all elements from the set.
@@ -547,14 +462,14 @@ where
     pub fn insert(&mut self, a: A) -> Option<A> {
         let new_root = {
             let root = SharedPointer::make_mut(&mut self.root);
-            match root.insert(&self.pool.0, Value(a)) {
+            match root.insert(Value(a)) {
                 Insert::Replaced(Value(old_value)) => return Some(old_value),
                 Insert::Added => {
                     self.size += 1;
                     return None;
                 }
                 Insert::Split(left, median, right) => {
-                    SharedPointer::new(Node::new_from_split(&self.pool.0, left, median, right))
+                    SharedPointer::new(Node::new_from_split(left, median, right))
                 }
             }
         };
@@ -574,7 +489,7 @@ where
     {
         let (new_root, removed_value) = {
             let root = SharedPointer::make_mut(&mut self.root);
-            match root.remove(&self.pool.0, a) {
+            match root.remove(a) {
                 Remove::Update(value, root) => (SharedPointer::new(root), Some(value.0)),
                 Remove::Removed(value) => {
                     self.size -= 1;
@@ -894,7 +809,6 @@ impl<A, P: SharedPointerKind> Clone for GenericOrdSet<A, P> {
     fn clone(&self) -> Self {
         GenericOrdSet {
             size: self.size,
-            pool: self.pool.clone(),
             root: self.root.clone(),
         }
     }
