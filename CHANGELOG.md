@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+ - Support different pointer types (thanks @inker0!) (#90). This is technically a breaking
+   change since some types (like iterators) grew additional generic parameters.
+
+### Fixed
+
+- Make `Vector::skip` better in corner cases (#104)
+
+### Changed
+
+- Bump MSRV to 1.77
+
 ## [4.0.1] - 2025-01-22
 
 ### Fixed
