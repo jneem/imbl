@@ -1990,7 +1990,6 @@ impl<'a, A: Clone, P: SharedPointerKind> From<&'a Vec<A>> for GenericVector<A, P
 /// [iter]: enum.Vector.html#method.iter
 // TODO: we'd like to support Clone even if A is not Clone, but it isn't trivial because
 // the TreeFocus variant of Focus does need A to be Clone.
-#[derive(Clone)]
 pub struct Iter<'a, A, P: SharedPointerKind> {
     focus: Focus<'a, A, P>,
     front_index: usize,
@@ -2011,6 +2010,16 @@ impl<'a, A, P: SharedPointerKind> Iter<'a, A, P> {
             front_index: 0,
             back_index: focus.len(),
             focus,
+        }
+    }
+}
+
+impl<A: Clone, P: SharedPointerKind> Clone for Iter<'_, A, P> {
+    fn clone(&self) -> Self {
+        Iter {
+            focus: self.focus.clone(),
+            front_index: self.front_index,
+            back_index: self.back_index,
         }
     }
 }
