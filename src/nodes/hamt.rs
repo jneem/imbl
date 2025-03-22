@@ -7,6 +7,7 @@ use std::cell::UnsafeCell;
 use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::iter::FusedIterator;
+use std::mem::{ManuallyDrop, MaybeUninit};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::{mem, ptr};
 
@@ -110,20 +111,22 @@ impl<A, P: SharedPointerKind> Node<A, P> {
     /// These copies really slow things down once Node crosses a certain size threshold and copies become calls to memcopy.
     #[inline]
     fn with(with: impl FnOnce(&mut Self)) -> SharedPointer<Self, P> {
-        let result: UnsafeCell<mem::MaybeUninit<Node<A, P>>> =
-            UnsafeCell::new(mem::MaybeUninit::uninit());
-        // Seems there's no need to use unsafe?
+        let result: SharedPointer<UnsafeCell<mem::MaybeUninit<Self>>, P> =
+            SharedPointer::new(UnsafeCell::new(mem::MaybeUninit::uninit()));
         #[allow(unsafe_code)]
         unsafe {
             // Initialize the MaybeUninit node
             (&mut *result.get()).write(Node::new());
-            // Safety: UnsafeCell<Self> and UnsafeCell<MaybeUninit<Self>> have the same memory representation
-            // Using ManuallyDrop to get around the mem::transumte requirement
-            let result: UnsafeCell<Self> = mem::transmute_copy(&mem::ManuallyDrop::new(result));
-            let mut_ptr = UnsafeCell::raw_get(&result);
+            // Dereference all the way to the newly initialized &mut Node
+            let mut_ptr = &mut *UnsafeCell::raw_get(&*result);
+            let mut_ptr = MaybeUninit::as_mut_ptr(mut_ptr);
             with(&mut *mut_ptr);
-            // Safety UnsafeCell<Self> and Self have the same memory representation
-            SharedPointer::new(mem::transmute_copy(&mem::ManuallyDrop::new(result)))
+            // Note that transmute isn't usable with the generic argument P, so we have to use
+            // a combination of transmute_copy and ManuallyDrop
+            // Safety: UnsafeCell<_> and UnsafeCell<MaybeUninit<_>> have the same memory representation
+            //         and ManuallyDrop<T> and T have the same memory representation
+            let result = ManuallyDrop::new(result);
+            mem::transmute_copy(&result)
         }
     }
 
