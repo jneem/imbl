@@ -4,7 +4,7 @@
 
 //! An ordered map.
 //!
-//! An immutable ordered map implemented as a [B-tree] [1].
+//! An immutable ordered map implemented as a [B+tree] [1].
 //!
 //! Most operations on this type of map are O(log n). A
 //! [`HashMap`][hashmap::HashMap] is usually a better choice for
@@ -13,7 +13,7 @@
 //! ordered, so that keys always come out from lowest to highest,
 //! where a [`HashMap`][hashmap::HashMap] has no guaranteed ordering.
 //!
-//! [1]: https://en.wikipedia.org/wiki/B-tree
+//! [1]: https://en.wikipedia.org/wiki/B%2B_tree
 //! [hashmap::HashMap]: ../hashmap/struct.HashMap.html
 //! [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 
@@ -22,17 +22,17 @@ use std::cmp::Ordering;
 use std::collections;
 use std::fmt::{Debug, Error, Formatter};
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::iter::{FromIterator, Sum};
+use std::iter::{FromIterator, FusedIterator, Peekable, Sum};
 use std::mem;
-use std::ops::{Add, Index, IndexMut, RangeBounds};
+use std::ops::{Add, Bound, Index, IndexMut, RangeBounds};
 
 use archery::{SharedPointer, SharedPointerKind};
 
 use crate::hashmap::GenericHashMap;
-use crate::nodes::btree::{BTreeValue, Insert, Iter as NodeIter, Node, Remove};
+use crate::nodes::btree::{
+    ConsumingIter as NodeConsumingIter, InsertAction, Iter as NodeIter, Node,
+};
 use crate::shared_ptr::DefaultSharedPtr;
-
-pub use crate::nodes::btree::{ConsumingIter, DiffItem as NodeDiffItem, DiffIter as NodeDiffIter};
 
 /// Construct a map from a sequence of key/value pairs.
 ///
@@ -65,38 +65,6 @@ macro_rules! ordmap {
     }};
 }
 
-impl<K: Ord, V> BTreeValue for (K, V) {
-    type Key = K;
-
-    fn ptr_eq(&self, _other: &Self) -> bool {
-        false
-    }
-
-    fn search_key<BK>(slice: &[Self], key: &BK) -> Result<usize, usize>
-    where
-        BK: Ord + ?Sized,
-        Self::Key: Borrow<BK>,
-    {
-        slice.binary_search_by(|value| Self::Key::borrow(&value.0).cmp(key))
-    }
-
-    fn search_value(slice: &[Self], key: &Self) -> Result<usize, usize> {
-        slice.binary_search_by(|value| value.0.cmp(&key.0))
-    }
-
-    fn cmp_keys<BK>(&self, other: &BK) -> Ordering
-    where
-        BK: Ord + ?Sized,
-        Self::Key: Borrow<BK>,
-    {
-        Self::Key::borrow(&self.0).cmp(other)
-    }
-
-    fn cmp_values(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
-    }
-}
-
 /// Type alias for [`GenericOrdMap`] that uses [`DefaultSharedPtr`] as the pointer type.
 ///
 /// [GenericOrdMap]: ./struct.GenericOrdMap.html
@@ -105,7 +73,7 @@ pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
 
 /// An ordered map.
 ///
-/// An immutable ordered map implemented as a B-tree.
+/// An immutable ordered map implemented as a B+tree [1].
 ///
 /// Most operations on this type of map are O(log n). A
 /// [`HashMap`][hashmap::HashMap] is usually a better choice for
@@ -114,11 +82,12 @@ pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
 /// ordered, so that keys always come out from lowest to highest,
 /// where a [`HashMap`][hashmap::HashMap] has no guaranteed ordering.
 ///
+/// [1]: https://en.wikipedia.org/wiki/B%2B_tree
 /// [hashmap::HashMap]: ../hashmap/struct.HashMap.html
 /// [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 pub struct GenericOrdMap<K, V, P: SharedPointerKind> {
     size: usize,
-    root: SharedPointer<Node<(K, V), P>, P>,
+    root: SharedPointer<Node<K, V, P>, P>,
 }
 
 impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
@@ -146,8 +115,10 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     #[inline]
     #[must_use]
     pub fn unit(key: K, value: V) -> Self {
-        let root = SharedPointer::new(Node::unit((key, value)));
-        GenericOrdMap { size: 1, root }
+        Self {
+            size: 1,
+            root: SharedPointer::new(Node::unit(key, value)),
+        }
     }
 
     /// Test whether a map is empty.
@@ -281,7 +252,7 @@ where
     #[must_use]
     pub fn iter(&self) -> Iter<'_, K, V, P> {
         Iter {
-            it: NodeIter::new(&self.root, self.size, ..),
+            it: NodeIter::new(Some(&self.root), self.size, ..),
         }
     }
 
@@ -294,7 +265,7 @@ where
         BK: Ord + ?Sized,
     {
         RangedIter {
-            it: NodeIter::new(&self.root, self.size, range),
+            it: NodeIter::new(Some(&self.root), self.size, range),
         }
     }
 
@@ -314,17 +285,12 @@ where
     /// another, i.e. the set of entries to add, update, or remove to
     /// this map in order to make it equal to the other map.
     ///
-    /// This function will avoid visiting nodes which are shared
-    /// between the two maps, meaning that even very large maps can be
-    /// compared quickly if most of their structure is shared.
-    ///
-    /// Time: O(n) (where n is the number of unique elements across
-    /// the two maps, minus the number of elements belonging to nodes
-    /// shared between them)
+    /// Time: O(n) where n is the size of the larger map.
     #[must_use]
     pub fn diff<'a, 'b>(&'a self, other: &'b Self) -> DiffIter<'a, 'b, K, V, P> {
         DiffIter {
-            it: NodeDiffIter::new(&self.root, &other.root),
+            it1: self.iter().peekable(),
+            it2: other.iter().peekable(),
         }
     }
 
@@ -398,7 +364,9 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        self.root.lookup_prev(key).map(|(k, v)| (k, v))
+        self.range((Bound::Unbounded, Bound::Included(key)))
+            .next_back()
+            .map(|(k, v)| (k, v))
     }
 
     /// Get a reference to the closest larger entry in a map
@@ -423,7 +391,9 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        self.root.lookup_next(key).map(|(k, v)| (k, v))
+        self.range((Bound::Included(key), Bound::Unbounded))
+            .next()
+            .map(|(k, v)| (k, v))
     }
 
     /// Test for the presence of a key in a map.
@@ -601,9 +571,9 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        SharedPointer::make_mut(&mut self.root)
-            .lookup_prev_mut(key)
-            .map(|(ref k, ref mut v)| (k, v))
+        let prev = self.get_prev(key)?.0.clone();
+        let root = SharedPointer::make_mut(&mut self.root);
+        root.lookup_mut(prev.borrow()).map(|(k, v)| (k, v))
     }
 
     /// Get the closest larger entry in a map to a given key
@@ -631,9 +601,9 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        SharedPointer::make_mut(&mut self.root)
-            .lookup_next_mut(key)
-            .map(|(ref k, ref mut v)| (k, v))
+        let next = self.get_next(key)?.0.clone();
+        let root = SharedPointer::make_mut(&mut self.root);
+        root.lookup_mut(next.borrow()).map(|(k, v)| (k, v))
     }
 
     /// Insert a key/value mapping into a map.
@@ -664,21 +634,47 @@ where
     /// [insert]: #method.insert
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        let new_root = {
-            let root = SharedPointer::make_mut(&mut self.root);
-            match root.insert((key, value)) {
-                Insert::Replaced((_, old_value)) => return Some(old_value),
-                Insert::Added => {
-                    self.size += 1;
-                    return None;
-                }
-                Insert::Split(left, median, right) => {
-                    SharedPointer::new(Node::new_from_split(left, median, right))
-                }
+        self.insert_key_value(key, value).map(|(_, v)| v)
+    }
+
+    /// Insert a key/value mapping into a map.
+    ///
+    /// This is a copy-on-write operation, so that the parts of the
+    /// map's structure which are shared with other maps will be
+    /// safely copied before mutating.
+    ///
+    /// If the map already has a mapping for the given key, the
+    /// previous value is overwritten.
+    ///
+    /// Time: O(log n)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordmap::OrdMap;
+    /// let mut map = ordmap!{};
+    /// map.insert(123, "123");
+    /// map.insert(456, "456");
+    /// assert_eq!(
+    ///   map,
+    ///   ordmap!{123 => "123", 456 => "456"}
+    /// );
+    /// ```
+    ///
+    /// [insert]: #method.insert
+    #[inline]
+    pub fn insert_key_value(&mut self, key: K, value: V) -> Option<(K, V)> {
+        let root = SharedPointer::make_mut(&mut self.root);
+        match root.insert(key, value) {
+            InsertAction::Replaced(old_key, old_value) => return Some((old_key, old_value)),
+            InsertAction::Inserted => (),
+            InsertAction::Split(separator, right) => {
+                let left = mem::take(root);
+                *root = Node::new_from_split(SharedPointer::new(left), separator, right);
             }
-        };
+        }
         self.size += 1;
-        self.root = new_root;
         None
     }
 
@@ -716,20 +712,17 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let (new_root, removed_value) = {
-            let root = SharedPointer::make_mut(&mut self.root);
-            match root.remove(k) {
-                Remove::NoChange => return None,
-                Remove::Removed(pair) => {
-                    self.size -= 1;
-                    return Some(pair);
+        let mut removed = None;
+        let root = SharedPointer::make_mut(&mut self.root);
+        if root.remove(k, &mut removed) {
+            if let Node::Branch(branch) = root {
+                if let Some(child) = branch.pop_single_child() {
+                    self.root = child;
                 }
-                Remove::Update(pair, root) => (SharedPointer::new(root), Some(pair)),
             }
-        };
-        self.size -= 1;
-        self.root = new_root;
-        removed_value
+        }
+        self.size -= removed.is_some() as usize;
+        removed
     }
 
     /// Construct a new map by inserting a key/value mapping into a
@@ -1361,7 +1354,7 @@ where
         // TODO this is atrociously slow, got to be a better way
         self.iter().fold(
             (GenericOrdMap::new(), None, GenericOrdMap::new()),
-            |(l, m, r), (k, v)| match k.borrow().cmp(&split) {
+            |(l, m, r), (k, v)| match k.borrow().cmp(split) {
                 Ordering::Less => (l.update(k.clone(), v.clone()), m, r),
                 Ordering::Equal => (l, Some(v.clone()), r),
                 Ordering::Greater => (l, m, r.update(k.clone(), v.clone())),
@@ -1690,7 +1683,7 @@ impl<K, V, P: SharedPointerKind> Default for GenericOrdMap<K, V, P> {
     }
 }
 
-impl<'a, K, V, P> Add for &'a GenericOrdMap<K, V, P>
+impl<K, V, P> Add for &GenericOrdMap<K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
@@ -1746,7 +1739,7 @@ where
     }
 }
 
-impl<'a, BK, K, V, P: SharedPointerKind> Index<&'a BK> for GenericOrdMap<K, V, P>
+impl<BK, K, V, P: SharedPointerKind> Index<&BK> for GenericOrdMap<K, V, P>
 where
     BK: Ord + ?Sized,
     K: Ord + Borrow<BK>,
@@ -1761,7 +1754,7 @@ where
     }
 }
 
-impl<'a, BK, K, V, P> IndexMut<&'a BK> for GenericOrdMap<K, V, P>
+impl<BK, K, V, P> IndexMut<&BK> for GenericOrdMap<K, V, P>
 where
     BK: Ord + ?Sized,
     K: Ord + Clone + Borrow<BK>,
@@ -1772,7 +1765,7 @@ where
         let root = SharedPointer::make_mut(&mut self.root);
         match root.lookup_mut(key) {
             None => panic!("OrdMap::index: invalid key"),
-            Some(&mut (_, ref mut value)) => value,
+            Some((_, value)) => value,
         }
     }
 }
@@ -1796,7 +1789,7 @@ where
 
 /// An iterator over the key/value pairs of a map.
 pub struct Iter<'a, K, V, P: SharedPointerKind> {
-    it: NodeIter<'a, (K, V), P>,
+    it: NodeIter<'a, K, V, P>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
@@ -1810,42 +1803,37 @@ impl<'a, K, V, P: SharedPointerKind> Clone for Iter<'a, K, V, P> {
 
 impl<'a, K, V, P> Iterator for Iter<'a, K, V, P>
 where
-    (K, V): 'a + BTreeValue,
     P: SharedPointerKind,
 {
     type Item = (&'a K, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.it.next().map(|(k, v)| (k, v))
+        self.it.next()
     }
 
     // We only construct an `Iter` when the range is full, meaning that we can
     // override `size_hint` and implement `ExactSizeIterator`.
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.it.remaining, Some(self.it.remaining))
+        self.it.size_hint()
     }
 }
 
 impl<'a, K, V, P> DoubleEndedIterator for Iter<'a, K, V, P>
 where
-    (K, V): 'a + BTreeValue,
     P: SharedPointerKind,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.it.next_back().map(|(k, v)| (k, v))
+        self.it.next_back()
     }
 }
 
-impl<'a, K, V, P> ExactSizeIterator for Iter<'a, K, V, P>
-where
-    (K, V): 'a + BTreeValue,
-    P: SharedPointerKind,
-{
-}
+impl<'a, K, V, P> ExactSizeIterator for Iter<'a, K, V, P> where P: SharedPointerKind {}
+impl<'a, K, V, P> FusedIterator for Iter<'a, K, V, P> where P: SharedPointerKind {}
 
 /// An iterator over a range of key/value pairs in a map.
+#[derive(Debug)]
 pub struct RangedIter<'a, K, V, P: SharedPointerKind> {
-    it: NodeIter<'a, (K, V), P>,
+    it: NodeIter<'a, K, V, P>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
@@ -1859,13 +1847,12 @@ impl<'a, K, V, P: SharedPointerKind> Clone for RangedIter<'a, K, V, P> {
 
 impl<'a, K, V, P> Iterator for RangedIter<'a, K, V, P>
 where
-    (K, V): 'a + BTreeValue,
     P: SharedPointerKind,
 {
     type Item = (&'a K, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.it.next().map(|(k, v)| (k, v))
+        self.it.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1875,17 +1862,18 @@ where
 
 impl<'a, K, V, P> DoubleEndedIterator for RangedIter<'a, K, V, P>
 where
-    (K, V): 'a + BTreeValue,
     P: SharedPointerKind,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.it.next_back().map(|(k, v)| (k, v))
+        self.it.next_back()
     }
 }
+impl<'a, K, V, P> FusedIterator for RangedIter<'a, K, V, P> where P: SharedPointerKind {}
 
 /// An iterator over the differences between two maps.
 pub struct DiffIter<'a, 'b, K, V, P: SharedPointerKind> {
-    it: NodeDiffIter<'a, 'b, (K, V), P>,
+    it1: Peekable<Iter<'a, K, V, P>>,
+    it2: Peekable<Iter<'b, K, V, P>>,
 }
 
 /// A description of a difference between two ordered maps.
@@ -1906,23 +1894,46 @@ pub enum DiffItem<'a, 'b, K, V> {
 
 impl<'a, 'b, K, V, P> Iterator for DiffIter<'a, 'b, K, V, P>
 where
-    (K, V): 'a + 'b + BTreeValue + PartialEq,
+    K: Ord,
+    V: PartialEq,
     P: SharedPointerKind,
 {
     type Item = DiffItem<'a, 'b, K, V>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.it.next().map(|item| match item {
-            NodeDiffItem::Add((k, v)) => DiffItem::Add(k, v),
-            NodeDiffItem::Update {
-                old: (oldk, oldv),
-                new: (newk, newv),
-            } => DiffItem::Update {
-                old: (oldk, oldv),
-                new: (newk, newv),
-            },
-            NodeDiffItem::Remove((k, v)) => DiffItem::Remove(k, v),
-        })
+        loop {
+            match (self.it1.peek(), self.it2.peek()) {
+                (Some(&(k1, v1)), Some(&(k2, v2))) => match k1.cmp(k2) {
+                    Ordering::Less => {
+                        self.it1.next();
+                        break Some(DiffItem::Remove(k1, v1));
+                    }
+                    Ordering::Equal => {
+                        self.it1.next();
+                        self.it2.next();
+                        if v1 != v2 {
+                            break Some(DiffItem::Update {
+                                old: (k1, v1),
+                                new: (k2, v2),
+                            });
+                        }
+                    }
+                    Ordering::Greater => {
+                        self.it2.next();
+                        break Some(DiffItem::Add(k2, v2));
+                    }
+                },
+                (Some(&(k1, v1)), None) => {
+                    self.it1.next();
+                    break Some(DiffItem::Remove(k1, v1));
+                }
+                (None, Some(&(k2, v2))) => {
+                    self.it2.next();
+                    break Some(DiffItem::Add(k2, v2));
+                }
+                (None, None) => break None,
+            }
+        }
     }
 }
 
@@ -1970,6 +1981,14 @@ where
 {
 }
 
+impl<'a, K, V, P> FusedIterator for Keys<'a, K, V, P>
+where
+    K: 'a + Ord,
+    V: 'a,
+    P: SharedPointerKind,
+{
+}
+
 /// An iterator over the values of a map.
 pub struct Values<'a, K, V, P: SharedPointerKind> {
     it: Iter<'a, K, V, P>,
@@ -2004,6 +2023,14 @@ where
             Some((_, v)) => Some(v),
         }
     }
+}
+
+impl<'a, K, V, P> FusedIterator for Values<'a, K, V, P>
+where
+    K: 'a + Ord,
+    V: 'a,
+    P: SharedPointerKind,
+{
 }
 
 impl<'a, K, V, P> ExactSizeIterator for Values<'a, K, V, P>
@@ -2047,16 +2074,59 @@ where
 
 impl<K, V, P> IntoIterator for GenericOrdMap<K, V, P>
 where
-    K: Ord + Clone,
+    K: Clone,
     V: Clone,
     P: SharedPointerKind,
 {
     type Item = (K, V);
-    type IntoIter = ConsumingIter<(K, V), P>;
+    type IntoIter = ConsumingIter<K, V, P>;
 
     fn into_iter(self) -> Self::IntoIter {
-        ConsumingIter::new(&self.root, self.size)
+        ConsumingIter {
+            it: NodeConsumingIter::new(Some(self.root), self.size),
+        }
     }
+}
+
+/// A consuming iterator over the elements of a map.
+pub struct ConsumingIter<K, V, P: SharedPointerKind> {
+    it: NodeConsumingIter<K, V, P>,
+}
+
+impl<K, V, P> Iterator for ConsumingIter<K, V, P>
+where
+    K: Clone,
+    V: Clone,
+    P: SharedPointerKind,
+{
+    type Item = (K, V);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.it.next()
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.it.size_hint()
+    }
+}
+
+impl<K: Clone, V: Clone, P: SharedPointerKind> DoubleEndedIterator for ConsumingIter<K, V, P> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.it.next_back()
+    }
+}
+
+impl<K, V, P> ExactSizeIterator for ConsumingIter<K, V, P>
+where
+    K: Clone,
+    V: Clone,
+    P: SharedPointerKind,
+{
+}
+impl<K, V, P> FusedIterator for ConsumingIter<K, V, P>
+where
+    K: Clone,
+    V: Clone,
+    P: SharedPointerKind,
+{
 }
 
 // Conversions
@@ -2067,8 +2137,7 @@ impl<K, V, P: SharedPointerKind> AsRef<GenericOrdMap<K, V, P>> for GenericOrdMap
     }
 }
 
-impl<'m, 'k, 'v, K, V, OK, OV, P1, P2> From<&'m GenericOrdMap<&'k K, &'v V, P2>>
-    for GenericOrdMap<OK, OV, P1>
+impl<K, V, OK, OV, P1, P2> From<&GenericOrdMap<&K, &V, P2>> for GenericOrdMap<OK, OV, P1>
 where
     K: Ord + ToOwned<Owned = OK> + ?Sized,
     V: ToOwned<Owned = OV> + ?Sized,
@@ -2228,10 +2297,13 @@ pub mod proptest {
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::proptest::*;
-    use crate::test::is_sorted;
+    #[rustfmt::skip]
     use ::proptest::num::{i16, usize};
+    #[rustfmt::skip]
     use ::proptest::{bool, collection, proptest};
     use static_assertions::{assert_impl_all, assert_not_impl_any};
 
@@ -2422,29 +2494,29 @@ mod test {
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (7, 8)], range);
         let range: Vec<(i32, i32)> = map.range(..).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(7, 8), (5, 6), (4, 5), (3, 4), (2, 3), (1, 2)], range);
-        let range: Vec<(i32, i32)> = map.range(2..5).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(&2..&5).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(2, 3), (3, 4), (4, 5)], range);
-        let range: Vec<(i32, i32)> = map.range(2..5).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(&2..&5).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(4, 5), (3, 4), (2, 3)], range);
-        let range: Vec<(i32, i32)> = map.range(3..).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(&3..).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(3, 4), (4, 5), (5, 6), (7, 8)], range);
-        let range: Vec<(i32, i32)> = map.range(3..).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(&3..).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(7, 8), (5, 6), (4, 5), (3, 4)], range);
         let range: Vec<(i32, i32)> = map.range(..4).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4)], range);
-        let range: Vec<(i32, i32)> = map.range(..4).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(..&4).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(3, 4), (2, 3), (1, 2)], range);
-        let range: Vec<(i32, i32)> = map.range(..=3).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(..=&3).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4)], range);
-        let range: Vec<(i32, i32)> = map.range(..=3).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(..=&3).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(3, 4), (2, 3), (1, 2)], range);
-        let range: Vec<(i32, i32)> = map.range(..6).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(..&6).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], range);
-        let range: Vec<(i32, i32)> = map.range(..=6).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(..=&6).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], range);
 
-        assert_eq!(map.range(2..5).size_hint(), (0, Some(6)));
-        let mut iter = map.range(2..5);
+        assert_eq!(map.range(&2..&5).size_hint(), (0, Some(6)));
+        let mut iter = map.range(&2..&5);
         iter.next();
         assert_eq!(iter.size_hint(), (0, Some(5)));
     }
@@ -2453,19 +2525,26 @@ mod test {
     fn range_iter_big() {
         use crate::nodes::btree::NODE_SIZE;
         use std::ops::Bound::Included;
-        const N: usize = NODE_SIZE * NODE_SIZE * 5; // enough for a sizeable 3 level tree
+        const N: usize = NODE_SIZE * NODE_SIZE * NODE_SIZE / 2; // enough for a sizeable 3 level tree
 
         let data = (1usize..N).filter(|i| i % 2 == 0).map(|i| (i, ()));
         let bmap = data
             .clone()
             .collect::<std::collections::BTreeMap<usize, ()>>();
         let omap = data.collect::<OrdMap<usize, ()>>();
+        assert_eq!(bmap.len(), omap.len());
 
         for i in (0..NODE_SIZE * 5).chain(N - NODE_SIZE * 5..=N + 1) {
             assert_eq!(omap.range(i..).count(), bmap.range(i..).count());
             assert_eq!(omap.range(..i).count(), bmap.range(..i).count());
-            assert_eq!(omap.range(i..i + 7).count(), bmap.range(i..i + 7).count());
-            assert_eq!(omap.range(i..=i + 7).count(), bmap.range(i..=i + 7).count());
+            assert_eq!(
+                omap.range(i..(i + 7)).count(),
+                bmap.range(i..(i + 7)).count()
+            );
+            assert_eq!(
+                omap.range(i..=(i + 7)).count(),
+                bmap.range(i..=(i + 7)).count()
+            );
             assert_eq!(
                 omap.range((Included(i), Included(i + 7))).count(),
                 bmap.range((Included(i), Included(i + 7))).count(),
@@ -2498,7 +2577,10 @@ mod test {
         #[test]
         fn order(ref input in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
             let map: OrdMap<i16, i16> = OrdMap::from(input.clone());
-            assert!(is_sorted(map.keys()));
+            let keys = map.keys().cloned().collect::<Vec<_>>();
+            let mut expected_keys = input.keys().cloned().collect::<Vec<_>>();
+            expected_keys.sort();
+            assert_eq!(keys, expected_keys);
         }
 
         #[test]
@@ -2576,7 +2658,16 @@ mod test {
         fn iterate_over(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
             let map: OrdMap<i16, i16> =
                 OrdMap::from_iter(m.iter().map(|(k, v)| (*k, *v)));
-            assert_eq!(m.len(), map.iter().count());
+            let expected = m.iter().map(|(k, v)| (*k, *v)).collect::<BTreeMap<_, _>>();
+            assert!(map.iter().eq(expected.iter()));
+        }
+
+        #[test]
+        fn iterate_over_rev(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
+            let map: OrdMap<i16, i16> =
+                OrdMap::from_iter(m.iter().map(|(k, v)| (*k, *v)));
+            let expected = m.iter().map(|(k, v)| (*k, *v)).collect::<BTreeMap<_, _>>();
+            assert!(map.iter().rev().eq(expected.iter().rev()));
         }
 
         #[test]
