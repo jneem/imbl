@@ -11,7 +11,7 @@ pub(crate) const VECTOR_CHUNK_SIZE: usize = 64;
 /// The branching factor of B-trees
 // Must be an even number!
 #[cfg(feature = "small-chunks")]
-pub(crate) const ORD_CHUNK_SIZE: usize = 4;
+pub(crate) const ORD_CHUNK_SIZE: usize = 6; // Value chosen improve test coverage
 #[cfg(not(feature = "small-chunks"))]
 pub(crate) const ORD_CHUNK_SIZE: usize = 64;
 

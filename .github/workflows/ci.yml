@@ -64,4 +64,4 @@ jobs:
       - name: install cargo-fuzz
         run: cargo install cargo-fuzz
       - name: run tests
-        run: for fuzz_test in `cargo fuzz list`; do cargo fuzz run $fuzz_test -- -max_total_time=10 || exit 1; done
+        run: for fuzz_test in `cargo fuzz list`; do cargo fuzz run $fuzz_test -- -len_control=0 -max_total_time=60 || exit 1; done

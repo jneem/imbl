@@ -1,7 +1,11 @@
 [package]
 name = "imbl"
 version = "5.0.0"
-authors = ["Bodil Stokke <bodil@bodil.org>", "Joe Neeman <joeneeman@gmail.com>"]
+authors = [
+    "Bodil Stokke <bodil@bodil.org>",
+    "Joe Neeman <joeneeman@gmail.com>",
+    "Arthur Silva <arthurprs@gmail.com>",
+]
 edition = "2018"
 license = "MPL-2.0+"
 rust-version = "1.77"
@@ -57,3 +61,7 @@ pretty_assertions = "1.0"
 metrohash = "1"
 proptest-derive = "0.5"
 static_assertions = "1.1.0"
+
+# Include debug symbols when benchmarking, this is useful for profiling
+[profile.bench]
+debug = true

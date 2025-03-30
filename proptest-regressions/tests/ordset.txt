@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc ad212dea44eb83bbfd86396a2e0f9460ecb93f6b1a2644bc700ffc317638a37a # shrinks to actions = let mut set = OrdSet::new(); set.insert(0); let expected = vec![0]; assert_eq!(OrdSet::from(expected), set); 
+cc 7742c112f7a708c9b28d8e61f536aa5e46ed1109e36636108d844f9bc902d3a7 # shrinks to actions = let mut set = OrdSet::new(); set.insert(0); set.insert(1); set.insert(2); set.insert(3); set.insert(4); set.insert(5); set.insert(6); let expected = vec![0, 1, 2, 3, 4, 5, 6]; assert_eq!(OrdSet::from(expected), set); 
