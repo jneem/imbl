@@ -87,7 +87,7 @@ pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
 /// [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 pub struct GenericOrdMap<K, V, P: SharedPointerKind> {
     size: usize,
-    root: SharedPointer<Node<K, V, P>, P>,
+    root: Option<SharedPointer<Node<K, V, P>, P>>,
 }
 
 impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
@@ -95,8 +95,10 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        let root = SharedPointer::default();
-        GenericOrdMap { size: 0, root }
+        GenericOrdMap {
+            size: 0,
+            root: None,
+        }
     }
 
     /// Construct a map with a single mapping.
@@ -117,7 +119,7 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     pub fn unit(key: K, value: V) -> Self {
         Self {
             size: 1,
-            root: SharedPointer::new(Node::unit(key, value)),
+            root: Some(SharedPointer::new(Node::unit(key, value))),
         }
     }
 
@@ -153,7 +155,11 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     ///
     /// Time: O(1)
     pub fn ptr_eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other) || SharedPointer::ptr_eq(&self.root, &other.root)
+        match (&self.root, &other.root) {
+            (Some(a), Some(b)) => SharedPointer::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
     }
 
     /// Get the size of a map.
@@ -194,10 +200,8 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     /// assert!(map.is_empty());
     /// ```
     pub fn clear(&mut self) {
-        if !self.is_empty() {
-            self.root = SharedPointer::default();
-            self.size = 0;
-        }
+        self.root = None;
+        self.size = 0;
     }
 }
 
@@ -224,7 +228,7 @@ where
     /// ```
     #[must_use]
     pub fn get_max(&self) -> Option<&(K, V)> {
-        self.root.max()
+        self.root.as_ref().and_then(|root| root.max())
     }
 
     /// Get the smallest key in a map, along with its value. If the
@@ -245,14 +249,14 @@ where
     /// ```
     #[must_use]
     pub fn get_min(&self) -> Option<&(K, V)> {
-        self.root.min()
+        self.root.as_ref().and_then(|root| root.min())
     }
 
     /// Get an iterator over the key/value pairs of a map.
     #[must_use]
     pub fn iter(&self) -> Iter<'_, K, V, P> {
         Iter {
-            it: NodeIter::new(Some(&self.root), self.size, ..),
+            it: NodeIter::new(self.root.as_deref(), self.size, ..),
         }
     }
 
@@ -265,7 +269,7 @@ where
         BK: Ord + ?Sized,
     {
         RangedIter {
-            it: NodeIter::new(Some(&self.root), self.size, range),
+            it: NodeIter::new(self.root.as_deref(), self.size, range),
         }
     }
 
@@ -297,11 +301,11 @@ where
             it2: Cursor::empty(),
         };
         // If the two maps are the same, don't even initialize the cursors
-        if SharedPointer::ptr_eq(&self.root, &other.root) {
+        if self.ptr_eq(other) {
             return diff;
         }
-        diff.it1.init(Some(&*self.root));
-        diff.it2.init(Some(&*other.root));
+        diff.it1.init(self.root.as_deref());
+        diff.it2.init(other.root.as_deref());
         diff.it1.seek_to_first();
         diff.it2.seek_to_first();
         diff
@@ -328,7 +332,9 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        self.root.lookup(key).map(|(_, v)| v)
+        self.root
+            .as_ref()
+            .and_then(|r| r.lookup(key).map(|(_, v)| v))
     }
 
     /// Get the key/value pair for a key from a map.
@@ -352,7 +358,9 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        self.root.lookup(key).map(|(k, v)| (k, v))
+        self.root
+            .as_ref()
+            .and_then(|r| r.lookup(key).map(|(k, v)| (k, v)))
     }
 
     /// Get a reference to the closest smaller entry in a map
@@ -552,7 +560,7 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let root = SharedPointer::make_mut(&mut self.root);
+        let root = SharedPointer::make_mut(self.root.as_mut()?);
         root.lookup_mut(key).map(|(_, v)| v)
     }
 
@@ -582,7 +590,7 @@ where
         K: Borrow<BK>,
     {
         let prev = self.get_prev(key)?.0.clone();
-        let root = SharedPointer::make_mut(&mut self.root);
+        let root = SharedPointer::make_mut(self.root.as_mut()?);
         root.lookup_mut(prev.borrow())
     }
 
@@ -612,7 +620,7 @@ where
         K: Borrow<BK>,
     {
         let next = self.get_next(key)?.0.clone();
-        let root = SharedPointer::make_mut(&mut self.root);
+        let root = SharedPointer::make_mut(self.root.as_mut()?);
         root.lookup_mut(next.borrow())
     }
 
@@ -657,7 +665,7 @@ where
     /// previous key and value are overwritten and returned.
     #[inline]
     pub(crate) fn insert_key_value(&mut self, key: K, value: V) -> Option<(K, V)> {
-        let root = SharedPointer::make_mut(&mut self.root);
+        let root = SharedPointer::make_mut(self.root.get_or_insert_with(Default::default));
         match root.insert(key, value) {
             InsertAction::Replaced(old_key, old_value) => return Some((old_key, old_value)),
             InsertAction::Inserted => (),
@@ -704,14 +712,16 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
+        let root = SharedPointer::make_mut(self.root.as_mut()?);
         let mut removed = None;
-        let root = SharedPointer::make_mut(&mut self.root);
         if root.remove(k, &mut removed) {
             if let Node::Branch(branch) = root {
                 if let Some(child) = branch.pop_single_child() {
-                    self.root = child;
+                    self.root = Some(child);
                 }
             }
+            // Note that even if the root leaf is empty, we don't
+            // drop it, but retain the allocation for future use.
         }
         self.size -= removed.is_some() as usize;
         removed
@@ -1739,9 +1749,9 @@ where
     type Output = V;
 
     fn index(&self, key: &BK) -> &Self::Output {
-        match self.root.lookup(key) {
+        match self.get(key) {
             None => panic!("OrdMap::index: invalid key"),
-            Some((_, value)) => value,
+            Some(value) => value,
         }
     }
 }
@@ -1754,10 +1764,9 @@ where
     P: SharedPointerKind,
 {
     fn index_mut(&mut self, key: &BK) -> &mut Self::Output {
-        let root = SharedPointer::make_mut(&mut self.root);
-        match root.lookup_mut(key) {
+        match self.get_mut(key) {
             None => panic!("OrdMap::index: invalid key"),
-            Some((_, value)) => value,
+            Some(value) => value,
         }
     }
 }
@@ -2083,7 +2092,7 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter {
-            it: NodeConsumingIter::new(Some(self.root), self.size),
+            it: NodeConsumingIter::new(self.root, self.size),
         }
     }
 }
