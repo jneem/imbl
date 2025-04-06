@@ -192,7 +192,7 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Node<K, V, P> {
         debug_assert_eq!(branch.keys.len() + 1, branch.children.len());
     }
 
-    /// Assuming `branch` is at level 1, rebalances two adjacent leaves so that they have the same 
+    /// Assuming `branch` is at level 1, rebalances two adjacent leaves so that they have the same
     /// number of keys (or differ by at most 1).
     fn rebalance_leaves(branch: &mut Branch<K, V, P>, left_idx: usize) {
         debug_assert_eq!(branch.level, 1);
@@ -763,7 +763,7 @@ impl<'a, K, V, P: SharedPointerKind> Clone for Iter<'a, K, V, P> {
 }
 
 #[derive(Debug)]
-struct Cursor<'a, K, V, P: SharedPointerKind> {
+pub(crate) struct Cursor<'a, K, V, P: SharedPointerKind> {
     stack: Vec<(usize, &'a Node<K, V, P>)>,
 }
 
@@ -776,18 +776,21 @@ impl<'a, K, V, P: SharedPointerKind> Clone for Cursor<'a, K, V, P> {
 }
 
 impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
-    fn empty() -> Self {
+    /// Creates a new empty cursor.
+    /// The variety of methods is to allow for a more efficient initialization
+    /// in all cases.
+    pub(crate) fn empty() -> Self {
         Self { stack: Vec::new() }
     }
 
-    fn init(&mut self, node: Option<&'a Node<K, V, P>>) {
+    pub(crate) fn init(&mut self, node: Option<&'a Node<K, V, P>>) {
         if let Some(node) = node {
             self.stack.reserve_exact(node.level() + 1);
             self.stack.push((0, node));
         }
     }
 
-    fn seek_to_first(&mut self) -> Option<&'a (K, V)> {
+    pub(crate) fn seek_to_first(&mut self) -> Option<&'a (K, V)> {
         while let Some((i, node)) = self.stack.last_mut() {
             debug_assert_eq!(i, &0);
             match node {
@@ -851,7 +854,33 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
         false
     }
 
-    fn next(&mut self) -> Option<&'a (K, V)> {
+    /// Advances this and another cursor to their next position.
+    /// While doing so skip all shared nodes between them.
+    pub(crate) fn advance_skipping_shared<'b>(&mut self, other: &mut Cursor<'b, K, V, P>) {
+        // The current implementation is not optimal as it will still visit many nodes unnecessarily
+        // before skipping them. But it requires very little additional code.
+        // Nevertheless it will still improve performance when there are shared nodes.
+        loop {
+            let shared_levels = self
+                .stack
+                .iter()
+                .rev()
+                .zip(other.stack.iter().rev())
+                .take_while(|(this, that)| std::ptr::addr_eq(this.1, that.1))
+                .count();
+            if shared_levels != 0 {
+                self.stack.drain(self.stack.len() - shared_levels..);
+                other.stack.drain(other.stack.len() - shared_levels..);
+            }
+            self.next();
+            other.next();
+            if shared_levels == 0 {
+                break;
+            }
+        }
+    }
+
+    pub(crate) fn next(&mut self) -> Option<&'a (K, V)> {
         while let Some((i, node)) = self.stack.last_mut() {
             match node {
                 Node::Branch(branch) => {
@@ -897,7 +926,7 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
         self.seek_to_last()
     }
 
-    fn peek(&self) -> Option<&'a (K, V)> {
+    pub(crate) fn peek(&self) -> Option<&'a (K, V)> {
         if let Some((i, Node::Leaf(leaf))) = self.stack.last() {
             leaf.keys.get(*i)
         } else {

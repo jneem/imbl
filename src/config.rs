@@ -11,7 +11,7 @@ pub(crate) const VECTOR_CHUNK_SIZE: usize = 64;
 /// The branching factor of B-trees
 // Must be an even number!
 // Value if 6 chosen improve test coverage, specifically
-// so that both deletion node merging and rebalancing are tested. 
+// so that both deletion node merging and rebalancing are tested.
 #[cfg(feature = "small-chunks")]
 pub(crate) const ORD_CHUNK_SIZE: usize = 6;
 #[cfg(not(feature = "small-chunks"))]

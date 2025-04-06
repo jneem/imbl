@@ -22,7 +22,7 @@ use std::cmp::Ordering;
 use std::collections;
 use std::fmt::{Debug, Error, Formatter};
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::iter::{FromIterator, FusedIterator, Peekable, Sum};
+use std::iter::{FromIterator, FusedIterator, Sum};
 use std::mem;
 use std::ops::{Add, Bound, Index, IndexMut, RangeBounds};
 
@@ -30,7 +30,7 @@ use archery::{SharedPointer, SharedPointerKind};
 
 use crate::hashmap::GenericHashMap;
 use crate::nodes::btree::{
-    ConsumingIter as NodeConsumingIter, InsertAction, Iter as NodeIter, Node,
+    ConsumingIter as NodeConsumingIter, Cursor, InsertAction, Iter as NodeIter, Node,
 };
 use crate::shared_ptr::DefaultSharedPtr;
 
@@ -285,13 +285,26 @@ where
     /// another, i.e. the set of entries to add, update, or remove to
     /// this map in order to make it equal to the other map.
     ///
+    /// This function will avoid visiting nodes which are shared
+    /// between the two sets, meaning that even very large sets can be
+    /// compared quickly if most of their structure is shared.
+    ///
     /// Time: O(n) where n is the size of the larger map.
     #[must_use]
     pub fn diff<'a, 'b>(&'a self, other: &'b Self) -> DiffIter<'a, 'b, K, V, P> {
-        DiffIter {
-            it1: self.iter().peekable(),
-            it2: other.iter().peekable(),
+        let mut diff = DiffIter {
+            it1: Cursor::empty(),
+            it2: Cursor::empty(),
+        };
+        // If the two maps are the same, don't even initialize the cursors
+        if SharedPointer::ptr_eq(&self.root, &other.root) {
+            return diff;
         }
+        diff.it1.init(Some(&*self.root));
+        diff.it2.init(Some(&*other.root));
+        diff.it1.seek_to_first();
+        diff.it2.seek_to_first();
+        diff
     }
 
     /// Get the value for a key from a map.
@@ -1851,8 +1864,8 @@ impl<'a, K, V, P> FusedIterator for RangedIter<'a, K, V, P> where P: SharedPoint
 
 /// An iterator over the differences between two maps.
 pub struct DiffIter<'a, 'b, K, V, P: SharedPointerKind> {
-    it1: Peekable<Iter<'a, K, V, P>>,
-    it2: Peekable<Iter<'b, K, V, P>>,
+    it1: Cursor<'a, K, V, P>,
+    it2: Cursor<'b, K, V, P>,
 }
 
 /// A description of a difference between two ordered maps.
@@ -1882,14 +1895,14 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match (self.it1.peek(), self.it2.peek()) {
-                (Some(&(k1, v1)), Some(&(k2, v2))) => match k1.cmp(k2) {
+                (Some((k1, v1)), Some((k2, v2))) => match k1.cmp(k2) {
                     Ordering::Less => {
                         self.it1.next();
                         break Some(DiffItem::Remove(k1, v1));
                     }
                     Ordering::Equal => {
-                        self.it1.next();
-                        self.it2.next();
+                        // Advance both iterator while trying to skip over the shared nodes.
+                        self.it1.advance_skipping_shared(&mut self.it2);
                         if v1 != v2 {
                             break Some(DiffItem::Update {
                                 old: (k1, v1),
@@ -1902,11 +1915,11 @@ where
                         break Some(DiffItem::Add(k2, v2));
                     }
                 },
-                (Some(&(k1, v1)), None) => {
+                (Some((k1, v1)), None) => {
                     self.it1.next();
                     break Some(DiffItem::Remove(k1, v1));
                 }
-                (None, Some(&(k2, v2))) => {
+                (None, Some((k2, v2))) => {
                     self.it2.next();
                     break Some(DiffItem::Add(k2, v2));
                 }
@@ -2554,6 +2567,44 @@ mod test {
         }
     }
 
+    fn expected_diff<'a, K, V, P>(
+        a: &'a GenericOrdMap<K, V, P>,
+        b: &'a GenericOrdMap<K, V, P>,
+    ) -> Vec<DiffItem<'a, 'a, K, V>>
+    where
+        K: Ord + Clone,
+        V: PartialEq + Clone,
+        P: SharedPointerKind,
+    {
+        let mut diff = Vec::new();
+        for (k, v) in a.iter() {
+            if let Some(v2) = b.get(k) {
+                if v != v2 {
+                    diff.push(DiffItem::Update {
+                        old: (k, v),
+                        new: (k, v2),
+                    });
+                }
+            } else {
+                diff.push(DiffItem::Remove(k, v));
+            }
+        }
+        for (k, v) in b.iter() {
+            if a.get(k).is_none() {
+                diff.push(DiffItem::Add(k, v));
+            }
+        }
+        fn diff_item_key<'a, 'b, K, V>(di: &'a DiffItem<'b, 'b, K, V>) -> &'b K {
+            match di {
+                DiffItem::Add(k, _) => k,
+                DiffItem::Remove(k, _) => k,
+                DiffItem::Update { old: (k, _), .. } => k,
+            }
+        }
+        diff.sort_unstable_by(|a, b| diff_item_key(a).cmp(diff_item_key(b)));
+        diff
+    }
+
     proptest! {
         #[test]
         fn length(ref input in collection::btree_map(i16::ANY, i16::ANY, 0..1000)) {
@@ -2759,26 +2810,20 @@ mod test {
             let b: OrdMap<usize, usize> = OrdMap::from(b);
 
             let diff: Vec<_> = a.diff(&b).collect();
-            let union = b.clone().union(a.clone());
-            let expected: Vec<_> = union.iter().filter_map(|(k, v)| {
-                if a.contains_key(k) {
-                    if b.contains_key(k) {
-                        let old = a.get(k).unwrap();
-                        if old != v	{
-                            Some(DiffItem::Update {
-                                old: (k, old),
-                                new: (k, v),
-                            })
-                        } else {
-                            None
-                        }
-                    } else {
-                        Some(DiffItem::Remove(k, v))
-                    }
-                } else {
-                    Some(DiffItem::Add(k, v))
-                }
-            }).collect();
+            let expected = expected_diff(&a, &b);
+            assert_eq!(expected, diff);
+        }
+
+        #[test]
+        fn diff_all_values_shared(a in collection::vec((usize::ANY, usize::ANY), 1..1000), ops in collection::vec((usize::ANY, usize::ANY), 1..1000)) {
+            let a: OrdMap<usize, usize> = OrdMap::from(a);
+            let mut b = a.clone();
+            for (k, v) in ops {
+                b.insert(k, v);
+            }
+
+            let diff: Vec<_> = a.diff(&b).collect();
+            let expected = expected_diff(&a, &b);
             assert_eq!(expected, diff);
         }
 
