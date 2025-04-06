@@ -90,6 +90,7 @@ fuzz_target!(|actions: Vec<Action<u32>>| {
         }
         assert_eq!(nat.len(), set.len());
     }
+    set.check_sane();
     assert_eq!(OrdSet::<_>::from(nat.clone()), set);
     assert_eq!(OrdSet::<_>::from_iter(nat.iter().cloned()), set);
     for (a, b) in set.iter().zip(&nat) {

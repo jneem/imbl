@@ -24,6 +24,39 @@ pub(crate) enum Node<K, V, P: SharedPointerKind> {
     Leaf(Leaf<K, V>),
 }
 
+impl<K: Ord + std::fmt::Debug, V: std::fmt::Debug, P: SharedPointerKind> Node<K, V, P> {
+    /// Check invariants
+    #[cfg(any(test, fuzzing))]
+    pub(crate) fn check_sane(&self, is_root: bool) -> usize {
+        match self {
+            Node::Branch(branch) => {
+                assert!(branch.keys.len() >= if is_root { 1 } else { MEDIAN - 1 });
+                assert_eq!(branch.keys.len() + 1, branch.children.len());
+                assert!(branch.keys.windows(2).all(|w| w[0] < w[1]));
+                for i in 0..branch.keys.len() {
+                    let left = &branch.children[i];
+                    let right = &branch.children[i + 1];
+                    assert!(left.level() == branch.level - 1);
+                    assert!(right.level() == branch.level - 1);
+                    if let (Node::Leaf(left), Node::Leaf(right)) = (&**left, &**right) {
+                        assert!(left.keys.last().unwrap().0 < right.keys.first().unwrap().0);
+                    }
+                }
+                branch
+                    .children
+                    .iter()
+                    .map(|child| child.check_sane(false))
+                    .sum()
+            }
+            Node::Leaf(leaf) => {
+                assert!(leaf.keys.windows(2).all(|w| w[0].0 < w[1].0));
+                assert!(leaf.keys.len() >= if is_root { 0 } else { THIRD });
+                leaf.keys.len()
+            }
+        }
+    }
+}
+
 impl<K, V, P: SharedPointerKind> Node<K, V, P> {
     pub(crate) fn unit(key: K, value: V) -> Self {
         Node::Leaf(Leaf {
@@ -45,6 +78,7 @@ impl<K, V, P: SharedPointerKind> Node<K, V, P> {
 /// * keys.len() + 1 == children.len()
 /// * all children have level = level - 1 (or level is 1 and all children are leaves)
 /// * all keys in the subtree at children[i] are between keys[i - 1] (if i > 0) and keys[i] (if i < keys.len()).
+/// * root branch must have at least 1 key, whereas non-root branches must have at least MEDIAN - 1 keys
 #[derive(Debug)]
 pub(crate) struct Branch<K, V, P: SharedPointerKind> {
     keys: Chunk<K, NODE_SIZE>,
@@ -68,6 +102,7 @@ impl<K, V, P: SharedPointerKind> Branch<K, V, P> {
 /// Invariants:
 /// * keys are ordered and unique
 /// * leaf is the lowest level in the tree (level 0)
+/// * non-root leaves must have at least THIRD keys
 #[derive(Debug)]
 pub(crate) struct Leaf<K, V> {
     keys: Chunk<(K, V), NODE_SIZE>,

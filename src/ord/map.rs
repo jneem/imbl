@@ -528,6 +528,22 @@ where
     {
         self.is_proper_submap_by(other.borrow(), PartialEq::eq)
     }
+
+    /// Check invariants
+    #[cfg(any(test, fuzzing))]
+    #[allow(unreachable_pub)]
+    pub fn check_sane(&self)
+    where
+        K: std::fmt::Debug,
+        V: std::fmt::Debug,
+    {
+        let size = self
+            .root
+            .as_ref()
+            .map(|root| root.check_sane(true))
+            .unwrap_or(0);
+        assert_eq!(size, self.size);
+    }
 }
 
 impl<K, V, P> GenericOrdMap<K, V, P>

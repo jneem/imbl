@@ -384,6 +384,16 @@ where
     {
         self.len() != other.borrow().len() && self.is_subset(other)
     }
+
+    /// Check invariants
+    #[cfg(any(test, fuzzing))]
+    #[allow(unreachable_pub)]
+    pub fn check_sane(&self)
+    where
+        A: std::fmt::Debug,
+    {
+        self.map.check_sane();
+    }
 }
 
 impl<A, P> GenericOrdSet<A, P>
@@ -1134,22 +1144,11 @@ impl<A: Hash + Eq + Ord + Clone, S: BuildHasher, P1: SharedPointerKind, P2: Shar
     }
 }
 
-// Proptest
-#[cfg(any(test, feature = "proptest"))]
-#[doc(hidden)]
-pub mod proptest {
-    #[deprecated(
-        since = "14.3.0",
-        note = "proptest strategies have moved to imbl::proptest"
-    )]
-    pub use crate::proptest::ord_set;
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::proptest::*;
-    use ::proptest::proptest;
+    use proptest::proptest;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
 
     assert_impl_all!(OrdSet<i32>: Send, Sync);
