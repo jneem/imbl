@@ -972,19 +972,12 @@ pub struct DiffIter<'a, 'b, A, P: SharedPointerKind> {
     it: map::DiffIter<'a, 'b, A, (), P>,
 }
 
-/// A description of a difference between two ordered maps.
+/// A description of a difference between two ordered sets.
 #[derive(PartialEq, Eq, Debug)]
 pub enum DiffItem<'a, 'b, A> {
-    /// This value has been added to the new map.
+    /// This value has been added to the new set.
     Add(&'b A),
-    /// This value has been changed between the two maps.
-    Update {
-        /// The old value.
-        old: &'a A,
-        /// The new value.
-        new: &'b A,
-    },
-    /// This value has been removed from the new map.
+    /// This value has been removed from the new set.
     Remove(&'a A),
 }
 
@@ -1001,13 +994,19 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.it.next().map(|item| match item {
             map::DiffItem::Add(k, _) => DiffItem::Add(k),
-            map::DiffItem::Update { old, new } => DiffItem::Update {
-                old: old.0,
-                new: new.0,
-            },
             map::DiffItem::Remove(k, _) => DiffItem::Remove(k),
+            // Note that since the underlying map keys are unique and the values
+            // are fixed `()`, we can never have an update.
+            map::DiffItem::Update { .. } => unreachable!(),
         })
     }
+}
+
+impl<'a, 'b, A, P> FusedIterator for DiffIter<'a, 'b, A, P>
+where
+    A: Ord + PartialEq,
+    P: SharedPointerKind,
+{
 }
 
 impl<A, R, P> FromIterator<R> for GenericOrdSet<A, P>

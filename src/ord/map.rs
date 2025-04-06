@@ -366,7 +366,6 @@ where
     {
         self.range((Bound::Unbounded, Bound::Included(key)))
             .next_back()
-            .map(|(k, v)| (k, v))
     }
 
     /// Get a reference to the closest larger entry in a map
@@ -391,9 +390,7 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        self.range((Bound::Included(key), Bound::Unbounded))
-            .next()
-            .map(|(k, v)| (k, v))
+        self.range((Bound::Included(key), Bound::Unbounded)).next()
     }
 
     /// Test for the presence of a key in a map.
@@ -573,7 +570,7 @@ where
     {
         let prev = self.get_prev(key)?.0.clone();
         let root = SharedPointer::make_mut(&mut self.root);
-        root.lookup_mut(prev.borrow()).map(|(k, v)| (k, v))
+        root.lookup_mut(prev.borrow())
     }
 
     /// Get the closest larger entry in a map to a given key
@@ -603,7 +600,7 @@ where
     {
         let next = self.get_next(key)?.0.clone();
         let root = SharedPointer::make_mut(&mut self.root);
-        root.lookup_mut(next.borrow()).map(|(k, v)| (k, v))
+        root.lookup_mut(next.borrow())
     }
 
     /// Insert a key/value mapping into a map.
@@ -644,27 +641,9 @@ where
     /// safely copied before mutating.
     ///
     /// If the map already has a mapping for the given key, the
-    /// previous value is overwritten.
-    ///
-    /// Time: O(log n)
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #[macro_use] extern crate imbl;
-    /// # use imbl::ordmap::OrdMap;
-    /// let mut map = ordmap!{};
-    /// map.insert(123, "123");
-    /// map.insert(456, "456");
-    /// assert_eq!(
-    ///   map,
-    ///   ordmap!{123 => "123", 456 => "456"}
-    /// );
-    /// ```
-    ///
-    /// [insert]: #method.insert
+    /// previous key and value are overwritten and returned.
     #[inline]
-    pub fn insert_key_value(&mut self, key: K, value: V) -> Option<(K, V)> {
+    pub(crate) fn insert_key_value(&mut self, key: K, value: V) -> Option<(K, V)> {
         let root = SharedPointer::make_mut(&mut self.root);
         match root.insert(key, value) {
             InsertAction::Replaced(old_key, old_value) => return Some((old_key, old_value)),
@@ -1935,6 +1914,14 @@ where
             }
         }
     }
+}
+
+impl<'a, 'b, K, V, P> FusedIterator for DiffIter<'a, 'b, K, V, P>
+where
+    K: Ord,
+    V: PartialEq,
+    P: SharedPointerKind,
+{
 }
 
 /// An iterator ove the keys of a map.

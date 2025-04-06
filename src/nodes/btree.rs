@@ -40,6 +40,11 @@ impl<K, V, P: SharedPointerKind> Node<K, V, P> {
 }
 
 /// A branch node in a `B+Tree`.
+/// Invariants:
+/// * keys are ordered and unique
+/// * keys.len() + 1 == children.len()
+/// * all children have level = level - 1 (or level is 1 and all children are leaves)
+/// * all keys in the subtree at children[i] are between keys[i - 1] (if i > 0) and keys[i] (if i < keys.len()).
 #[derive(Debug)]
 pub(crate) struct Branch<K, V, P: SharedPointerKind> {
     keys: Chunk<K, NODE_SIZE>,
@@ -59,6 +64,10 @@ impl<K, V, P: SharedPointerKind> Branch<K, V, P> {
 }
 
 /// A leaf node in a `B+Tree`.
+///
+/// Invariants:
+/// * keys are ordered and unique
+/// * leaf is the lowest level in the tree (level 0)
 #[derive(Debug)]
 pub(crate) struct Leaf<K, V> {
     keys: Chunk<(K, V), NODE_SIZE>,
@@ -157,7 +166,11 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Node<K, V, P> {
         }
     }
 
+    /// Merges two children leaves of this branch.
+    ///
+    /// Assumes that the two children can fit in a single leaf, panicking if not.
     fn merge_leaves(branch: &mut Branch<K, V, P>, left_idx: usize, keep_left: bool) {
+        debug_assert_eq!(branch.level, 1);
         let [left, right, ..] = &mut branch.children[left_idx..] else {
             unreachable!()
         };
@@ -179,9 +192,10 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Node<K, V, P> {
         debug_assert_eq!(branch.keys.len() + 1, branch.children.len());
     }
 
-    /// Rebalance the leaves by moving keys from the largest leaf to the smallest leaf so they end up
-    /// with the same number of keys.
+    /// Assuming `branch` is at level 1, rebalances two adjacent leaves so that they have the same 
+    /// number of keys (or differ by at most 1).
     fn rebalance_leaves(branch: &mut Branch<K, V, P>, left_idx: usize) {
+        debug_assert_eq!(branch.level, 1);
         let [left, right, ..] = &mut branch.children[left_idx..] else {
             unreachable!()
         };
@@ -205,6 +219,9 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Node<K, V, P> {
         debug_assert_ne!(right.keys.len(), 0);
     }
 
+    /// Rebalances two adjacent child branches so that they have the same number of keys
+    /// (or differ by at most 1). The separator key is rotated between the two branches.
+    /// to keep the invariants of the parent branch.
     fn rebalance_branches(branch: &mut Branch<K, V, P>, left_idx: usize) {
         let [left, right, ..] = &mut branch.children[left_idx..] else {
             unreachable!()
@@ -240,7 +257,11 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Node<K, V, P> {
         debug_assert_eq!(right.children.len(), right.keys.len() + 1);
     }
 
+    /// Merges two children of this branch.
+    ///
+    /// Assumes that the two children can fit in a single branch, panicking if not.
     fn merge_branches(branch: &mut Branch<K, V, P>, left_idx: usize, keep_left: bool) {
+        debug_assert!(branch.level >= 2);
         let [left, right, ..] = &mut branch.children[left_idx..] else {
             unreachable!()
         };
