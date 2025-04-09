@@ -8,6 +8,7 @@ extern crate imbl;
 extern crate rand;
 extern crate test;
 
+use rand::seq::SliceRandom;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use std::collections::BTreeSet;
 use std::iter::FromIterator;
@@ -19,7 +20,7 @@ fn random_keys(size: usize) -> Vec<i64> {
     let mut gen = SmallRng::seed_from_u64(1);
     let mut set = BTreeSet::new();
     while set.len() < size {
-        let next = gen.random::<i64>() % 10000;
+        let next = gen.random::<i64>();
         set.insert(next);
     }
     set.into_iter().collect()
@@ -27,13 +28,8 @@ fn random_keys(size: usize) -> Vec<i64> {
 
 fn reorder<A: Copy>(vec: &[A]) -> Vec<A> {
     let mut gen = SmallRng::seed_from_u64(1);
-    let mut set: Vec<A> = vec.to_owned();
-    let mut out = Vec::new();
-    while !set.is_empty() {
-        let i = gen.random::<u64>() as usize % set.len();
-        let v = set.remove(i);
-        out.push(v)
-    }
+    let mut out = vec.to_vec();
+    out.shuffle(&mut gen);
     out
 }
 
@@ -49,11 +45,6 @@ fn ordmap_lookup_n(size: usize, b: &mut Bencher) {
 }
 
 #[bench]
-fn ordmap_lookup_10(b: &mut Bencher) {
-    ordmap_lookup_n(10, b)
-}
-
-#[bench]
 fn ordmap_lookup_100(b: &mut Bencher) {
     ordmap_lookup_n(100, b)
 }
@@ -61,6 +52,16 @@ fn ordmap_lookup_100(b: &mut Bencher) {
 #[bench]
 fn ordmap_lookup_1000(b: &mut Bencher) {
     ordmap_lookup_n(1000, b)
+}
+
+#[bench]
+fn ordmap_lookup_10000(b: &mut Bencher) {
+    ordmap_lookup_n(10000, b)
+}
+
+#[bench]
+fn ordmap_lookup_100000(b: &mut Bencher) {
+    ordmap_lookup_n(100000, b)
 }
 
 fn ordmap_insert_n(size: usize, b: &mut Bencher) {
@@ -71,11 +72,6 @@ fn ordmap_insert_n(size: usize, b: &mut Bencher) {
             m = m.update(i, i)
         }
     })
-}
-
-#[bench]
-fn ordmap_insert_10(b: &mut Bencher) {
-    ordmap_insert_n(10, b)
 }
 
 #[bench]
@@ -99,11 +95,6 @@ fn ordmap_insert_mut_n(size: usize, b: &mut Bencher) {
 }
 
 #[bench]
-fn ordmap_insert_mut_10(b: &mut Bencher) {
-    ordmap_insert_mut_n(10, b)
-}
-
-#[bench]
 fn ordmap_insert_mut_100(b: &mut Bencher) {
     ordmap_insert_mut_n(100, b)
 }
@@ -116,6 +107,11 @@ fn ordmap_insert_mut_1000(b: &mut Bencher) {
 #[bench]
 fn ordmap_insert_mut_10000(b: &mut Bencher) {
     ordmap_insert_mut_n(10000, b)
+}
+
+#[bench]
+fn ordmap_insert_mut_100000(b: &mut Bencher) {
+    ordmap_insert_mut_n(100000, b)
 }
 
 fn ordmap_remove_n(size: usize, b: &mut Bencher) {
@@ -131,11 +127,6 @@ fn ordmap_remove_n(size: usize, b: &mut Bencher) {
 }
 
 #[bench]
-fn ordmap_remove_10(b: &mut Bencher) {
-    ordmap_remove_n(10, b)
-}
-
-#[bench]
 fn ordmap_remove_100(b: &mut Bencher) {
     ordmap_remove_n(100, b)
 }
@@ -143,6 +134,11 @@ fn ordmap_remove_100(b: &mut Bencher) {
 #[bench]
 fn ordmap_remove_1000(b: &mut Bencher) {
     ordmap_remove_n(1000, b)
+}
+
+#[bench]
+fn ordmap_remove_10000(b: &mut Bencher) {
+    ordmap_remove_n(10000, b)
 }
 
 fn ordmap_remove_mut_n(size: usize, b: &mut Bencher) {
@@ -158,11 +154,6 @@ fn ordmap_remove_mut_n(size: usize, b: &mut Bencher) {
 }
 
 #[bench]
-fn ordmap_remove_mut_10(b: &mut Bencher) {
-    ordmap_remove_mut_n(10, b)
-}
-
-#[bench]
 fn ordmap_remove_mut_100(b: &mut Bencher) {
     ordmap_remove_mut_n(100, b)
 }
@@ -170,6 +161,11 @@ fn ordmap_remove_mut_100(b: &mut Bencher) {
 #[bench]
 fn ordmap_remove_mut_1000(b: &mut Bencher) {
     ordmap_remove_mut_n(1000, b)
+}
+
+#[bench]
+fn ordmap_remove_mut_10000(b: &mut Bencher) {
+    ordmap_remove_mut_n(10000, b)
 }
 
 #[bench]
@@ -206,11 +202,6 @@ fn ordmap_insert_once_n(size: usize, b: &mut Bencher) {
 }
 
 #[bench]
-fn ordmap_insert_once_10(b: &mut Bencher) {
-    ordmap_insert_once_n(10, b)
-}
-
-#[bench]
 fn ordmap_insert_once_100(b: &mut Bencher) {
     ordmap_insert_once_n(100, b)
 }
@@ -233,11 +224,6 @@ fn ordmap_remove_once_n(size: usize, b: &mut Bencher) {
 }
 
 #[bench]
-fn ordmap_remove_once_10(b: &mut Bencher) {
-    ordmap_remove_once_n(10, b)
-}
-
-#[bench]
 fn ordmap_remove_once_100(b: &mut Bencher) {
     ordmap_remove_once_n(100, b)
 }
@@ -252,16 +238,16 @@ fn ordmap_remove_once_10000(b: &mut Bencher) {
     ordmap_remove_once_n(10000, b)
 }
 
+#[bench]
+fn ordmap_remove_once_100000(b: &mut Bencher) {
+    ordmap_remove_once_n(100000, b)
+}
+
 fn ordmap_lookup_once_n(size: usize, b: &mut Bencher) {
     let keys = random_keys(size + 1);
     let key = keys[0];
     let map: OrdMap<i64, i64> = OrdMap::from_iter(keys.into_iter().map(|i| (i, i)));
     b.iter(|| map.get(&key))
-}
-
-#[bench]
-fn ordmap_lookup_once_10(b: &mut Bencher) {
-    ordmap_lookup_once_n(10, b)
 }
 
 #[bench]
@@ -279,15 +265,15 @@ fn ordmap_lookup_once_10000(b: &mut Bencher) {
     ordmap_lookup_once_n(10000, b)
 }
 
+#[bench]
+fn ordmap_lookup_once_100000(b: &mut Bencher) {
+    ordmap_lookup_once_n(100000, b)
+}
+
 fn ordmap_iter(size: usize, b: &mut Bencher) {
     let keys = random_keys(size);
     let m: OrdMap<i64, i64> = OrdMap::from_iter(keys.into_iter().map(|i| (i, 1)));
     b.iter(|| for _ in m.iter() {})
-}
-
-#[bench]
-fn ordmap_iter_10(b: &mut Bencher) {
-    ordmap_iter(10, b)
 }
 
 #[bench]
@@ -312,11 +298,6 @@ fn ordmap_range_iter(size: usize, b: &mut Bencher) {
 }
 
 #[bench]
-fn ordmap_range_iter_10(b: &mut Bencher) {
-    ordmap_range_iter(10, b)
-}
-
-#[bench]
 fn ordmap_range_iter_100(b: &mut Bencher) {
     ordmap_range_iter(100, b)
 }
@@ -329,4 +310,9 @@ fn ordmap_range_iter_1000(b: &mut Bencher) {
 #[bench]
 fn ordmap_range_iter_10000(b: &mut Bencher) {
     ordmap_range_iter(10000, b)
+}
+
+#[bench]
+fn ordmap_range_iter_100000(b: &mut Bencher) {
+    ordmap_range_iter(100000, b)
 }

@@ -256,8 +256,8 @@ mod test {
         proptest::{hash_map, hash_set, ord_map, ord_set, vector},
         HashMap, HashSet, OrdMap, OrdSet, Vector,
     };
-    use ::proptest::num::i32;
-    use ::proptest::proptest;
+    use proptest::num::i32;
+    use proptest::proptest;
     use serde_json::{from_str, to_string};
 
     proptest! {

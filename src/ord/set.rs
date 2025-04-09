@@ -4,7 +4,7 @@
 
 //! An ordered set.
 //!
-//! An immutable ordered set implemented as a [B-tree] [1].
+//! An immutable ordered set implemented as a [B+tree] [1].
 //!
 //! Most operations on this type of set are O(log n). A
 //! [`GenericHashSet`] is usually a better choice for
@@ -13,26 +13,22 @@
 //! ordered, so values always come out from lowest to highest, where a
 //! [`GenericHashSet`] has no guaranteed ordering.
 //!
-//! [1]: https://en.wikipedia.org/wiki/B-tree
+//! [1]: https://en.wikipedia.org/wiki/B%2B_tree
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::collections;
 use std::fmt::{Debug, Error, Formatter};
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::iter::{FromIterator, Sum};
-use std::ops::{Add, Deref, Mul, RangeBounds};
+use std::iter::{FromIterator, FusedIterator, Sum};
+use std::ops::{Add, Mul, RangeBounds};
 
-use archery::{SharedPointer, SharedPointerKind};
+use archery::SharedPointerKind;
 
+use super::map;
 use crate::hashset::GenericHashSet;
-use crate::nodes::btree::{
-    BTreeValue, ConsumingIter as ConsumingNodeIter, DiffIter as NodeDiffIter, Insert,
-    Iter as NodeIter, Node, Remove,
-};
 use crate::shared_ptr::DefaultSharedPtr;
-
-pub use crate::nodes::btree::DiffItem;
+use crate::GenericOrdMap;
 
 /// Construct a set from a sequence of values.
 ///
@@ -61,50 +57,6 @@ macro_rules! ordset {
     }};
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct Value<A>(A);
-
-impl<A> Deref for Value<A> {
-    type Target = A;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-// FIXME lacking specialisation, we can't simply implement `BTreeValue`
-// for `A`, we have to use the `Value<A>` indirection.
-impl<A: Ord> BTreeValue for Value<A> {
-    type Key = A;
-
-    fn ptr_eq(&self, _other: &Self) -> bool {
-        false
-    }
-
-    fn search_key<BK>(slice: &[Self], key: &BK) -> Result<usize, usize>
-    where
-        BK: Ord + ?Sized,
-        Self::Key: Borrow<BK>,
-    {
-        slice.binary_search_by(|value| Self::Key::borrow(value).cmp(key))
-    }
-
-    fn search_value(slice: &[Self], key: &Self) -> Result<usize, usize> {
-        slice.binary_search_by(|value| value.cmp(key))
-    }
-
-    fn cmp_keys<BK>(&self, other: &BK) -> Ordering
-    where
-        BK: Ord + ?Sized,
-        Self::Key: Borrow<BK>,
-    {
-        Self::Key::borrow(self).cmp(other)
-    }
-
-    fn cmp_values(&self, other: &Self) -> Ordering {
-        self.cmp(other)
-    }
-}
-
 /// Type alias for [`GenericOrdSet`] that uses [`DefaultSharedPtr`] as the pointer type.
 ///
 /// [GenericOrdSet]: ./struct.GenericOrdSet.html
@@ -113,7 +65,7 @@ pub type OrdSet<A> = GenericOrdSet<A, DefaultSharedPtr>;
 
 /// An ordered set.
 ///
-/// An immutable ordered set implemented as a [B-tree] [1].
+/// An immutable ordered map implemented as a B+tree [1].
 ///
 /// Most operations on this type of set are O(log n). A
 /// [`GenericHashSet`] is usually a better choice for
@@ -122,10 +74,9 @@ pub type OrdSet<A> = GenericOrdSet<A, DefaultSharedPtr>;
 /// ordered, so values always come out from lowest to highest, where a
 /// [`GenericHashSet`] has no guaranteed ordering.
 ///
-/// [1]: https://en.wikipedia.org/wiki/B-tree
+/// [1]: https://en.wikipedia.org/wiki/B%2B_tree
 pub struct GenericOrdSet<A, P: SharedPointerKind> {
-    size: usize,
-    root: SharedPointer<Node<Value<A>, P>, P>,
+    map: GenericOrdMap<A, (), P>,
 }
 
 impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
@@ -133,8 +84,9 @@ impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        let root = SharedPointer::default();
-        GenericOrdSet { size: 0, root }
+        GenericOrdSet {
+            map: GenericOrdMap::new(),
+        }
     }
 
     /// Construct a set with a single value.
@@ -150,8 +102,9 @@ impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
     #[inline]
     #[must_use]
     pub fn unit(a: A) -> Self {
-        let root = SharedPointer::new(Node::unit(Value(a)));
-        GenericOrdSet { size: 1, root }
+        GenericOrdSet {
+            map: GenericOrdMap::unit(a, ()),
+        }
     }
 
     /// Test whether a set is empty.
@@ -190,7 +143,7 @@ impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
     #[inline]
     #[must_use]
     pub fn len(&self) -> usize {
-        self.size
+        self.map.len()
     }
 
     /// Test whether two sets refer to the same content in memory.
@@ -203,7 +156,7 @@ impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
     ///
     /// Time: O(1)
     pub fn ptr_eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other) || SharedPointer::ptr_eq(&self.root, &other.root)
+        self.map.ptr_eq(&other.map)
     }
 
     /// Discard all elements from the set.
@@ -223,10 +176,7 @@ impl<A, P: SharedPointerKind> GenericOrdSet<A, P> {
     /// assert!(set.is_empty());
     /// ```
     pub fn clear(&mut self) {
-        if !self.is_empty() {
-            self.root = SharedPointer::default();
-            self.size = 0;
-        }
+        self.map.clear();
     }
 }
 
@@ -242,7 +192,7 @@ where
     /// Time: O(log n)
     #[must_use]
     pub fn get_min(&self) -> Option<&A> {
-        self.root.min().map(Deref::deref)
+        self.map.get_min().map(|v| &v.0)
     }
 
     /// Get the largest value in a set.
@@ -252,14 +202,14 @@ where
     /// Time: O(log n)
     #[must_use]
     pub fn get_max(&self) -> Option<&A> {
-        self.root.max().map(Deref::deref)
+        self.map.get_max().map(|v| &v.0)
     }
 
     /// Create an iterator over the contents of the set.
     #[must_use]
     pub fn iter(&self) -> Iter<'_, A, P> {
         Iter {
-            it: NodeIter::new(&self.root, self.size, ..),
+            it: self.map.iter(),
         }
     }
 
@@ -272,7 +222,7 @@ where
         BA: Ord + ?Sized,
     {
         RangedIter {
-            it: NodeIter::new(&self.root, self.size, range),
+            it: self.map.range(range),
         }
     }
 
@@ -290,7 +240,7 @@ where
     #[must_use]
     pub fn diff<'a, 'b>(&'a self, other: &'b Self) -> DiffIter<'a, 'b, A, P> {
         DiffIter {
-            it: NodeDiffIter::new(&self.root, &other.root),
+            it: self.map.diff(&other.map),
         }
     }
 
@@ -314,7 +264,7 @@ where
         BA: Ord + ?Sized,
         A: Borrow<BA>,
     {
-        self.root.lookup(a).is_some()
+        self.map.contains_key(a)
     }
 
     /// Returns a reference to the element in the set, if any, that is equal to the value.
@@ -355,7 +305,7 @@ where
         BK: Ord + ?Sized,
         A: Borrow<BK>,
     {
-        self.root.lookup(k).map(|v| &v.0)
+        self.map.get_key_value(k).map(|(k, _)| k)
     }
 
     /// Get the closest smaller value in a set to a given value.
@@ -379,7 +329,7 @@ where
         BK: Ord + ?Sized,
         A: Borrow<BK>,
     {
-        self.root.lookup_prev(k).map(|v| &v.0)
+        self.map.get_prev(k).map(|(k, _)| k)
     }
 
     /// Get the closest larger value in a set to a given value.
@@ -403,7 +353,7 @@ where
         BK: Ord + ?Sized,
         A: Borrow<BK>,
     {
-        self.root.lookup_next(k).map(|v| &v.0)
+        self.map.get_next(k).map(|(k, _)| k)
     }
 
     /// Test whether a set is a subset of another set, meaning that
@@ -434,6 +384,16 @@ where
     {
         self.len() != other.borrow().len() && self.is_subset(other)
     }
+
+    /// Check invariants
+    #[cfg(any(test, fuzzing))]
+    #[allow(unreachable_pub)]
+    pub fn check_sane(&self)
+    where
+        A: std::fmt::Debug,
+    {
+        self.map.check_sane();
+    }
 }
 
 impl<A, P> GenericOrdSet<A, P>
@@ -460,22 +420,7 @@ where
     /// ```
     #[inline]
     pub fn insert(&mut self, a: A) -> Option<A> {
-        let new_root = {
-            let root = SharedPointer::make_mut(&mut self.root);
-            match root.insert(Value(a)) {
-                Insert::Replaced(Value(old_value)) => return Some(old_value),
-                Insert::Added => {
-                    self.size += 1;
-                    return None;
-                }
-                Insert::Split(left, median, right) => {
-                    SharedPointer::new(Node::new_from_split(left, median, right))
-                }
-            }
-        };
-        self.size += 1;
-        self.root = new_root;
-        None
+        self.map.insert_key_value(a, ()).map(|(k, _)| k)
     }
 
     /// Remove a value from a set.
@@ -487,20 +432,7 @@ where
         BA: Ord + ?Sized,
         A: Borrow<BA>,
     {
-        let (new_root, removed_value) = {
-            let root = SharedPointer::make_mut(&mut self.root);
-            match root.remove(a) {
-                Remove::Update(value, root) => (SharedPointer::new(root), Some(value.0)),
-                Remove::Removed(value) => {
-                    self.size -= 1;
-                    return Some(value.0);
-                }
-                Remove::NoChange => return None,
-            }
-        };
-        self.size -= 1;
-        self.root = new_root;
-        removed_value
+        self.map.remove_with_key(a).map(|(k, _)| k)
     }
 
     /// Remove the smallest value from a set.
@@ -508,11 +440,7 @@ where
     /// Time: O(log n)
     pub fn remove_min(&mut self) -> Option<A> {
         // FIXME implement this at the node level for better efficiency
-        let key = match self.get_min() {
-            None => return None,
-            Some(v) => v,
-        }
-        .clone();
+        let key = self.get_min()?.clone();
         self.remove(&key)
     }
 
@@ -521,11 +449,7 @@ where
     /// Time: O(log n)
     pub fn remove_max(&mut self) -> Option<A> {
         // FIXME implement this at the node level for better efficiency
-        let key = match self.get_max() {
-            None => return None,
-            Some(v) => v,
-        }
-        .clone();
+        let key = self.get_max()?.clone();
         self.remove(&key)
     }
 
@@ -765,7 +689,7 @@ where
         let mut right = Self::default();
         let mut present = false;
         for value in self {
-            match value.borrow().cmp(&split) {
+            match value.borrow().cmp(split) {
                 Ordering::Less => {
                     left.insert(value);
                 }
@@ -808,8 +732,7 @@ impl<A, P: SharedPointerKind> Clone for GenericOrdSet<A, P> {
     #[inline]
     fn clone(&self) -> Self {
         GenericOrdSet {
-            size: self.size,
-            root: self.root.clone(),
+            map: self.map.clone(),
         }
     }
 }
@@ -817,8 +740,7 @@ impl<A, P: SharedPointerKind> Clone for GenericOrdSet<A, P> {
 // TODO: Support PartialEq for OrdSet that have different P
 impl<A: Ord, P: SharedPointerKind> PartialEq for GenericOrdSet<A, P> {
     fn eq(&self, other: &Self) -> bool {
-        SharedPointer::ptr_eq(&self.root, &other.root)
-            || (self.len() == other.len() && self.diff(other).next().is_none())
+        self.map.eq(&other.map)
     }
 }
 
@@ -861,7 +783,7 @@ impl<A: Ord + Clone, P: SharedPointerKind> Add for GenericOrdSet<A, P> {
     }
 }
 
-impl<'a, A: Ord + Clone, P: SharedPointerKind> Add for &'a GenericOrdSet<A, P> {
+impl<A: Ord + Clone, P: SharedPointerKind> Add for &GenericOrdSet<A, P> {
     type Output = GenericOrdSet<A, P>;
 
     fn add(self, other: Self) -> Self::Output {
@@ -877,7 +799,7 @@ impl<A: Ord + Clone, P: SharedPointerKind> Mul for GenericOrdSet<A, P> {
     }
 }
 
-impl<'a, A: Ord + Clone, P: SharedPointerKind> Mul for &'a GenericOrdSet<A, P> {
+impl<A: Ord + Clone, P: SharedPointerKind> Mul for &GenericOrdSet<A, P> {
     type Output = GenericOrdSet<A, P>;
 
     fn mul(self, other: Self) -> Self::Output {
@@ -919,7 +841,7 @@ impl<A: Ord + Debug, P: SharedPointerKind> Debug for GenericOrdSet<A, P> {
 
 /// An iterator over the elements of a set.
 pub struct Iter<'a, A, P: SharedPointerKind> {
-    it: NodeIter<'a, Value<A>, P>,
+    it: map::Iter<'a, A, (), P>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
@@ -941,11 +863,11 @@ where
     ///
     /// Time: O(1)*
     fn next(&mut self) -> Option<Self::Item> {
-        self.it.next().map(Deref::deref)
+        self.it.next().map(|(k, _)| k)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.it.remaining, Some(self.it.remaining))
+        self.it.size_hint()
     }
 }
 
@@ -955,11 +877,18 @@ where
     P: SharedPointerKind,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.it.next_back().map(Deref::deref)
+        self.it.next_back().map(|(k, _)| k)
     }
 }
 
 impl<'a, A, P> ExactSizeIterator for Iter<'a, A, P>
+where
+    A: 'a + Ord,
+    P: SharedPointerKind,
+{
+}
+
+impl<'a, A, P> FusedIterator for Iter<'a, A, P>
 where
     A: 'a + Ord,
     P: SharedPointerKind,
@@ -972,7 +901,7 @@ where
 /// `ExactSizeIterator` because we can't know the size of the range without first
 /// iterating over it to count.
 pub struct RangedIter<'a, A, P: SharedPointerKind> {
-    it: NodeIter<'a, Value<A>, P>,
+    it: map::RangedIter<'a, A, (), P>,
 }
 
 impl<'a, A, P> Iterator for RangedIter<'a, A, P>
@@ -986,7 +915,7 @@ where
     ///
     /// Time: O(1)*
     fn next(&mut self) -> Option<Self::Item> {
-        self.it.next().map(Deref::deref)
+        self.it.next().map(|(k, _)| k)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1000,18 +929,18 @@ where
     P: SharedPointerKind,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.it.next_back().map(Deref::deref)
+        self.it.next_back().map(|(k, _)| k)
     }
 }
 
 /// A consuming iterator over the elements of a set.
 pub struct ConsumingIter<A, P: SharedPointerKind> {
-    it: ConsumingNodeIter<Value<A>, P>,
+    it: map::ConsumingIter<A, (), P>,
 }
 
 impl<A, P> Iterator for ConsumingIter<A, P>
 where
-    A: Ord + Clone,
+    A: Clone,
     P: SharedPointerKind,
 {
     type Item = A;
@@ -1024,9 +953,42 @@ where
     }
 }
 
+impl<A, P> DoubleEndedIterator for ConsumingIter<A, P>
+where
+    A: Clone,
+    P: SharedPointerKind,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.it.next_back().map(|v| v.0)
+    }
+}
+
+impl<A, P> ExactSizeIterator for ConsumingIter<A, P>
+where
+    A: Clone,
+    P: SharedPointerKind,
+{
+}
+
+impl<A, P> FusedIterator for ConsumingIter<A, P>
+where
+    A: Clone,
+    P: SharedPointerKind,
+{
+}
+
 /// An iterator over the difference between two sets.
 pub struct DiffIter<'a, 'b, A, P: SharedPointerKind> {
-    it: NodeDiffIter<'a, 'b, Value<A>, P>,
+    it: map::DiffIter<'a, 'b, A, (), P>,
+}
+
+/// A description of a difference between two ordered sets.
+#[derive(PartialEq, Eq, Debug)]
+pub enum DiffItem<'a, 'b, A> {
+    /// This value has been added to the new set.
+    Add(&'b A),
+    /// This value has been removed from the new set.
+    Remove(&'a A),
 }
 
 impl<'a, 'b, A, P> Iterator for DiffIter<'a, 'b, A, P>
@@ -1041,14 +1003,20 @@ where
     /// Time: O(1)*
     fn next(&mut self) -> Option<Self::Item> {
         self.it.next().map(|item| match item {
-            DiffItem::Add(v) => DiffItem::Add(v.deref()),
-            DiffItem::Update { old, new } => DiffItem::Update {
-                old: old.deref(),
-                new: new.deref(),
-            },
-            DiffItem::Remove(v) => DiffItem::Remove(v.deref()),
+            map::DiffItem::Add(k, _) => DiffItem::Add(k),
+            map::DiffItem::Remove(k, _) => DiffItem::Remove(k),
+            // Note that since the underlying map keys are unique and the values
+            // are fixed `()`, we can never have an update.
+            map::DiffItem::Update { .. } => unreachable!(),
         })
     }
+}
+
+impl<'a, 'b, A, P> FusedIterator for DiffIter<'a, 'b, A, P>
+where
+    A: Ord + PartialEq,
+    P: SharedPointerKind,
+{
 }
 
 impl<A, R, P> FromIterator<R> for GenericOrdSet<A, P>
@@ -1091,14 +1059,14 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter {
-            it: ConsumingNodeIter::new(&self.root, self.size),
+            it: self.map.into_iter(),
         }
     }
 }
 
 // Conversions
 
-impl<'s, 'a, A, OA, P1, P2> From<&'s GenericOrdSet<&'a A, P2>> for GenericOrdSet<OA, P1>
+impl<A, OA, P1, P2> From<&GenericOrdSet<&A, P2>> for GenericOrdSet<OA, P1>
 where
     A: ToOwned<Owned = OA> + Ord + ?Sized,
     OA: Borrow<A> + Ord + Clone,
@@ -1126,7 +1094,7 @@ impl<A: Ord + Clone, P: SharedPointerKind> From<Vec<A>> for GenericOrdSet<A, P> 
     }
 }
 
-impl<'a, A: Ord + Clone, P: SharedPointerKind> From<&'a Vec<A>> for GenericOrdSet<A, P> {
+impl<A: Ord + Clone, P: SharedPointerKind> From<&Vec<A>> for GenericOrdSet<A, P> {
     fn from(vec: &Vec<A>) -> Self {
         vec.iter().cloned().collect()
     }
@@ -1140,7 +1108,7 @@ impl<A: Eq + Hash + Ord + Clone, P: SharedPointerKind> From<collections::HashSet
     }
 }
 
-impl<'a, A: Eq + Hash + Ord + Clone, P: SharedPointerKind> From<&'a collections::HashSet<A>>
+impl<A: Eq + Hash + Ord + Clone, P: SharedPointerKind> From<&collections::HashSet<A>>
     for GenericOrdSet<A, P>
 {
     fn from(hash_set: &collections::HashSet<A>) -> Self {
@@ -1154,9 +1122,7 @@ impl<A: Ord + Clone, P: SharedPointerKind> From<collections::BTreeSet<A>> for Ge
     }
 }
 
-impl<'a, A: Ord + Clone, P: SharedPointerKind> From<&'a collections::BTreeSet<A>>
-    for GenericOrdSet<A, P>
-{
+impl<A: Ord + Clone, P: SharedPointerKind> From<&collections::BTreeSet<A>> for GenericOrdSet<A, P> {
     fn from(btree_set: &collections::BTreeSet<A>) -> Self {
         btree_set.iter().cloned().collect()
     }
@@ -1170,35 +1136,19 @@ impl<A: Hash + Eq + Ord + Clone, S: BuildHasher, P1: SharedPointerKind, P2: Shar
     }
 }
 
-impl<
-        'a,
-        A: Hash + Eq + Ord + Clone,
-        S: BuildHasher,
-        P1: SharedPointerKind,
-        P2: SharedPointerKind,
-    > From<&'a GenericHashSet<A, S, P2>> for GenericOrdSet<A, P1>
+impl<A: Hash + Eq + Ord + Clone, S: BuildHasher, P1: SharedPointerKind, P2: SharedPointerKind>
+    From<&GenericHashSet<A, S, P2>> for GenericOrdSet<A, P1>
 {
     fn from(hashset: &GenericHashSet<A, S, P2>) -> Self {
         hashset.into_iter().cloned().collect()
     }
 }
 
-// Proptest
-#[cfg(any(test, feature = "proptest"))]
-#[doc(hidden)]
-pub mod proptest {
-    #[deprecated(
-        since = "14.3.0",
-        note = "proptest strategies have moved to imbl::proptest"
-    )]
-    pub use crate::proptest::ord_set;
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::proptest::*;
-    use ::proptest::proptest;
+    use proptest::proptest;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
 
     assert_impl_all!(OrdSet<i32>: Send, Sync);
@@ -1244,7 +1194,6 @@ mod test {
         fn proptest_a_set(ref s in ord_set(".*", 10..100)) {
             assert!(s.len() < 100);
             assert!(s.len() >= 10);
-            s.root.check_sane();
         }
 
         #[test]
@@ -1252,13 +1201,11 @@ mod test {
             let range = 0..max;
             let expected: Vec<i32> = range.clone().collect();
             let set: OrdSet<i32> = OrdSet::from_iter(range.clone());
-            set.root.check_sane();
             let result: Vec<i32> = set.range(..).cloned().collect();
             assert_eq!(expected, result);
 
             let expected: Vec<i32> = range.clone().rev().collect();
             let set: OrdSet<i32> = OrdSet::from_iter(range);
-            set.root.check_sane();
             let result: Vec<i32> = set.range(..).rev().cloned().collect();
             assert_eq!(expected, result);
         }
