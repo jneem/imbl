@@ -21,7 +21,7 @@
 //! * [Hash maps][hashmap::HashMap]/[sets][hashset::HashSet] based on [hash
 //!   array mapped tries][hamt]
 //! * [Ordered maps][ordmap::OrdMap]/[sets][ordset::OrdSet] based on
-//!   [B-trees][b-tree]
+//!   [B+trees][b+tree]
 //!
 //! ## Why Would I Want This?
 //!
@@ -234,7 +234,7 @@
 //! | Type | Algorithm | Key Constraints | Order | Insert | Remove | Lookup |
 //! | --- | --- | --- | --- | --- | --- | --- |
 //! | [`HashMap<K, V>`][hashmap::HashMap] | [HAMT][hamt] | [`Clone`][std::clone::Clone] + [`Hash`][std::hash::Hash] + [`Eq`][std::cmp::Eq] | undefined | O(log n) | O(log n) | O(log n) |
-//! | [`OrdMap<K, V>`][ordmap::OrdMap] | [B-tree][b-tree] | [`Clone`][std::clone::Clone] + [`Ord`][std::cmp::Ord] | sorted | O(log n) | O(log n) | O(log n) |
+//! | [`OrdMap<K, V>`][ordmap::OrdMap] | [B+tree][b+tree] | [`Clone`][std::clone::Clone] + [`Ord`][std::cmp::Ord] | sorted | O(log n) | O(log n) | O(log n) |
 //!
 //! ### Sets
 //!
@@ -245,7 +245,7 @@
 //! | Type | Algorithm | Constraints | Order | Insert | Remove | Lookup |
 //! | --- | --- | --- | --- | --- | --- | --- |
 //! | [`HashSet<A>`][hashset::HashSet] | [HAMT][hamt] | [`Clone`][std::clone::Clone] + [`Hash`][std::hash::Hash] + [`Eq`][std::cmp::Eq] | undefined | O(log n) | O(log n) | O(log n) |
-//! | [`OrdSet<A>`][ordset::OrdSet] | [B-tree][b-tree] | [`Clone`][std::clone::Clone] + [`Ord`][std::cmp::Ord] | sorted | O(log n) | O(log n) | O(log n) |
+//! | [`OrdSet<A>`][ordset::OrdSet] | [B+tree][b+tree] | [`Clone`][std::clone::Clone] + [`Ord`][std::cmp::Ord] | sorted | O(log n) | O(log n) | O(log n) |
 //!
 //! ## In-place Mutation
 //!
@@ -304,7 +304,7 @@
 //! | [`rayon`](https://crates.io/crates/rayon) | parallel iterator implementations for [`Vector`][vector::Vector] |
 //! | [`serde`](https://crates.io/crates/serde) | [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) and [`Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) implementations for all `imbl` datatypes |
 //! | [`arbitrary`](https://crates.io/crates/arbitrary/) | [`arbitrary::Arbitrary`](https://docs.rs/arbitrary/latest/arbitrary/trait.Arbitrary.html) implementations for all `imbl` datatypes |
-//! | [`triomphe`](https://crates.io/crates/triomphe/) | Use [`triomphe::Arc`](https://docs.rs/triomphe/latest/triomphe/struct.Arc.html) for the default shared pointer.
+//! | [`triomphe`](https://crates.io/crates/triomphe/) | Use [`triomphe::Arc`](https://docs.rs/triomphe/latest/triomphe/struct.Arc.html) for the default shared pointer. This is a drop-in replacement for [`std::sync::Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html) that is faster in some cases. |
 //!
 //! [std::collections]: https://doc.rust-lang.org/std/collections/index.html
 //! [std::collections::VecDeque]: https://doc.rust-lang.org/std/collections/struct.VecDeque.html
@@ -328,7 +328,7 @@
 //! [vector::Vector::push_back]: ./vector/enum.Vector.html#method.push_back
 //! [rrb-tree]: https://infoscience.epfl.ch/record/213452/files/rrbvector.pdf
 //! [hamt]: https://en.wikipedia.org/wiki/Hash_array_mapped_trie
-//! [b-tree]: https://en.wikipedia.org/wiki/B-tree
+//! [b+tree]: https://en.wikipedia.org/wiki/B%2B_tree
 //! [cons-list]: https://en.wikipedia.org/wiki/Cons#Lists
 
 #![forbid(rust_2018_idioms)]

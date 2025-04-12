@@ -11,6 +11,11 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 - Fix `vector::Iter` is not `Clone` when `triomphe` is enabled (#107)
 
+### Changed
+
+- OrdMap and OrdSet implementation rewritten as a B+Tree with significant performance improvements (#109)
+- Restore Performance improvements for mutation of HashMap and HashSet (#108)
+
 ## [5.0.0] - 2025-02-12
 
 ### Added
@@ -48,6 +53,8 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Make `OrdSet::get_prev` and `OrdSet::get_next` more generic, using the `Borrow` trait.
+- Improve the performance of HashMap iterators (#73)
+- Speedup hashmap by speeding up node creation (#76)
 
 ## [2.0.3] - 2023-10-25
 
