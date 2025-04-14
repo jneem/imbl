@@ -16,7 +16,7 @@ Changes from `im` include:
 * Bug fixes on Vector
 * Significant performance improvements for HashMap/HashSet
 * Significant performance improvements for OrdMap/OrdSet
-* Supports using [`trimphe::Arc`](https://docs.rs/triomphe/latest/triomphe/struct.Arc.html) for the shared pointer implementation
+* Supports using [`triomphe::Arc`](https://docs.rs/triomphe/latest/triomphe/struct.Arc.html) for the shared pointer implementation
 
 ## Documentation
 
