@@ -2283,7 +2283,7 @@ where
 impl<
         K: Ord + Hash + Eq + Clone,
         V: Clone,
-        S: BuildHasher,
+        S: BuildHasher + Clone,
         P1: SharedPointerKind,
         P2: SharedPointerKind,
     > From<GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
@@ -2297,7 +2297,7 @@ impl<
         'a,
         K: Ord + Hash + Eq + Clone,
         V: Clone,
-        S: BuildHasher,
+        S: BuildHasher + Clone,
         P1: SharedPointerKind,
         P2: SharedPointerKind,
     > From<&'a GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>

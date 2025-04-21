@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use ::arbitrary::{size_hint, Arbitrary, Result, Unstructured};
+use arbitrary::{size_hint, Arbitrary, Result, Unstructured};
 use std::hash::{BuildHasher, Hash};
 
 use crate::{
@@ -72,7 +72,7 @@ impl<'a, K, V, S, P> Arbitrary<'a> for GenericHashMap<K, V, S, P>
 where
     K: Arbitrary<'a> + Hash + Eq + Clone,
     V: Arbitrary<'a> + Clone,
-    S: BuildHasher + Default + 'static,
+    S: BuildHasher + Clone + Default + 'static,
     P: SharedPointerKind + 'static,
 {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
@@ -93,7 +93,7 @@ where
 impl<'a, A, S, P> Arbitrary<'a> for GenericHashSet<A, S, P>
 where
     A: Arbitrary<'a> + Hash + Eq + Clone,
-    S: BuildHasher + Default + 'static,
+    S: BuildHasher + Clone + Default + 'static,
     P: SharedPointerKind + 'static,
 {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
