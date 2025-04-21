@@ -2208,6 +2208,41 @@ mod test {
         }
     }
 
+    struct PanicOnClone;
+
+    impl Clone for PanicOnClone {
+        fn clone(&self) -> Self {
+            panic!("PanicOnClone::clone called")
+        }
+    }
+
+    #[test]
+    fn into_iter_no_clone() {
+        let mut map = HashMap::new();
+        for i in 0..10_000 {
+            map.insert(i, PanicOnClone);
+        }
+        let _ = map.into_iter().collect::<Vec<_>>();
+    }
+
+    #[test]
+    fn iter_mut_no_clone() {
+        let mut map = HashMap::new();
+        for i in 0..10_000 {
+            map.insert(i, PanicOnClone);
+        }
+        let _ = map.iter_mut().collect::<Vec<_>>();
+    }
+
+    #[test]
+    fn iter_no_clone() {
+        let mut map = HashMap::new();
+        for i in 0..10_000 {
+            map.insert(i, PanicOnClone);
+        }
+        let _ = map.iter().collect::<Vec<_>>();
+    }
+
     proptest! {
         #[test]
         fn update_and_length(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..100)) {

@@ -2385,6 +2385,36 @@ mod test {
         assert_eq!(vec, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 
+    struct PanicOnClone;
+
+    impl Clone for PanicOnClone {
+        fn clone(&self) -> Self {
+            panic!("PanicOnClone::clone called")
+        }
+    }
+
+    #[test]
+    fn into_iter_no_clone() {
+        let mut map = OrdMap::new();
+        let mut map_rev = OrdMap::new();
+        for i in 0..10_000 {
+            map.insert(i, PanicOnClone);
+            map_rev.insert(i, PanicOnClone);
+        }
+        let _ = map.into_iter().collect::<Vec<_>>();
+        let _ = map_rev.into_iter().rev().collect::<Vec<_>>();
+    }
+
+    #[test]
+    fn iter_no_clone() {
+        let mut map = OrdMap::new();
+        for i in 0..10_000 {
+            map.insert(i, PanicOnClone);
+        }
+        let _ = map.iter().collect::<Vec<_>>();
+        let _ = map.iter().rev().collect::<Vec<_>>();
+    }
+
     #[test]
     fn deletes_correctly() {
         let map = ordmap! {
