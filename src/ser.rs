@@ -160,7 +160,7 @@ impl<'de, K, V, S, P: SharedPointerKind> Deserialize<'de> for GenericHashMap<K, 
 where
     K: Deserialize<'de> + Hash + Eq + Clone,
     V: Deserialize<'de> + Clone,
-    S: BuildHasher + Default,
+    S: BuildHasher + Default + Clone,
     P: SharedPointerKind,
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
@@ -195,7 +195,7 @@ where
 impl<
         'de,
         A: Deserialize<'de> + Hash + Eq + Clone,
-        S: BuildHasher + Default,
+        S: BuildHasher + Default + Clone,
         P: SharedPointerKind,
     > Deserialize<'de> for GenericHashSet<A, S, P>
 {

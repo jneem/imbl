@@ -13,8 +13,11 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- OrdMap and OrdSet implementation rewritten as a B+Tree with significant performance improvements (#109)
+- HashMap and HashSet iterators improved to not perform allocations whenever possible (#111)
+- HashMap and HashSet new/default functions improved to not perform allocations for the empty map/set (#111)
 - Restore Performance improvements for mutation of HashMap and HashSet (#108)
+- OrdMap and OrdSet implementation rewritten as a B+Tree with significant performance improvements (#109)
+- OrdMap and OrdSet new/default functions improved to not perform allocations for the empty map/set (#109)
 
 ## [5.0.0] - 2025-02-12
 

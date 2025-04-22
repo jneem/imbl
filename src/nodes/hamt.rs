@@ -13,14 +13,17 @@ use std::{mem, ptr};
 
 use archery::{SharedPointer, SharedPointerKind};
 use bitmaps::{Bits, BitsImpl};
+use imbl_sized_chunks::inline_array::InlineArray;
 use imbl_sized_chunks::sparse_chunk::{Iter as ChunkIter, IterMut as ChunkIterMut, SparseChunk};
 
 use crate::util::clone_ref;
 
-pub(crate) use crate::config::HASH_LEVEL_SIZE as HASH_SHIFT;
-pub(crate) const HASH_WIDTH: usize = 2_usize.pow(HASH_SHIFT as u32);
+use crate::config::HASH_LEVEL_SIZE as HASH_SHIFT;
 pub(crate) type HashBits = <BitsImpl<HASH_WIDTH> as Bits>::Store; // a uint of HASH_WIDTH bits
-pub(crate) const HASH_MASK: HashBits = (HASH_WIDTH - 1) as HashBits;
+
+const HASH_WIDTH: usize = 2_usize.pow(HASH_SHIFT as u32);
+const HASH_MASK: HashBits = (HASH_WIDTH - 1) as HashBits;
+const ITER_STACK_CAPACITY: usize = (HASH_WIDTH / HASH_SHIFT) + 1;
 
 pub(crate) fn hash_key<K: Hash + ?Sized, S: BuildHasher>(bh: &S, key: &K) -> HashBits {
     let mut hasher = bh.build_hasher();
@@ -432,11 +435,14 @@ impl<A: HashValue> CollisionNode<A> {
     }
 }
 
+/// An allocation-free stack for iterators.
+type InlineStack<T> = InlineArray<T, (usize, [T; ITER_STACK_CAPACITY])>;
+
 // Ref iterator
 
 pub(crate) struct Iter<'a, A, P: SharedPointerKind> {
     count: usize,
-    stack: Vec<ChunkIter<'a, Entry<A, P>, HASH_WIDTH>>,
+    stack: InlineStack<ChunkIter<'a, Entry<A, P>, HASH_WIDTH>>,
     collision: Option<(HashBits, SliceIter<'a, A>)>,
 }
 
@@ -456,13 +462,15 @@ where
     A: 'a,
     P: SharedPointerKind,
 {
-    pub(crate) fn new(root: &'a Node<A, P>, size: usize) -> Self {
+    pub(crate) fn new(root: Option<&'a Node<A, P>>, size: usize) -> Self {
         let mut result = Iter {
             count: size,
-            stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
+            stack: InlineStack::new(),
             collision: None,
         };
-        result.stack.push(root.data.iter());
+        if let Some(node) = root {
+            result.stack.push(node.data.iter());
+        }
         result
     }
 }
@@ -521,7 +529,7 @@ impl<'a, A, P: SharedPointerKind> FusedIterator for Iter<'a, A, P> where A: 'a {
 
 pub(crate) struct IterMut<'a, A, P: SharedPointerKind> {
     count: usize,
-    stack: Vec<ChunkIterMut<'a, Entry<A, P>, HASH_WIDTH>>,
+    stack: InlineStack<ChunkIterMut<'a, Entry<A, P>, HASH_WIDTH>>,
     collision: Option<(HashBits, SliceIterMut<'a, A>)>,
 }
 
@@ -530,13 +538,15 @@ where
     A: 'a,
     P: SharedPointerKind,
 {
-    pub(crate) fn new(root: &'a mut Node<A, P>, size: usize) -> Self {
+    pub(crate) fn new(root: Option<&'a mut Node<A, P>>, size: usize) -> Self {
         let mut result = IterMut {
             count: size,
-            stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
+            stack: InlineStack::new(),
             collision: None,
         };
-        result.stack.push(root.data.iter_mut());
+        if let Some(node) = root {
+            result.stack.push(node.data.iter_mut());
+        }
         result
     }
 }
@@ -597,18 +607,20 @@ impl<'a, A, P: SharedPointerKind> FusedIterator for IterMut<'a, A, P> where A: C
 
 pub(crate) struct Drain<A, P: SharedPointerKind> {
     count: usize,
-    stack: Vec<SharedPointer<Node<A, P>, P>>,
+    stack: InlineStack<SharedPointer<Node<A, P>, P>>,
     collision: Option<CollisionNode<A>>,
 }
 
 impl<A, P: SharedPointerKind> Drain<A, P> {
-    pub(crate) fn new(root: SharedPointer<Node<A, P>, P>, size: usize) -> Self {
+    pub(crate) fn new(root: Option<SharedPointer<Node<A, P>, P>>, size: usize) -> Self {
         let mut result = Drain {
             count: size,
-            stack: Vec::with_capacity((HASH_WIDTH / HASH_SHIFT) + 1),
+            stack: InlineStack::new(),
             collision: None,
         };
-        result.stack.push(root);
+        if let Some(root) = root {
+            result.stack.push(root);
+        }
         result
     }
 }
