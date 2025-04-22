@@ -865,7 +865,7 @@ where
         let Some(old_root) = self.root.clone() else {
             return;
         };
-        let root = SharedPointer::make_mut(self.root.get_or_insert_default());
+        let root = SharedPointer::make_mut(self.root.get_or_insert_with(Default::default));
         for ((key, value), hash) in NodeIter::new(Some(&old_root), self.size) {
             if !f(key, value) && root.remove(hash, 0, key).is_some() {
                 self.size -= 1;

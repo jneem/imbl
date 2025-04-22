@@ -372,7 +372,7 @@ where
     #[inline]
     pub fn insert(&mut self, a: A) -> Option<A> {
         let hash = hash_key(&self.hasher, &a);
-        let root = SharedPointer::make_mut(self.root.get_or_insert_default());
+        let root = SharedPointer::make_mut(self.root.get_or_insert_with(Default::default));
         match root.insert(hash, 0, Value(a)) {
             None => {
                 self.size += 1;
@@ -463,7 +463,7 @@ where
         let Some(old_root) = self.root.clone() else {
             return;
         };
-        let root = SharedPointer::make_mut(self.root.get_or_insert_default());
+        let root = SharedPointer::make_mut(self.root.get_or_insert_with(Default::default));
         for (value, hash) in NodeIter::new(Some(&old_root), self.size) {
             if !f(value) && root.remove(hash, 0, value).is_some() {
                 self.size -= 1;
