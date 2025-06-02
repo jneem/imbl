@@ -1489,7 +1489,6 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
     /// ```
     pub fn insert_ord_by<F>(&mut self, item: A, mut f: F)
     where
-        A: Ord,
         F: FnMut(&A, &A) -> Ordering,
     {
         match self.binary_search_by(|scan_item| f(scan_item, &item)) {
