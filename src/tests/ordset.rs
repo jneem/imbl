@@ -83,3 +83,15 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn test_empty_leaf() {
+    let mut set = OrdSet::new();
+    set.insert(1);
+    set.remove(&1);
+    // This leaves the tree with just an empty leaf node; check that iterators
+    // still work
+    assert_eq!(set.range(1..2).count(), 0);
+    assert_eq!(set.iter().count(), 0);
+    assert_eq!(set.into_iter().count(), 0);
+}
