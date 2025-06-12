@@ -830,7 +830,9 @@ impl<K, V, P: SharedPointerKind> ConsumingIter<K, V, P> {
             node: SharedPointer<Branch<K, V, P>, P>,
         ) {
             match &node.children {
-                Children::Leaves { leaves } => out.extend(leaves.iter().cloned()),
+                Children::Leaves { leaves } => {
+                    out.extend(leaves.iter().filter(|leaf| !leaf.keys.is_empty()).cloned())
+                }
                 Children::Branches { branches, .. } => {
                     for child in branches.iter() {
                         push(out, child.clone());
@@ -842,7 +844,11 @@ impl<K, V, P: SharedPointerKind> ConsumingIter<K, V, P> {
         let mut leaves = VecDeque::with_capacity(size.div_ceil(NODE_SIZE / 2));
         match node {
             Some(Node::Branch(b)) => push(&mut leaves, b),
-            Some(Node::Leaf(l)) => leaves.push_back(l),
+            Some(Node::Leaf(l)) => {
+                if !l.keys.is_empty() {
+                    leaves.push_back(l)
+                }
+            }
             None => (),
         }
         Self {
