@@ -19,6 +19,9 @@ const THIRD: usize = NODE_SIZE / 3;
 const NUM_CHILDREN: usize = NODE_SIZE + 1;
 
 /// A node in a `B+Tree`.
+///
+/// The main tree representation uses [`Branch`] and [`Leaf`]; this is only used
+/// in places that want to handle either a branch or a leaf.
 #[derive(Debug)]
 pub(crate) enum Node<K, V, P: SharedPointerKind> {
     Branch(SharedPointer<Branch<K, V, P>, P>),
@@ -116,7 +119,10 @@ pub(crate) enum Children<K, V, P: SharedPointerKind> {
     /// level >= 2
     Branches {
         branches: Chunk<SharedPointer<Branch<K, V, P>, P>, NUM_CHILDREN>,
-        /// The level of the node in the tree
+        /// The level of the tree node that contains these children.
+        ///
+        /// Leaves have level zero, so branches have level at least one. Since this is the
+        /// level of something containing branches, it is at least two.
         level: NonZeroUsize,
     },
 }
@@ -326,7 +332,7 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
                     _ => return,
                 };
                 // Prefer merging two sibling children if we can fit them into a single node.
-                // But also try to rebalance is the smallest child is small (< 1/3), to amortize the cost of rebalancing.
+                // But also try to rebalance if the smallest child is small (< 1/3), to amortize the cost of rebalancing.
                 // Since we prefer merging, for rebalancing to apply the the largest child will be least 2/3 full,
                 // which results in two at least half full nodes after rebalancing.
                 match (left, mid, right) {
