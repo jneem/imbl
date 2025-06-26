@@ -200,16 +200,6 @@ impl<K, V, P: SharedPointerKind> Children<K, V, P> {
             _ => panic!("mismatched insert_front"),
         }
     }
-    fn remove(&mut self, index: usize) {
-        match self {
-            Children::Leaves { leaves } => {
-                leaves.remove(index);
-            }
-            Children::Branches { branches, .. } => {
-                branches.remove(index);
-            }
-        }
-    }
     fn insert(&mut self, index: usize, node: Node<K, V, P>) {
         match (self, node) {
             (Children::Leaves { leaves }, Node::Leaf(node)) => leaves.insert(index, node),
@@ -341,16 +331,16 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
                 // which results in two at least half full nodes after rebalancing.
                 match (left, mid, right) {
                     (left, mid, _) if left.keys.len() + mid.keys.len() <= NODE_SIZE => {
-                        self.merge_leaves(left_idx, false);
+                        Self::merge_leaves(leaves, &mut self.keys, left_idx, false);
                     }
                     (_, mid, Some(right)) if mid.keys.len() + right.keys.len() <= NODE_SIZE => {
-                        self.merge_leaves(left_idx + 1, true);
+                        Self::merge_leaves(leaves, &mut self.keys, left_idx + 1, true);
                     }
                     (left, mid, _) if mid.keys.len().min(left.keys.len()) < THIRD => {
-                        self.rebalance_leaves(left_idx);
+                        Self::rebalance_leaves(leaves, &mut self.keys, left_idx);
                     }
                     (_, mid, Some(right)) if mid.keys.len().min(right.keys.len()) < THIRD => {
-                        self.rebalance_leaves(left_idx + 1);
+                        Self::rebalance_leaves(leaves, &mut self.keys, left_idx + 1);
                     }
                     _ => (),
                 }
@@ -363,16 +353,16 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
                 };
                 match (left, mid, right) {
                     (left, mid, _) if left.keys.len() + mid.keys.len() < NODE_SIZE => {
-                        self.merge_branches(left_idx, false);
+                        Self::merge_branches(branches, &mut self.keys, left_idx, false);
                     }
                     (_, mid, Some(right)) if mid.keys.len() + right.keys.len() < NODE_SIZE => {
-                        self.merge_branches(left_idx + 1, true);
+                        Self::merge_branches(branches, &mut self.keys, left_idx + 1, true);
                     }
                     (left, mid, _) if mid.keys.len().min(left.keys.len()) < THIRD => {
-                        self.rebalance_branches(left_idx);
+                        Self::rebalance_branches(branches, &mut self.keys, left_idx);
                     }
                     (_, mid, Some(right)) if mid.keys.len().min(right.keys.len()) < THIRD => {
-                        self.rebalance_branches(left_idx + 1);
+                        Self::rebalance_branches(branches, &mut self.keys, left_idx + 1);
                     }
                     _ => (),
                 }
@@ -383,12 +373,13 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
     /// Merges two children leaves of this branch.
     ///
     /// Assumes that the two children can fit in a single leaf, panicking if not.
-    fn merge_leaves(&mut self, left_idx: usize, keep_left: bool) {
-        debug_assert_eq!(self.level(), 1);
-        let Children::Leaves { leaves } = &mut self.children else {
-            unreachable!()
-        };
-        let [left, right, ..] = &mut leaves[left_idx..] else {
+    fn merge_leaves(
+        children: &mut Chunk<SharedPointer<Leaf<K, V>, P>, NUM_CHILDREN>,
+        keys: &mut Chunk<K, NODE_SIZE>,
+        left_idx: usize,
+        keep_left: bool,
+    ) {
+        let [left, right, ..] = &mut children[left_idx..] else {
             unreachable!()
         };
         if keep_left {
@@ -400,19 +391,19 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
             let (left, right) = (&**left, right);
             right.keys.insert_from(0, left.keys.iter().cloned());
         }
-        self.keys.remove(left_idx);
-        leaves.remove(left_idx + (keep_left as usize));
-        debug_assert_eq!(self.keys.len() + 1, self.children.len());
+        keys.remove(left_idx);
+        children.remove(left_idx + (keep_left as usize));
+        debug_assert_eq!(keys.len() + 1, children.len());
     }
 
-    /// Assuming `branch` is at level 1, rebalances two adjacent leaves so that they have the same
+    /// Rebalances two adjacent leaves so that they have the same
     /// number of keys (or differ by at most 1).
-    fn rebalance_leaves(&mut self, left_idx: usize) {
-        debug_assert_eq!(self.level(), 1);
-        let Children::Leaves { leaves } = &mut self.children else {
-            unreachable!()
-        };
-        let [left, right, ..] = &mut leaves[left_idx..] else {
+    fn rebalance_leaves(
+        children: &mut Chunk<SharedPointer<Leaf<K, V>, P>, NUM_CHILDREN>,
+        keys: &mut Chunk<K, NODE_SIZE>,
+        left_idx: usize,
+    ) {
+        let [left, right, ..] = &mut children[left_idx..] else {
             unreachable!()
         };
         let (left, right) = (
@@ -428,7 +419,7 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
         } else {
             left.keys.drain_from_front(&mut right.keys, num_to_move);
         }
-        self.keys[left_idx] = right.keys.first().unwrap().0.clone();
+        keys[left_idx] = right.keys.first().unwrap().0.clone();
         debug_assert_ne!(left.keys.len(), 0);
         debug_assert_ne!(right.keys.len(), 0);
     }
@@ -436,11 +427,12 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
     /// Rebalances two adjacent child branches so that they have the same number of keys
     /// (or differ by at most 1). The separator key is rotated between the two branches.
     /// to keep the invariants of the parent branch.
-    fn rebalance_branches(self: &mut Branch<K, V, P>, left_idx: usize) {
-        let Children::Branches { branches, .. } = &mut self.children else {
-            unreachable!()
-        };
-        let [left, right, ..] = &mut branches[left_idx..] else {
+    fn rebalance_branches(
+        children: &mut Chunk<SharedPointer<Branch<K, V, P>, P>, NUM_CHILDREN>,
+        keys: &mut Chunk<K, NODE_SIZE>,
+        left_idx: usize,
+    ) {
+        let [left, right, ..] = &mut children[left_idx..] else {
             unreachable!()
         };
         let (left, right) = (
@@ -451,7 +443,7 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
         if num_to_move == 0 {
             return;
         }
-        let separator = &mut self.keys[left_idx];
+        let separator = &mut keys[left_idx];
         if left.keys.len() > right.keys.len() {
             right.keys.push_front(separator.clone());
             right.keys.drain_from_back(&mut left.keys, num_to_move - 1);
@@ -475,15 +467,16 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
     /// Merges two children of this branch.
     ///
     /// Assumes that the two children can fit in a single branch, panicking if not.
-    fn merge_branches(&mut self, left_idx: usize, keep_left: bool) {
-        debug_assert!(self.level() >= 2);
-        let Children::Branches { branches, .. } = &mut self.children else {
+    fn merge_branches(
+        children: &mut Chunk<SharedPointer<Branch<K, V, P>, P>, NUM_CHILDREN>,
+        keys: &mut Chunk<K, NODE_SIZE>,
+        left_idx: usize,
+        keep_left: bool,
+    ) {
+        let [left, right, ..] = &mut children[left_idx..] else {
             unreachable!()
         };
-        let [left, right, ..] = &mut branches[left_idx..] else {
-            unreachable!()
-        };
-        let separator = self.keys.remove(left_idx);
+        let separator = keys.remove(left_idx);
         if keep_left {
             let left = SharedPointer::make_mut(left);
             let (left, right) = (left, &**right);
@@ -497,8 +490,8 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
             right.keys.insert_from(0, left.keys.iter().cloned());
             right.children.insert_front(&left.children);
         }
-        self.children.remove(left_idx + (keep_left as usize));
-        debug_assert_eq!(self.keys.len() + 1, self.children.len());
+        children.remove(left_idx + (keep_left as usize));
+        debug_assert_eq!(keys.len() + 1, children.len());
     }
 }
 
