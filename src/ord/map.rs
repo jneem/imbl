@@ -87,7 +87,7 @@ pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
 /// [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 pub struct GenericOrdMap<K, V, P: SharedPointerKind> {
     size: usize,
-    root: Option<SharedPointer<Node<K, V, P>, P>>,
+    root: Option<Node<K, V, P>>,
 }
 
 impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
@@ -119,7 +119,7 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     pub fn unit(key: K, value: V) -> Self {
         Self {
             size: 1,
-            root: Some(SharedPointer::new(Node::unit(key, value))),
+            root: Some(Node::unit(key, value)),
         }
     }
 
@@ -156,7 +156,7 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     /// Time: O(1)
     pub fn ptr_eq(&self, other: &Self) -> bool {
         match (&self.root, &other.root) {
-            (Some(a), Some(b)) => SharedPointer::ptr_eq(a, b),
+            (Some(a), Some(b)) => a.ptr_eq(&b),
             (None, None) => true,
             _ => false,
         }
@@ -256,7 +256,7 @@ where
     #[must_use]
     pub fn iter(&self) -> Iter<'_, K, V, P> {
         Iter {
-            it: NodeIter::new(self.root.as_deref(), self.size, ..),
+            it: NodeIter::new(self.root.as_ref(), self.size, ..),
         }
     }
 
@@ -269,7 +269,7 @@ where
         BK: Ord + ?Sized,
     {
         RangedIter {
-            it: NodeIter::new(self.root.as_deref(), self.size, range),
+            it: NodeIter::new(self.root.as_ref(), self.size, range),
         }
     }
 
@@ -304,8 +304,8 @@ where
         if self.ptr_eq(other) {
             return diff;
         }
-        diff.it1.init(self.root.as_deref());
-        diff.it2.init(other.root.as_deref());
+        diff.it1.init(self.root.as_ref());
+        diff.it2.init(other.root.as_ref());
         diff.it1.seek_to_first();
         diff.it2.seek_to_first();
         diff
@@ -576,7 +576,7 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let root = SharedPointer::make_mut(self.root.as_mut()?);
+        let root = self.root.as_mut()?;
         root.lookup_mut(key).map(|(_, v)| v)
     }
 
@@ -606,7 +606,7 @@ where
         K: Borrow<BK>,
     {
         let prev = self.get_prev(key)?.0.clone();
-        let root = SharedPointer::make_mut(self.root.as_mut()?);
+        let root = self.root.as_mut()?;
         root.lookup_mut(prev.borrow())
     }
 
@@ -636,7 +636,7 @@ where
         K: Borrow<BK>,
     {
         let next = self.get_next(key)?.0.clone();
-        let root = SharedPointer::make_mut(self.root.as_mut()?);
+        let root = self.root.as_mut()?;
         root.lookup_mut(next.borrow())
     }
 
@@ -681,13 +681,13 @@ where
     /// previous key and value are overwritten and returned.
     #[inline]
     pub(crate) fn insert_key_value(&mut self, key: K, value: V) -> Option<(K, V)> {
-        let root = SharedPointer::make_mut(self.root.get_or_insert_with(Default::default));
+        let root = self.root.get_or_insert_with(Node::default);
         match root.insert(key, value) {
             InsertAction::Replaced(old_key, old_value) => return Some((old_key, old_value)),
             InsertAction::Inserted => (),
             InsertAction::Split(separator, right) => {
                 let left = mem::take(root);
-                *root = Node::new_from_split(SharedPointer::new(left), separator, right);
+                *root = Node::new_from_split(left, separator, right);
             }
         }
         self.size += 1;
@@ -728,11 +728,11 @@ where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let root = SharedPointer::make_mut(self.root.as_mut()?);
+        let root = self.root.as_mut()?;
         let mut removed = None;
         if root.remove(k, &mut removed) {
             if let Node::Branch(branch) = root {
-                if let Some(child) = branch.pop_single_child() {
+                if let Some(child) = SharedPointer::make_mut(branch).pop_single_child() {
                     self.root = Some(child);
                 }
             }
