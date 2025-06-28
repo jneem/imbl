@@ -460,10 +460,11 @@ where
     where
         F: FnMut(&A) -> bool,
     {
-        let Some(old_root) = self.root.clone() else {
+        let Some(root) = &mut self.root else {
             return;
         };
-        let root = SharedPointer::make_mut(self.root.get_or_insert_with(Default::default));
+        let old_root = root.clone();
+        let root = SharedPointer::make_mut(root);
         for (value, hash) in NodeIter::new(Some(&old_root), self.size) {
             if !f(value) && root.remove(hash, 0, value).is_some() {
                 self.size -= 1;

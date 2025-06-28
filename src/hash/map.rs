@@ -862,10 +862,11 @@ where
     where
         F: FnMut(&K, &V) -> bool,
     {
-        let Some(old_root) = self.root.clone() else {
+        let Some(root) = &mut self.root else {
             return;
         };
-        let root = SharedPointer::make_mut(self.root.get_or_insert_with(Default::default));
+        let old_root = root.clone();
+        let root = SharedPointer::make_mut(root);
         for ((key, value), hash) in NodeIter::new(Some(&old_root), self.size) {
             if !f(key, value) && root.remove(hash, 0, key).is_some() {
                 self.size -= 1;
@@ -1463,6 +1464,7 @@ where
 
     /// Remove this entry from the map and return the removed mapping.
     pub fn remove_entry(self) -> (K, V) {
+        // unwrap: occupied entries can only be created for non-empty maps
         let root = SharedPointer::make_mut(self.map.root.as_mut().unwrap());
         let result = root.remove(self.hash, 0, &self.key);
         self.map.size -= 1;
@@ -1472,6 +1474,7 @@ where
     /// Get the current value.
     #[must_use]
     pub fn get(&self) -> &V {
+        // unwrap: occupied entries can only be created for non-empty maps
         &self
             .map
             .root
@@ -1485,6 +1488,7 @@ where
     /// Get a mutable reference to the current value.
     #[must_use]
     pub fn get_mut(&mut self) -> &mut V {
+        // unwrap: occupied entries can only be created for non-empty maps
         let root = SharedPointer::make_mut(self.map.root.as_mut().unwrap());
         &mut root.get_mut(self.hash, 0, &self.key).unwrap().1
     }
@@ -1492,6 +1496,7 @@ where
     /// Convert this entry into a mutable reference.
     #[must_use]
     pub fn into_mut(self) -> &'a mut V {
+        // unwrap: occupied entries can only be created for non-empty maps
         let root = SharedPointer::make_mut(self.map.root.as_mut().unwrap());
         &mut root.get_mut(self.hash, 0, &self.key).unwrap().1
     }
