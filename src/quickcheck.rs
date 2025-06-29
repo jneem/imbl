@@ -36,7 +36,7 @@ impl<A: Ord + Clone + Arbitrary + Sync, P: SharedPointerKind + 'static> Arbitrar
 impl<A, S, P> Arbitrary for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Arbitrary + Sync,
-    S: BuildHasher + Default + Send + Sync + 'static,
+    S: BuildHasher + Clone + Default + Send + Sync + 'static,
     P: SharedPointerKind + 'static,
 {
     fn arbitrary(g: &mut Gen) -> Self {
@@ -48,7 +48,7 @@ impl<K, V, S, P> Arbitrary for GenericHashMap<K, V, S, P>
 where
     K: Hash + Eq + Arbitrary + Sync,
     V: Arbitrary + Sync,
-    S: BuildHasher + Default + Send + Sync + 'static,
+    S: BuildHasher + Clone + Default + Send + Sync + 'static,
     P: SharedPointerKind + 'static,
 {
     fn arbitrary(g: &mut Gen) -> Self {

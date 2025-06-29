@@ -57,6 +57,7 @@ impl<const N: usize> Default for LolHasher<N> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct MetroHashBuilder {
     seed: u64,
 }
