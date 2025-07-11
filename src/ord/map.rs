@@ -580,6 +580,30 @@ where
         root.lookup_mut(key).map(|(_, v)| v)
     }
 
+    /// Get the key/value pair for a key from a map.
+    ///
+    /// Time: O(log n)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordmap::OrdMap;
+    /// let mut map = ordmap!{123 => "lol"};
+    /// assert_eq!(
+    ///   map.get_key_value_mut(&123),
+    ///   Some((&123, &mut "lol"))
+    /// );
+    /// ```
+    #[must_use]
+    pub fn get_key_value_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    where
+        BK: Ord + ?Sized,
+        K: Borrow<BK>,
+    {
+        self.root.as_mut()?.lookup_mut(key)
+    }
+
     /// Get the closest smaller entry in a map to a given key
     /// as a mutable reference.
     ///
