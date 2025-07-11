@@ -578,12 +578,36 @@ where
         BK: Hash + Eq + ?Sized,
         K: Borrow<BK>,
     {
+        self.get_key_value_mut(key).map(|(_, v)| v)
+    }
+
+    /// Get the key/value pair for a key from a hash map, returning a mutable reference to the value.
+    ///
+    /// Time: O(log n)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::hashmap::HashMap;
+    /// let mut map = hashmap!{123 => "lol"};
+    /// assert_eq!(
+    ///   map.get_key_value_mut(&123),
+    ///   Some((&123, &mut "lol"))
+    /// );
+    /// ```
+    #[must_use]
+    pub fn get_key_value_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    where
+        BK: Hash + Eq + ?Sized,
+        K: Borrow<BK>,
+    {
         let Some(root) = self.root.as_mut() else {
             return None;
         };
         match SharedPointer::make_mut(root).get_mut(hash_key(&self.hasher, key), 0, key) {
             None => None,
-            Some(&mut (_, ref mut value)) => Some(value),
+            Some((key, value)) => Some((key, value)),
         }
     }
 
