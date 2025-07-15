@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [Unreleased]
 
 ### Fixed
 
@@ -13,8 +13,9 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- HashMap and HashSet iterators improved to not perform allocations whenever possible (#111)
-- HashMap and HashSet new/default functions improved to not perform allocations for the empty map/set (#111)
+- HashMap and HashSet iterators improved to not perform allocations whenever possible (#112)
+- HashMap and HashSet new/default functions improved to not perform allocations for the empty map/set (#112)
+- BuildHasher is now required to be Clone (technically a breaking change, but unlikely in practice) (#112)
 - Restore Performance improvements for mutation of HashMap and HashSet (#108)
 - OrdMap and OrdSet implementation rewritten as a B+Tree with significant performance improvements (#109)
 - OrdMap and OrdSet new/default functions improved to not perform allocations for the empty map/set (#109)
