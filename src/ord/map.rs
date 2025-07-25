@@ -571,7 +571,7 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_mut<BK>(&mut self, key: &BK) -> Option<&mut V>
+    pub fn get_mut<'a, BK>(&'a mut self, key: &BK) -> Option<&'a mut V>
     where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
@@ -596,7 +596,7 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_key_value_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub fn get_key_value_mut<'a, BK>(&'a mut self, key: &BK) -> Option<(&'a K, &'a mut V)>
     where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
@@ -624,7 +624,7 @@ where
     /// assert_eq!(ordmap![1 => 1, 3 => 4, 5 => 5], map);
     /// ```
     #[must_use]
-    pub fn get_prev_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub fn get_prev_mut<'a, BK>(&'a mut self, key: &BK) -> Option<(&'a K, &'a mut V)>
     where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
@@ -654,7 +654,7 @@ where
     /// assert_eq!(ordmap![1 => 1, 3 => 3, 5 => 4], map);
     /// ```
     #[must_use]
-    pub fn get_next_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub fn get_next_mut<'a, BK>(&'a mut self, key: &BK) -> Option<(&'a K, &'a mut V)>
     where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
