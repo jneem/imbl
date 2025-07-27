@@ -1,318 +1,609 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
-#![feature(test)]
-
-extern crate imbl;
-extern crate rand;
-extern crate test;
-
-use rand::seq::SliceRandom;
-use rand::{rngs::SmallRng, Rng, SeedableRng};
-use std::collections::BTreeSet;
-use std::iter::FromIterator;
-use test::Bencher;
-
+use criterion::{criterion_group, criterion_main, Bencher, Criterion};
 use imbl::ordmap::OrdMap;
+use std::borrow::Borrow;
+use std::collections::BTreeMap;
+use std::hint::black_box;
+use std::iter::FromIterator;
+use std::sync::Arc;
 
-fn random_keys(size: usize) -> Vec<i64> {
-    let mut gen = SmallRng::seed_from_u64(1);
-    let mut set = BTreeSet::new();
-    while set.len() < size {
-        let next = gen.random::<i64>();
-        set.insert(next);
+use archery::ArcTK;
+use rpds::RedBlackTreeMapSync;
+
+mod utils;
+use utils::*;
+
+// Trait to abstract over different map implementations
+trait BenchMap<K, V>: Clone + FromIterator<(K, V)>
+where
+    K: Clone + Ord,
+    V: Clone,
+{
+    const IMMUTABLE: bool = true;
+    type Iter<'a>: Iterator<Item = (&'a K, &'a V)>
+    where
+        Self: 'a,
+        K: 'a,
+        V: 'a;
+    type RangeIter<'a>: Iterator<Item = (&'a K, &'a V)>
+    where
+        Self: 'a,
+        K: 'a,
+        V: 'a;
+
+    fn new() -> Self;
+    fn insert(&mut self, k: K, v: V) -> Option<V>;
+    fn insert_clone(&self, k: K, v: V) -> Self;
+    fn remove(&mut self, k: &K) -> Option<V>;
+    fn remove_clone(&self, k: &K) -> Self;
+    fn get<Q>(&self, k: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized;
+    fn iter(&self) -> Self::Iter<'_>;
+    fn range<'a>(&'a self, range: std::ops::RangeFrom<&'a K>) -> Self::RangeIter<'a>;
+    fn is_empty(&self) -> bool;
+    fn without_min(&self) -> (Option<(K, V)>, Self);
+    fn without_max(&self) -> (Option<(K, V)>, Self);
+}
+
+// Implementation for OrdMap
+impl<K, V> BenchMap<K, V> for OrdMap<K, V>
+where
+    K: Clone + Ord,
+    V: Clone,
+{
+    type Iter<'a>
+        = imbl::ordmap::Iter<'a, K, V, imbl::shared_ptr::DefaultSharedPtr>
+    where
+        K: 'a,
+        V: 'a;
+    type RangeIter<'a>
+        = imbl::ordmap::RangedIter<'a, K, V, imbl::shared_ptr::DefaultSharedPtr>
+    where
+        K: 'a,
+        V: 'a;
+
+    fn new() -> Self {
+        OrdMap::new()
     }
-    set.into_iter().collect()
+
+    fn insert(&mut self, k: K, v: V) -> Option<V> {
+        self.insert(k, v)
+    }
+
+    fn insert_clone(&self, k: K, v: V) -> Self {
+        self.update(k, v)
+    }
+
+    fn remove(&mut self, k: &K) -> Option<V> {
+        self.remove(k)
+    }
+
+    fn remove_clone(&self, k: &K) -> Self {
+        self.without(k)
+    }
+
+    fn get<Q>(&self, k: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.get(k)
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        self.iter()
+    }
+
+    fn range<'a>(&'a self, range: std::ops::RangeFrom<&'a K>) -> Self::RangeIter<'a> {
+        self.range(range)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn without_min(&self) -> (Option<(K, V)>, Self) {
+        self.without_min_with_key()
+    }
+
+    fn without_max(&self) -> (Option<(K, V)>, Self) {
+        self.without_max_with_key()
+    }
 }
 
-fn reorder<A: Copy>(vec: &[A]) -> Vec<A> {
-    let mut gen = SmallRng::seed_from_u64(1);
-    let mut out = vec.to_vec();
-    out.shuffle(&mut gen);
-    out
+// Implementation for RedBlackTreeMapSync
+impl<K, V> BenchMap<K, V> for RedBlackTreeMapSync<K, V>
+where
+    K: Clone + Ord,
+    V: Clone,
+{
+    type Iter<'a>
+        = rpds::map::red_black_tree_map::Iter<'a, K, V, ArcTK>
+    where
+        K: 'a,
+        V: 'a;
+    type RangeIter<'a>
+        = std::iter::Map<
+        rpds::map::red_black_tree_map::RangeIter<'a, K, V, std::ops::RangeFrom<&'a K>, K, ArcTK>,
+        fn((&'a K, &'a V)) -> (&'a K, &'a V),
+    >
+    where
+        K: 'a,
+        V: 'a;
+
+    fn new() -> Self {
+        RedBlackTreeMapSync::new_sync()
+    }
+
+    fn insert(&mut self, k: K, v: V) -> Option<V> {
+        self.insert_mut(k, v);
+        None
+    }
+
+    fn insert_clone(&self, k: K, v: V) -> Self {
+        self.insert(k, v)
+    }
+
+    fn remove(&mut self, k: &K) -> Option<V> {
+        if self.remove_mut(k) {
+            None // rpds doesn't return the removed value
+        } else {
+            None
+        }
+    }
+
+    fn remove_clone(&self, k: &K) -> Self {
+        self.remove(k)
+    }
+
+    fn get<Q>(&self, k: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.get(k)
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        self.iter()
+    }
+
+    fn range<'a>(&'a self, range: std::ops::RangeFrom<&'a K>) -> Self::RangeIter<'a> {
+        self.range::<K, _>(range).map(|(k, v)| (k, v))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.size() == 0
+    }
+
+    fn without_min(&self) -> (Option<(K, V)>, Self) {
+        match self.first() {
+            Some((k, _)) => {
+                let k = k.clone();
+                let new_map = self.remove(&k);
+                (self.get(&k).map(|v| (k, v.clone())), new_map)
+            }
+            None => (None, self.clone()),
+        }
+    }
+
+    fn without_max(&self) -> (Option<(K, V)>, Self) {
+        match self.last() {
+            Some((k, _)) => {
+                let k = k.clone();
+                let new_map = self.remove(&k);
+                (self.get(&k).map(|v| (k, v.clone())), new_map)
+            }
+            None => (None, self.clone()),
+        }
+    }
 }
 
-fn ordmap_lookup_n(size: usize, b: &mut Bencher) {
-    let keys = random_keys(size);
+// Implementation for BTreeMap
+impl<K, V> BenchMap<K, V> for BTreeMap<K, V>
+where
+    K: Clone + Ord,
+    V: Clone,
+{
+    const IMMUTABLE: bool = false;
+    type Iter<'a>
+        = std::collections::btree_map::Iter<'a, K, V>
+    where
+        K: 'a,
+        V: 'a;
+    type RangeIter<'a>
+        = std::collections::btree_map::Range<'a, K, V>
+    where
+        K: 'a,
+        V: 'a;
+
+    fn new() -> Self {
+        BTreeMap::new()
+    }
+
+    fn insert(&mut self, k: K, v: V) -> Option<V> {
+        self.insert(k, v)
+    }
+
+    fn insert_clone(&self, _k: K, _v: V) -> Self {
+        Self::new()
+    }
+
+    fn remove(&mut self, k: &K) -> Option<V> {
+        self.remove(k)
+    }
+
+    fn remove_clone(&self, _k: &K) -> Self {
+        Self::new()
+    }
+
+    fn get<Q>(&self, k: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.get(k)
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        self.iter()
+    }
+
+    fn range<'a>(&'a self, range: std::ops::RangeFrom<&'a K>) -> Self::RangeIter<'a> {
+        self.range(range)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn without_min(&self) -> (Option<(K, V)>, Self) {
+        unreachable!()
+    }
+
+    fn without_max(&self) -> (Option<(K, V)>, Self) {
+        unreachable!()
+    }
+}
+
+// Generic benchmark functions
+fn bench_lookup<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    let keys = K::generate(size);
+    let values = V::generate(size);
     let order = reorder(&keys);
-    let m: OrdMap<i64, i64> = OrdMap::from_iter(keys.into_iter().map(|i| (i, 1)));
+    let m: M = keys.into_iter().zip(values).collect();
     b.iter(|| {
-        for i in &order {
-            let _ = m.get(i);
+        for k in &order {
+            black_box(m.get(k));
         }
     })
 }
 
-#[bench]
-fn ordmap_lookup_100(b: &mut Bencher) {
-    ordmap_lookup_n(100, b)
-}
-
-#[bench]
-fn ordmap_lookup_1000(b: &mut Bencher) {
-    ordmap_lookup_n(1000, b)
-}
-
-#[bench]
-fn ordmap_lookup_10000(b: &mut Bencher) {
-    ordmap_lookup_n(10000, b)
-}
-
-#[bench]
-fn ordmap_lookup_100000(b: &mut Bencher) {
-    ordmap_lookup_n(100000, b)
-}
-
-fn ordmap_insert_n(size: usize, b: &mut Bencher) {
-    let keys = random_keys(size);
+fn bench_lookup_ne<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    let keys = K::generate(size * 2);
+    let values = V::generate(size);
+    let order = reorder(&keys[size..]);
+    let m: M = keys.into_iter().zip(values).collect();
     b.iter(|| {
-        let mut m = OrdMap::new();
-        for i in keys.clone() {
-            m = m.update(i, i)
+        for k in &order {
+            black_box(m.get(k));
         }
     })
 }
 
-#[bench]
-fn ordmap_insert_100(b: &mut Bencher) {
-    ordmap_insert_n(100, b)
-}
-
-#[bench]
-fn ordmap_insert_1000(b: &mut Bencher) {
-    ordmap_insert_n(1000, b)
-}
-
-fn ordmap_insert_mut_n(size: usize, b: &mut Bencher) {
-    let keys = random_keys(size);
+fn bench_insert<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    if !M::IMMUTABLE {
+        return; // Skip for non-immutable maps
+    }
+    let keys = K::generate(size);
+    let values = V::generate(size);
     b.iter(|| {
-        let mut m = OrdMap::new();
-        for i in keys.clone() {
-            m.insert(i, i);
+        let mut m = M::new();
+        for (k, v) in keys.clone().into_iter().zip(values.clone()) {
+            m = m.insert_clone(k, v);
         }
+        m
     })
 }
 
-#[bench]
-fn ordmap_insert_mut_100(b: &mut Bencher) {
-    ordmap_insert_mut_n(100, b)
+fn bench_insert_mut<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    let keys = K::generate(size);
+    let values = V::generate(size);
+    b.iter(|| {
+        let mut m = M::new();
+        for (k, v) in keys.clone().into_iter().zip(values.clone()) {
+            m.insert(k, v);
+        }
+        m
+    })
 }
 
-#[bench]
-fn ordmap_insert_mut_1000(b: &mut Bencher) {
-    ordmap_insert_mut_n(1000, b)
-}
-
-#[bench]
-fn ordmap_insert_mut_10000(b: &mut Bencher) {
-    ordmap_insert_mut_n(10000, b)
-}
-
-#[bench]
-fn ordmap_insert_mut_100000(b: &mut Bencher) {
-    ordmap_insert_mut_n(100000, b)
-}
-
-fn ordmap_remove_n(size: usize, b: &mut Bencher) {
-    let keys = random_keys(size);
+fn bench_remove<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    if !M::IMMUTABLE {
+        return; // Skip for non-immutable maps
+    }
+    let keys = K::generate(size);
+    let values = V::generate(size);
     let order = reorder(&keys);
-    let map: OrdMap<i64, i64> = OrdMap::from_iter(keys.into_iter().map(|i| (i, i)));
+    let map: M = keys.into_iter().zip(values).collect();
     b.iter(|| {
         let mut m = map.clone();
-        for i in &order {
-            m = m.without(i);
+        for k in &order {
+            m = m.remove_clone(k);
         }
+        m
     })
 }
 
-#[bench]
-fn ordmap_remove_100(b: &mut Bencher) {
-    ordmap_remove_n(100, b)
-}
-
-#[bench]
-fn ordmap_remove_1000(b: &mut Bencher) {
-    ordmap_remove_n(1000, b)
-}
-
-#[bench]
-fn ordmap_remove_10000(b: &mut Bencher) {
-    ordmap_remove_n(10000, b)
-}
-
-fn ordmap_remove_mut_n(size: usize, b: &mut Bencher) {
-    let keys = random_keys(size);
+fn bench_remove_mut<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    let keys = K::generate(size);
+    let values = V::generate(size);
     let order = reorder(&keys);
-    let map: OrdMap<i64, i64> = OrdMap::from_iter(keys.into_iter().map(|i| (i, i)));
+    let map: M = keys.into_iter().zip(values).collect();
     b.iter(|| {
         let mut m = map.clone();
-        for i in &order {
-            m.remove(i);
+        for k in &order {
+            m.remove(k);
         }
+        m
     })
 }
 
-#[bench]
-fn ordmap_remove_mut_100(b: &mut Bencher) {
-    ordmap_remove_mut_n(100, b)
-}
-
-#[bench]
-fn ordmap_remove_mut_1000(b: &mut Bencher) {
-    ordmap_remove_mut_n(1000, b)
-}
-
-#[bench]
-fn ordmap_remove_mut_10000(b: &mut Bencher) {
-    ordmap_remove_mut_n(10000, b)
-}
-
-#[bench]
-fn ordmap_remove_min_1000(b: &mut Bencher) {
-    let map: OrdMap<i64, i64> = OrdMap::from_iter((0..1000).map(|i| (i, i)));
+fn bench_remove_min<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    if !M::IMMUTABLE {
+        return; // Skip for non-immutable maps
+    }
+    let keys = K::generate(size);
+    let values = V::generate(size);
+    let map: M = keys.into_iter().zip(values).collect();
     b.iter(|| {
         let mut m = map.clone();
         assert!(!m.is_empty());
-        for _ in 0..1000 {
+        for _ in 0..size {
             m = m.without_min().1;
         }
-        assert!(m.is_empty())
+        assert!(m.is_empty());
+        m
     })
 }
 
-#[bench]
-fn ordmap_remove_max_1000(b: &mut Bencher) {
-    let map: OrdMap<i64, i64> = OrdMap::from_iter((0..1000).map(|i| (i, i)));
+fn bench_remove_max<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    if !M::IMMUTABLE {
+        return; // Skip for non-immutable maps
+    }
+    let keys = K::generate(size);
+    let values = V::generate(size);
+    let map: M = keys.into_iter().zip(values).collect();
     b.iter(|| {
         let mut m = map.clone();
         assert!(!m.is_empty());
-        for _ in 0..1000 {
+        for _ in 0..size {
             m = m.without_max().1;
         }
-        assert!(m.is_empty())
+        assert!(m.is_empty());
+        m
     })
 }
 
-fn ordmap_insert_once_n(size: usize, b: &mut Bencher) {
-    let mut keys = random_keys(size + 1);
-    let key = keys.pop().unwrap();
-    let map: OrdMap<i64, i64> = OrdMap::from_iter(keys.into_iter().map(|i| (i, i)));
-    b.iter(|| map.update(key, key))
+fn bench_insert_once<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    let keys = K::generate(size);
+    let values = V::generate(size);
+    let korder = reorder(&keys);
+    let vorder = reorder(&values);
+    let m: M = keys.clone().into_iter().zip(values).collect();
+    b.iter(|| {
+        for (k, v) in korder.iter().zip(vorder.iter()).take(100) {
+            black_box(m.insert_clone(k.clone(), v.clone()));
+        }
+    })
 }
 
-#[bench]
-fn ordmap_insert_once_100(b: &mut Bencher) {
-    ordmap_insert_once_n(100, b)
+fn bench_remove_once<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    let keys = K::generate(size);
+    let values = V::generate(size);
+    let order = reorder(&keys);
+    let map: M = keys.clone().into_iter().zip(values).collect();
+    b.iter(|| {
+        for k in order.iter().take(100) {
+            black_box(map.remove_clone(k));
+        }
+    })
 }
 
-#[bench]
-fn ordmap_insert_once_1000(b: &mut Bencher) {
-    ordmap_insert_once_n(1000, b)
+fn bench_iter<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    let keys = K::generate(size);
+    let values = V::generate(size);
+    let m: M = keys.into_iter().zip(values).collect();
+    b.iter(|| {
+        for p in m.iter() {
+            black_box(p);
+        }
+    })
 }
 
-#[bench]
-fn ordmap_insert_once_10000(b: &mut Bencher) {
-    ordmap_insert_once_n(10000, b)
+fn bench_range_iter<M, K, V>(b: &mut Bencher, size: usize)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    let keys = K::generate(size);
+    let values = V::generate(size);
+    let order = reorder(&keys);
+    let m: M = keys.into_iter().zip(values).collect();
+    b.iter(|| {
+        for k in order.iter().take(10) {
+            for p in m.range(k..).take(100) {
+                black_box(p);
+            }
+        }
+    })
 }
 
-fn ordmap_remove_once_n(size: usize, b: &mut Bencher) {
-    let keys = random_keys(size + 1);
-    let key = keys[0];
-    let map: OrdMap<i64, i64> = OrdMap::from_iter(keys.into_iter().map(|i| (i, i)));
-    b.iter(|| map.without(&key))
+// Benchmark functions for each map type
+fn bench_ordmap(c: &mut Criterion) {
+    bench_group::<OrdMap<i64, i64>, i64, i64>(c, "ordmap_i64");
+    bench_group::<OrdMap<Arc<String>, Arc<String>>, Arc<String>, Arc<String>>(c, "ordmap_str");
 }
 
-#[bench]
-fn ordmap_remove_once_100(b: &mut Bencher) {
-    ordmap_remove_once_n(100, b)
+fn bench_rpds(c: &mut Criterion) {
+    bench_group::<RedBlackTreeMapSync<i64, i64>, i64, i64>(c, "rpds_i64");
+    bench_group::<RedBlackTreeMapSync<Arc<String>, Arc<String>>, Arc<String>, Arc<String>>(
+        c, "rpds_str",
+    );
 }
 
-#[bench]
-fn ordmap_remove_once_1000(b: &mut Bencher) {
-    ordmap_remove_once_n(1000, b)
+fn bench_btreemap(c: &mut Criterion) {
+    bench_group::<BTreeMap<i64, i64>, i64, i64>(c, "btreemap_i64");
+    bench_group::<BTreeMap<Arc<String>, Arc<String>>, Arc<String>, Arc<String>>(c, "btreemap_str");
 }
 
-#[bench]
-fn ordmap_remove_once_10000(b: &mut Bencher) {
-    ordmap_remove_once_n(10000, b)
+// Helper function to run all benchmarks for a specific map/key/value type
+fn bench_group<M, K, V>(c: &mut Criterion, group_name: &str)
+where
+    M: BenchMap<K, V>,
+    K: TestData,
+    V: TestData,
+{
+    let mut group = c.benchmark_group(group_name);
+
+    for size in &[100, 1000, 10000, 100000] {
+        group.bench_function(&format!("lookup_{}", size), |b| {
+            bench_lookup::<M, K, V>(b, *size)
+        });
+    }
+
+    for size in &[10000, 100000] {
+        group.bench_function(&format!("lookup_ne_{}", size), |b| {
+            bench_lookup_ne::<M, K, V>(b, *size)
+        });
+    }
+
+    for size in &[100, 1000, 10000, 100000] {
+        group.bench_function(&format!("insert_mut_{}", size), |b| {
+            bench_insert_mut::<M, K, V>(b, *size)
+        });
+    }
+
+    for size in &[100, 1000, 10000] {
+        group.bench_function(&format!("remove_mut_{}", size), |b| {
+            bench_remove_mut::<M, K, V>(b, *size)
+        });
+    }
+
+    for size in &[1000, 10000] {
+        group.bench_function(&format!("iter_{}", size), |b| {
+            bench_iter::<M, K, V>(b, *size)
+        });
+    }
+
+    for size in &[100, 1000, 10000, 100000] {
+        group.bench_function(&format!("range_iter_{}", size), |b| {
+            bench_range_iter::<M, K, V>(b, *size)
+        });
+    }
+
+    if M::IMMUTABLE {
+        for size in &[100, 1000, 10000] {
+            group.bench_function(&format!("insert_{}", size), |b| {
+                bench_insert::<M, K, V>(b, *size)
+            });
+
+            group.bench_function(&format!("remove_{}", size), |b| {
+                bench_remove::<M, K, V>(b, *size)
+            });
+
+            group.bench_function(&format!("insert_once_{}", size), |b| {
+                bench_insert_once::<M, K, V>(b, *size)
+            });
+
+            group.bench_function(&format!("remove_once_{}", size), |b| {
+                bench_remove_once::<M, K, V>(b, *size)
+            });
+        }
+
+        for size in &[1000] {
+            group.bench_function(&format!("remove_min_{}", size), |b| {
+                bench_remove_min::<M, K, V>(b, *size)
+            });
+
+            group.bench_function(&format!("remove_max_{}", size), |b| {
+                bench_remove_max::<M, K, V>(b, *size)
+            });
+        }
+    }
+
+    group.finish();
 }
 
-#[bench]
-fn ordmap_remove_once_100000(b: &mut Bencher) {
-    ordmap_remove_once_n(100000, b)
+// Main benchmark entry point
+fn ordmap_benches(c: &mut Criterion) {
+    bench_ordmap(c);
+
+    if std::env::var("BENCH_STD").is_ok() {
+        bench_btreemap(c);
+    }
+
+    if std::env::var("BENCH_RPDS").is_ok() {
+        bench_rpds(c);
+    }
 }
 
-fn ordmap_lookup_once_n(size: usize, b: &mut Bencher) {
-    let keys = random_keys(size + 1);
-    let key = keys[0];
-    let map: OrdMap<i64, i64> = OrdMap::from_iter(keys.into_iter().map(|i| (i, i)));
-    b.iter(|| map.get(&key))
-}
-
-#[bench]
-fn ordmap_lookup_once_100(b: &mut Bencher) {
-    ordmap_lookup_once_n(100, b)
-}
-
-#[bench]
-fn ordmap_lookup_once_1000(b: &mut Bencher) {
-    ordmap_lookup_once_n(1000, b)
-}
-
-#[bench]
-fn ordmap_lookup_once_10000(b: &mut Bencher) {
-    ordmap_lookup_once_n(10000, b)
-}
-
-#[bench]
-fn ordmap_lookup_once_100000(b: &mut Bencher) {
-    ordmap_lookup_once_n(100000, b)
-}
-
-fn ordmap_iter(size: usize, b: &mut Bencher) {
-    let keys = random_keys(size);
-    let m: OrdMap<i64, i64> = OrdMap::from_iter(keys.into_iter().map(|i| (i, 1)));
-    b.iter(|| for _ in m.iter() {})
-}
-
-#[bench]
-fn ordmap_iter_100(b: &mut Bencher) {
-    ordmap_iter(100, b)
-}
-
-#[bench]
-fn ordmap_iter_1000(b: &mut Bencher) {
-    ordmap_iter(1000, b)
-}
-
-#[bench]
-fn ordmap_iter_10000(b: &mut Bencher) {
-    ordmap_iter(10000, b)
-}
-
-fn ordmap_range_iter(size: usize, b: &mut Bencher) {
-    let keys = random_keys(size);
-    let m: OrdMap<i64, i64> = OrdMap::from_iter(keys.into_iter().map(|i| (i, 1)));
-    b.iter(|| for _ in m.range(..) {})
-}
-
-#[bench]
-fn ordmap_range_iter_100(b: &mut Bencher) {
-    ordmap_range_iter(100, b)
-}
-
-#[bench]
-fn ordmap_range_iter_1000(b: &mut Bencher) {
-    ordmap_range_iter(1000, b)
-}
-
-#[bench]
-fn ordmap_range_iter_10000(b: &mut Bencher) {
-    ordmap_range_iter(10000, b)
-}
-
-#[bench]
-fn ordmap_range_iter_100000(b: &mut Bencher) {
-    ordmap_range_iter(100000, b)
-}
+criterion_group!(benches, ordmap_benches);
+criterion_main!(benches);

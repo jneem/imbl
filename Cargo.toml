@@ -61,6 +61,11 @@ pretty_assertions = "1.0"
 metrohash = "1"
 proptest-derive = "0.6"
 static_assertions = "1.1.0"
+# criterion, rpds and half versions are fixed to the latest versions
+# that work with the current minimum Rust version
+criterion = "0.5"
+rpds = { version = "=1.1.0" }
+half = "=2.4"
 
 # Include debug symbols when benchmarking, this is useful for profiling
 [profile.bench]
@@ -68,3 +73,15 @@ debug = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
+[[bench]]
+name = "ordmap"
+harness = false
+
+[[bench]]
+name = "hashmap"
+harness = false
+
+[[bench]]
+name = "vector"
+harness = false

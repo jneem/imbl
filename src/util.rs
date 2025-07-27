@@ -4,7 +4,6 @@
 
 // Every codebase needs a `util` module.
 
-use std::cmp::Ordering;
 use std::ops::{Bound, Range, RangeBounds};
 
 use archery::{SharedPointer, SharedPointerKind};
@@ -21,25 +20,6 @@ where
 pub(crate) enum Side {
     Left,
     Right,
-}
-
-#[allow(dead_code)]
-pub(crate) fn linear_search_by<'a, A, I, F>(iterable: I, mut cmp: F) -> Result<usize, usize>
-where
-    A: 'a,
-    I: IntoIterator<Item = &'a A>,
-    F: FnMut(&A) -> Ordering,
-{
-    let mut pos = 0;
-    for value in iterable {
-        match cmp(value) {
-            Ordering::Equal => return Ok(pos),
-            Ordering::Greater => return Err(pos),
-            Ordering::Less => {}
-        }
-        pos += 1;
-    }
-    Err(pos)
 }
 
 pub(crate) fn to_range<R>(range: &R, right_unbounded: usize) -> Range<usize>
@@ -62,7 +42,7 @@ where
 #[cfg(test)]
 macro_rules! assert_covariant {
     ($name:ident<$($gen:tt),*> in $param:ident) => {
-        #[allow(unused_assignments, unused_variables)]
+        #[allow(dead_code, unused_assignments, unused_variables)]
         const _: () = {
             type Tmp<$param> = $name<$($gen),*>;
             fn assign<'a, 'b: 'a>(src: Tmp<&'b i32>, mut dst: Tmp<&'a i32>) {
