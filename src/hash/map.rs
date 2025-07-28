@@ -371,7 +371,7 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get<BK>(&self, key: &BK) -> Option<&V>
+    pub fn get<'a, BK>(&'a self, key: &BK) -> Option<&'a V>
     where
         BK: Hash + Eq + ?Sized,
         K: Borrow<BK>,
@@ -400,7 +400,7 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_key_value<BK>(&self, key: &BK) -> Option<(&K, &V)>
+    pub fn get_key_value<'a, BK>(&'a self, key: &BK) -> Option<(&'a K, &'a V)>
     where
         BK: Hash + Eq + ?Sized,
         K: Borrow<BK>,
@@ -573,7 +573,7 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_mut<BK>(&mut self, key: &BK) -> Option<&mut V>
+    pub fn get_mut<'a, BK>(&'a mut self, key: &BK) -> Option<&'a mut V>
     where
         BK: Hash + Eq + ?Sized,
         K: Borrow<BK>,
@@ -597,7 +597,7 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_key_value_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub fn get_key_value_mut<'a, BK>(&'a mut self, key: &BK) -> Option<(&'a K, &'a mut V)>
     where
         BK: Hash + Eq + ?Sized,
         K: Borrow<BK>,
