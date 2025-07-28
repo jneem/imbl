@@ -226,16 +226,20 @@ where
         self.insert(k, v)
     }
 
-    fn insert_clone(&self, _k: K, _v: V) -> Self {
-        Self::new()
+    fn insert_clone(&self, k: K, v: V) -> Self {
+        let mut ret = self.clone();
+        ret.insert(k, v);
+        ret
     }
 
     fn remove(&mut self, k: &K) -> Option<V> {
         self.remove(k)
     }
 
-    fn remove_clone(&self, _k: &K) -> Self {
-        Self::new()
+    fn remove_clone(&self, k: &K) -> Self {
+        let mut ret = self.clone();
+        ret.remove(k);
+        ret
     }
 
     fn get<Q>(&self, k: &Q) -> Option<&V>
@@ -259,11 +263,23 @@ where
     }
 
     fn without_min(&self) -> (Option<(K, V)>, Self) {
-        unreachable!()
+        let mut ret = self.clone();
+        if let Some(o) = ret.first_entry() {
+            let (k, v) = o.remove_entry();
+            (Some((k, v)), ret)
+        } else {
+            (None, ret)
+        }
     }
 
     fn without_max(&self) -> (Option<(K, V)>, Self) {
-        unreachable!()
+        let mut ret = self.clone();
+        if let Some(o) = ret.last_entry() {
+            let (k, v) = o.remove_entry();
+            (Some((k, v)), ret)
+        } else {
+            (None, ret)
+        }
     }
 }
 
@@ -308,9 +324,6 @@ where
     K: TestData,
     V: TestData,
 {
-    if !M::IMMUTABLE {
-        return; // Skip for non-immutable maps
-    }
     let keys = K::generate(size);
     let values = V::generate(size);
     b.iter(|| {
@@ -345,9 +358,6 @@ where
     K: TestData,
     V: TestData,
 {
-    if !M::IMMUTABLE {
-        return; // Skip for non-immutable maps
-    }
     let keys = K::generate(size);
     let values = V::generate(size);
     let order = reorder(&keys);
@@ -386,9 +396,6 @@ where
     K: TestData,
     V: TestData,
 {
-    if !M::IMMUTABLE {
-        return; // Skip for non-immutable maps
-    }
     let keys = K::generate(size);
     let values = V::generate(size);
     let map: M = keys.into_iter().zip(values).collect();

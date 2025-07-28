@@ -104,16 +104,20 @@ where
         self.insert(k, v)
     }
 
-    fn insert_clone(&self, _k: K, _v: V) -> Self {
-        Self::new()
+    fn insert_clone(&self, k: K, v: V) -> Self {
+        let mut ret = self.clone();
+        ret.insert(k, v);
+        ret
     }
 
     fn remove(&mut self, k: &K) -> Option<V> {
         self.remove(k)
     }
 
-    fn remove_clone(&self, _k: &K) -> Self {
-        Self::new()
+    fn remove_clone(&self, k: &K) -> Self {
+        let mut ret = self.clone();
+        ret.remove(k);
+        ret
     }
 
     fn get<Q>(&self, k: &Q) -> Option<&V>
@@ -220,9 +224,6 @@ where
     K: TestData,
     V: TestData,
 {
-    if !M::IMMUTABLE {
-        return; // Skip for non-immutable maps
-    }
     let keys = K::generate(size);
     let values = V::generate(size);
     b.iter(|| {
@@ -257,9 +258,6 @@ where
     K: TestData,
     V: TestData,
 {
-    if !M::IMMUTABLE {
-        return; // Skip for non-immutable maps
-    }
     let keys = K::generate(size);
     let values = V::generate(size);
     let order = reorder(&keys);
