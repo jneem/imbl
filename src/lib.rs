@@ -284,9 +284,11 @@
 //!
 //! The data structures in `imbl` are thread safe by default using
 //! [`Arc`][std::sync::Arc]. However, `imbl` also supports `Rc` as the pointer
-//! type through the [`archery`][archery] crate, just like `im-rc` in the original `im` crate.
-//! You can use [`GenericVector<T, shared_pointer::RcK>`][vector::GenericVector]
-//! instead of the type alias [`Vector`][vector::Vector]. Otherwise, you can create
+//! type through the [`archery`][archery] crate, just like `im-rc` in the original 
+//! `im` crate. If you prioritise speed over thread safety, you can use 
+//! [`GenericVector<T, shared_pointer::RcK>`][vector::GenericVector] that uses 
+//! non-threadsafe but faster `Rc`, instead of the type alias 
+//! [`Vector`][vector::Vector]. You can also create
 //! your own type alias for that. It can be done on other types too.
 //!
 //! ## Feature Flags
