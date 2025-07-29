@@ -420,9 +420,9 @@ mod tests;
 /// # }
 /// ```
 ///
-/// [Vector]: ../vector/enum.Vector.html
-/// [HashMap]: ../hashmap/struct.HashMap.html
-/// [OrdMap]: ../ordmap/struct.OrdMap.html
+/// [Vector]: ../vector/type.Vector.html
+/// [HashMap]: ../hashmap/type.HashMap.html
+/// [OrdMap]: ../ordmap/type.OrdMap.html
 #[macro_export]
 macro_rules! update_in {
     ($target:expr, $path:expr => $($tail:tt) => *, $value:expr ) => {{
@@ -455,9 +455,9 @@ macro_rules! update_in {
 /// # }
 /// ```
 ///
-/// [Vector]: ../vector/enum.Vector.html
-/// [HashMap]: ../hashmap/struct.HashMap.html
-/// [OrdMap]: ../ordmap/struct.OrdMap.html
+/// [Vector]: ../vector/type.Vector.html
+/// [HashMap]: ../hashmap/type.HashMap.html
+/// [OrdMap]: ../ordmap/type.OrdMap.html
 #[macro_export]
 macro_rules! get_in {
     ($target:expr, $path:expr => $($tail:tt) => * ) => {{

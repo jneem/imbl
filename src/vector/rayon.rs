@@ -40,7 +40,7 @@ where
 
 /// A parallel iterator for [`Vector`][Vector].
 ///
-/// [Vector]: ../struct.Vector.html
+/// [Vector]: ../type.Vector.html
 pub struct ParIter<'a, A, P: SharedPointerKind>
 where
     A: Clone + Send + Sync,
@@ -89,7 +89,7 @@ where
 
 /// A mutable parallel iterator for [`Vector`][Vector].
 ///
-/// [Vector]: ../struct.Vector.html
+/// [Vector]: ../type.Vector.html
 pub struct ParIterMut<'a, A, P>
 where
     A: Clone + Send + Sync,
