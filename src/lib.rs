@@ -282,10 +282,12 @@
 //!
 //! ## Thread Safety
 //!
-//! The data structures in the `imbl` crate are thread safe, through [`Arc`][std::sync::Arc]. This
-//! comes with a slight performance impact. The original `im` crate had a non-threadsafe version
-//! called `im-rc`. If you prioritise speed over thread safety, you may want to use that crate
-//! instead.  We intend to eventually support a faster, non-threadsafe version of `imbl`.
+//! The data structures in `imbl` are thread safe by default using
+//! [`Arc`][std::sync::Arc]. However, `imbl` also supports `Rc` as the pointer
+//! type through the [`archery`][archery] crate, just like `im-rc` in the original `im` crate.
+//! You can use [`GenericVector<T, shared_pointer::RcK>`][vector::GenericVector]
+//! instead of the type alias [`Vector`][vector::Vector]. Otherwise, you can create
+//! your own type alias for that. It can be done on other types too.
 //!
 //! ## Feature Flags
 //!
@@ -320,12 +322,14 @@
 //! [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
 //! [std::marker::Send]: https://doc.rust-lang.org/std/marker/trait.Send.html
 //! [std::marker::Sync]: https://doc.rust-lang.org/std/marker/trait.Sync.html
-//! [hashmap::HashMap]: ./struct.HashMap.html
-//! [hashset::HashSet]: ./struct.HashSet.html
-//! [ordmap::OrdMap]: ./struct.OrdMap.html
-//! [ordset::OrdSet]: ./struct.OrdSet.html
-//! [vector::Vector]: ./struct.Vector.html
-//! [vector::Vector::push_back]: ./vector/enum.Vector.html#method.push_back
+//! [hashmap::HashMap]: ./type.HashMap.html
+//! [hashset::HashSet]: ./type.HashSet.html
+//! [ordmap::OrdMap]: ./type.OrdMap.html
+//! [ordset::OrdSet]: ./type.OrdSet.html
+//! [vector::Vector]: ./type.Vector.html
+//! [vector::Vector::push_back]: ./vector/type.Vector.html#method.push_back
+//! [archery]: https://docs.rs/archery/latest/
+//! [vector::GenericVector]: ./struct.GenericVector.html
 //! [rrb-tree]: https://infoscience.epfl.ch/record/213452/files/rrbvector.pdf
 //! [hamt]: https://en.wikipedia.org/wiki/Hash_array_mapped_trie
 //! [b+tree]: https://en.wikipedia.org/wiki/B%2B_tree
