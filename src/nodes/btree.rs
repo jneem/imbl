@@ -648,7 +648,7 @@ impl<K: Ord + Clone, V: Clone> Leaf<K, V> {
 }
 
 impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Node<K, V, P> {
-    pub(crate) fn lookup_mut<'a, BK>(&'a mut self, key: &BK) -> Option<(&'a K, &'a mut V)>
+    pub(crate) fn lookup_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
     where
         BK: Ord + ?Sized,
         K: Borrow<BK>,
