@@ -39,7 +39,7 @@
 //! will be shared between them. This implies that making copies of an
 //! immutable data structure is cheap: it's really only a matter of
 //! copying a pointer and increasing a reference counter, where in the
-//! case of [`Vec`][std::vec::Vec] you have to allocate the same
+//! case of [`Vec`] you have to allocate the same
 //! amount of memory all over again and make a copy of every element
 //! it contains. For immutable data structures, extra memory isn't
 //! allocated until you modify either the copy or the original, and
@@ -58,39 +58,39 @@
 //! data structures which deliver the least chance of accidentally
 //! using them for the wrong thing.
 //!
-//! For instance, [`Vec`][std::vec::Vec] beats everything at memory
+//! For instance, [`Vec`] beats everything at memory
 //! usage, indexing and operations that happen at the back of the
 //! list, but is terrible at insertion and removal, and gets worse the
 //! closer to the front of the list you get.
-//! [`VecDeque`][std::collections::VecDeque] adds a little bit of
+//! [`VecDeque`](std::collections::VecDeque) adds a little bit of
 //! complexity in order to make operations at the front as efficient
 //! as operations at the back, but is still bad at insertion and
-//! especially concatenation. [`Vector`][vector::Vector] adds another
-//! bit of complexity, and could never match [`Vec`][std::vec::Vec] at
+//! especially concatenation. [`Vector`] adds another
+//! bit of complexity, and could never match [`Vec`] at
 //! what it's best at, but in return every operation you can throw at
 //! it can be completed in a reasonable amount of time - even normally
 //! expensive operations like copying and especially concatenation are
-//! reasonably cheap when using a [`Vector`][vector::Vector].
+//! reasonably cheap when using a [`Vector`].
 //!
 //! It should be noted, however, that because of its simplicity,
-//! [`Vec`][std::vec::Vec] actually beats [`Vector`][vector::Vector] even at its
+//! [`Vec`] actually beats [`Vector`] even at its
 //! strongest operations at small sizes, just because modern CPUs are
 //! hyperoptimised for things like copying small chunks of contiguous memory -
 //! you actually need to go past a certain size (usually in the vicinity of
 //! several hundred elements) before you get to the point where
-//! [`Vec`][std::vec::Vec] isn't always going to be the fastest choice.
-//! [`Vector`][vector::Vector] attempts to overcome this by actually just being
+//! [`Vec`] isn't always going to be the fastest choice.
+//! [`Vector`] attempts to overcome this by actually just being
 //! an array at very small sizes, and being able to switch efficiently to the
 //! full data structure when it grows large enough. Thus,
-//! [`Vector`][vector::Vector] will actually be equivalent to
-//! [Vec][std::vec::Vec] until it grows past the size of a single chunk.
+//! [`Vector`] will actually be equivalent to
+//! [Vec] until it grows past the size of a single chunk.
 //!
-//! The maps - [`HashMap`][hashmap::HashMap] and
-//! [`OrdMap`][ordmap::OrdMap] - generally perform similarly to their
+//! The maps - [`HashMap`] and
+//! [`OrdMap`] - generally perform similarly to their
 //! equivalents in the standard library, but tend to run a bit slower
-//! on the basic operations ([`HashMap`][hashmap::HashMap] is almost
+//! on the basic operations ([`HashMap`] is almost
 //! neck and neck with its counterpart, while
-//! [`OrdMap`][ordmap::OrdMap] currently tends to run 2-3x slower). On
+//! [`OrdMap`] currently tends to run 2-3x slower). On
 //! the other hand, they offer the cheap copy and structural sharing
 //! between copies that you'd expect from immutable data structures.
 //!
@@ -105,13 +105,13 @@
 //!
 //! Because we need to make copies of shared nodes in these data structures
 //! before updating them, the values you store in them must implement
-//! [`Clone`][std::clone::Clone].  For primitive values that implement
-//! [`Copy`][std::marker::Copy], such as numbers, everything is fine: this is
+//! [`Clone`].  For primitive values that implement
+//! [`Copy`], such as numbers, everything is fine: this is
 //! the case for which the data structures are optimised, and performance is
 //! going to be great.
 //!
 //! On the other hand, if you want to store values for which cloning is
-//! expensive, or values that don't implement [`Clone`][std::clone::Clone], you
+//! expensive, or values that don't implement [`Clone`], you
 //! need to wrap them in [`Rc`][std::rc::Rc] or [`Arc`][std::sync::Arc]. Thus,
 //! if you have a complex structure `BigBlobOfData` and you want to store a list
 //! of them as a `Vector<BigBlobOfData>`, you should instead use a
@@ -121,12 +121,11 @@
 //! reference counted copy around instead.
 //!
 //! If you're storing smaller values that aren't
-//! [`Copy`][std::marker::Copy]able, you'll need to exercise judgement: if your
+//! [`Copy`]able, you'll need to exercise judgement: if your
 //! values are going to be very cheap to clone, as would be the case for short
-//! [`String`][std::string::String]s or small [`Vec`][std::vec::Vec]s, you're
-//! probably better off storing them directly without wrapping them in an
-//! [`Rc`][std::rc::Rc], because, like the [`Rc`][std::rc::Rc], they're just
-//! pointers to some data on the heap, and that data isn't expensive to clone -
+//! [`String`] or small [`Vec`]s, you're probably better off storing them directly
+//! without wrapping them in an [`Rc`][std::rc::Rc], because, like the [`Rc`][std::rc::Rc],
+// they're just pointers to some data on the heap, and that data isn't expensive to clone -
 //! you might actually lose more performance from the extra redirection of
 //! wrapping them in an [`Rc`][std::rc::Rc] than you would from occasionally
 //! cloning them.
@@ -134,10 +133,10 @@
 //! ### When does cloning happen?
 //!
 //! So when will your values actually be cloned? The easy answer is only if you
-//! [`clone`][std::clone::Clone::clone] the data structure itself, and then only
+//! [`clone`][Clone::clone] the data structure itself, and then only
 //! lazily as you change it. Values are stored in tree nodes inside the data
 //! structure, each node of which contains up to 64 values. When you
-//! [`clone`][std::clone::Clone::clone] a data structure, nothing is actually
+//! [`clone`][Clone::clone] a data structure, nothing is actually
 //! copied - it's just the reference count on the root node that's incremented,
 //! to indicate that it's shared between two data structures. It's only when you
 //! actually modify one of the shared data structures that nodes are cloned:
@@ -203,7 +202,7 @@
 //! *O(1)** means 'amortised O(1),' which means that an operation
 //! usually runs in constant time but will occasionally be more
 //! expensive: for instance,
-//! [`Vector::push_back`][vector::Vector::push_back], if called in
+//! [`Vector::push_back`], if called in
 //! sequence, will be O(1) most of the time but every 64th time it
 //! will be O(log n), as it fills up its tail chunk and needs to
 //! insert it into the tree. Please note that the O(1) with the
@@ -215,13 +214,13 @@
 //!
 //! Lists are sequences of single elements which maintain the order in
 //! which you inserted them. The only list in this library is
-//! [`Vector`][vector::Vector], which offers the best all round
+//! [`Vector`], which offers the best all round
 //! performance characteristics: it's pretty good at everything, even
 //! if there's always another kind of list that's better at something.
 //!
 //! | Type | Algorithm | Constraints | Order | Push | Pop | Split | Append | Lookup |
 //! | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-//! | [`Vector<A>`][vector::Vector] | [RRB tree][rrb-tree] | [`Clone`][std::clone::Clone] | insertion | O(1)\* | O(1)\* | O(log n) | O(log n) | O(log n) |
+//! | [`Vector<A>`] | [RRB tree][rrb-tree] | [`Clone`] | insertion | O(1)\* | O(1)\* | O(log n) | O(log n) | O(log n) |
 //!
 //! ### Maps
 //!
@@ -233,8 +232,8 @@
 //!
 //! | Type | Algorithm | Key Constraints | Order | Insert | Remove | Lookup |
 //! | --- | --- | --- | --- | --- | --- | --- |
-//! | [`HashMap<K, V>`][hashmap::HashMap] | [HAMT][hamt] | [`Clone`][std::clone::Clone] + [`Hash`][std::hash::Hash] + [`Eq`][std::cmp::Eq] | undefined | O(log n) | O(log n) | O(log n) |
-//! | [`OrdMap<K, V>`][ordmap::OrdMap] | [B+tree][b+tree] | [`Clone`][std::clone::Clone] + [`Ord`][std::cmp::Ord] | sorted | O(log n) | O(log n) | O(log n) |
+//! | [`HashMap<K, V>`] | [HAMT][hamt] | [`Clone`] + [`Hash`][std::hash::Hash] + [`Eq`] | undefined | O(log n) | O(log n) | O(log n) |
+//! | [`OrdMap<K, V>`] | [B+tree][b+tree] | [`Clone`] + [`Ord`] | sorted | O(log n) | O(log n) | O(log n) |
 //!
 //! ### Sets
 //!
@@ -244,8 +243,8 @@
 //!
 //! | Type | Algorithm | Constraints | Order | Insert | Remove | Lookup |
 //! | --- | --- | --- | --- | --- | --- | --- |
-//! | [`HashSet<A>`][hashset::HashSet] | [HAMT][hamt] | [`Clone`][std::clone::Clone] + [`Hash`][std::hash::Hash] + [`Eq`][std::cmp::Eq] | undefined | O(log n) | O(log n) | O(log n) |
-//! | [`OrdSet<A>`][ordset::OrdSet] | [B+tree][b+tree] | [`Clone`][std::clone::Clone] + [`Ord`][std::cmp::Ord] | sorted | O(log n) | O(log n) | O(log n) |
+//! | [`HashSet<A>`] | [HAMT][hamt] | [`Clone`] + [`Hash`][std::hash::Hash] + [`Eq`] | undefined | O(log n) | O(log n) | O(log n) |
+//! | [`OrdSet<A>`] | [B+tree][b+tree] | [`Clone`] + [`Ord`] | sorted | O(log n) | O(log n) | O(log n) |
 //!
 //! ## In-place Mutation
 //!
@@ -255,7 +254,7 @@
 //! performance hit of making a copy of the data structure before
 //! modifying it (this is about an order of magnitude faster than
 //! immutable operations, almost as fast as
-//! [`std::collections`][std::collections]'s mutable data structures).
+//! [`std::collections`]'s mutable data structures).
 //!
 //! Thanks to [`Rc`][std::rc::Rc]'s reference counting, we are able to
 //! determine whether a node in a data structure is being shared with
@@ -278,18 +277,18 @@
 //! think about this kind of managed scope, it's all taken care of
 //! behind the scenes because of our low level access to the garbage
 //! collector (which, in our case, is just a simple
-//! [`Rc`][std::rc::Rc]).
+//! [`Rc`](std::rc::Rc)).
 //!
 //! ## Thread Safety
 //!
 //! The data structures in `imbl` are thread safe by default using
-//! [`Arc`][std::sync::Arc]. However, `imbl` also supports `Rc` as the pointer
-//! type through the [`archery`][archery] crate, just like `im-rc` in the original
+//! [`Arc`](std::sync::Arc). However, `imbl` also supports `Rc` as the pointer
+//! type through the [`archery`] crate, just like `im-rc` in the original
 //! `im` crate. If you prioritise speed over thread safety, you can use
-//! [`GenericVector<T, shared_pointer::RcK>`][vector::GenericVector] that uses
+//! [`GenericVector<T, shared_pointer::RcK>`](vector::GenericVector) that uses
 //! non-threadsafe but faster `Rc`, instead of the type alias
-//! [`Vector`][vector::Vector]. You can also create
-//! your own type alias for that. It can be done on other types too.
+//! [`Vector`]. You can also create your own type alias for that.
+//!  It can be done on other types too.
 //!
 //! ## Feature Flags
 //!
@@ -305,33 +304,11 @@
 //! | ------- | ----------- |
 //! | [`proptest`](https://crates.io/crates/proptest) | Strategies for all `imbl` datatypes under a `proptest` namespace, eg. `imbl::vector::proptest::vector()` |
 //! | [`quickcheck`](https://crates.io/crates/quickcheck) | [`quickcheck::Arbitrary`](https://docs.rs/quickcheck/latest/quickcheck/trait.Arbitrary.html) implementations for all `imbl` datatypes |
-//! | [`rayon`](https://crates.io/crates/rayon) | parallel iterator implementations for [`Vector`][vector::Vector] |
+//! | [`rayon`](https://crates.io/crates/rayon) | parallel iterator implementations for [`Vector`] |
 //! | [`serde`](https://crates.io/crates/serde) | [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) and [`Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) implementations for all `imbl` datatypes |
 //! | [`arbitrary`](https://crates.io/crates/arbitrary/) | [`arbitrary::Arbitrary`](https://docs.rs/arbitrary/latest/arbitrary/trait.Arbitrary.html) implementations for all `imbl` datatypes |
 //! | [`triomphe`](https://crates.io/crates/triomphe/) | Use [`triomphe::Arc`](https://docs.rs/triomphe/latest/triomphe/struct.Arc.html) for the default shared pointer. This is a drop-in replacement for [`std::sync::Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html) that is faster in some cases. |
 //!
-//! [std::collections]: https://doc.rust-lang.org/std/collections/index.html
-//! [std::collections::VecDeque]: https://doc.rust-lang.org/std/collections/struct.VecDeque.html
-//! [std::vec::Vec]: https://doc.rust-lang.org/std/vec/struct.Vec.html
-//! [std::string::String]: https://doc.rust-lang.org/std/string/struct.String.html
-//! [std::rc::Rc]: https://doc.rust-lang.org/std/rc/struct.Rc.html
-//! [std::sync::Arc]: https://doc.rust-lang.org/std/sync/struct.Arc.html
-//! [std::cmp::Eq]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-//! [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
-//! [std::clone::Clone]: https://doc.rust-lang.org/std/clone/trait.Clone.html
-//! [std::clone::Clone::clone]: https://doc.rust-lang.org/std/clone/trait.Clone.html#tymethod.clone
-//! [std::marker::Copy]: https://doc.rust-lang.org/std/marker/trait.Copy.html
-//! [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-//! [std::marker::Send]: https://doc.rust-lang.org/std/marker/trait.Send.html
-//! [std::marker::Sync]: https://doc.rust-lang.org/std/marker/trait.Sync.html
-//! [hashmap::HashMap]: ./type.HashMap.html
-//! [hashset::HashSet]: ./type.HashSet.html
-//! [ordmap::OrdMap]: ./type.OrdMap.html
-//! [ordset::OrdSet]: ./type.OrdSet.html
-//! [vector::Vector]: ./type.Vector.html
-//! [vector::Vector::push_back]: ./vector/type.Vector.html#method.push_back
-//! [archery]: https://docs.rs/archery/latest/
-//! [vector::GenericVector]: ./struct.GenericVector.html
 //! [rrb-tree]: https://infoscience.epfl.ch/record/213452/files/rrbvector.pdf
 //! [hamt]: https://en.wikipedia.org/wiki/Hash_array_mapped_trie
 //! [b+tree]: https://en.wikipedia.org/wiki/B%2B_tree
@@ -401,7 +378,7 @@ mod tests;
 
 /// Update a value inside multiple levels of data structures.
 ///
-/// This macro takes a [`Vector`][Vector], [`OrdMap`][OrdMap] or [`HashMap`][HashMap],
+/// This macro takes a [`Vector`], [`OrdMap`] or [`HashMap`],
 /// a key or a series of keys, and a value, and returns the data structure with the
 /// new value at the location described by the keys.
 ///
@@ -422,9 +399,7 @@ mod tests;
 /// # }
 /// ```
 ///
-/// [Vector]: ../vector/type.Vector.html
-/// [HashMap]: ../hashmap/type.HashMap.html
-/// [OrdMap]: ../ordmap/type.OrdMap.html
+
 #[macro_export]
 macro_rules! update_in {
     ($target:expr, $path:expr => $($tail:tt) => *, $value:expr ) => {{
@@ -439,7 +414,7 @@ macro_rules! update_in {
 
 /// Get a value inside multiple levels of data structures.
 ///
-/// This macro takes a [`Vector`][Vector], [`OrdMap`][OrdMap] or [`HashMap`][HashMap],
+/// This macro takes a [`Vector`], [`OrdMap`] or [`HashMap`],
 /// along with a key or a series of keys, and returns the value at the location inside
 /// the data structure described by the key sequence, or `None` if any of the keys didn't
 /// exist.
@@ -456,10 +431,7 @@ macro_rules! update_in {
 /// assert_eq!(Some(&6), get_in![vec_inside_vec, 1 => 2]);
 /// # }
 /// ```
-///
-/// [Vector]: ../vector/type.Vector.html
-/// [HashMap]: ../hashmap/type.HashMap.html
-/// [OrdMap]: ../ordmap/type.OrdMap.html
+
 #[macro_export]
 macro_rules! get_in {
     ($target:expr, $path:expr => $($tail:tt) => * ) => {{
