@@ -43,6 +43,24 @@ jobs:
         run: |
           cargo test --no-run --all-targets
 
+  doc:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, beta, nightly, 1.77]
+        os: [ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      - name: Build docs
+        run: |
+          cargo doc
+
   clippy:
     runs-on: ubuntu-latest
     steps:
