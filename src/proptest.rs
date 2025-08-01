@@ -24,7 +24,7 @@ use std::ops::Range;
 /// }
 /// ```
 ///
-/// [Vector]: ../struct.Vector.html
+/// [Vector]: ../type.Vector.html
 pub fn vector<A: Strategy + 'static>(
     element: A,
     size: Range<usize>,
@@ -50,7 +50,7 @@ where
 /// }
 /// ```
 ///
-/// [OrdMap]: ../struct.OrdMap.html
+/// [OrdMap]: ../type.OrdMap.html
 pub fn ord_map<K: Strategy + 'static, V: Strategy + 'static>(
     key: K,
     value: V,
@@ -83,7 +83,7 @@ where
 /// }
 /// ```
 ///
-/// [OrdSet]: ../struct.OrdSet.html
+/// [OrdSet]: ../type.OrdSet.html
 pub fn ord_set<A: Strategy + 'static>(
     element: A,
     size: Range<usize>,
@@ -114,7 +114,7 @@ where
 /// }
 /// ```
 ///
-/// [HashMap]: ../struct.HashMap.html
+/// [HashMap]: ../type.HashMap.html
 pub fn hash_map<K: Strategy + 'static, V: Strategy + 'static>(
     key: K,
     value: V,
@@ -147,7 +147,7 @@ where
 /// }
 /// ```
 ///
-/// [HashSet]: ../struct.HashSet.html
+/// [HashSet]: ../type.HashSet.html
 pub fn hash_set<A: Strategy + 'static>(
     element: A,
     size: Range<usize>,

@@ -93,7 +93,7 @@ fn check_indices<const N: usize>(len: usize, indices: &[usize; N]) -> Option<()>
 /// assert_eq!(499500, sum);
 /// ```
 ///
-/// [Vector]: enum.Vector.html
+/// [Vector]: type.Vector.html
 /// [Iter]: struct.Iter.html
 /// [narrow]: #method.narrow
 /// [split_at]: #method.split_at
@@ -112,7 +112,7 @@ where
 {
     /// Construct a `Focus` for a [`Vector`][Vector].
     ///
-    /// [Vector]: enum.Vector.html
+    /// [Vector]: type.Vector.html
     pub fn new(vector: &'a GenericVector<A, P>) -> Self {
         match &vector.vector {
             Inline(chunk) => Focus::Single(chunk),
@@ -123,7 +123,7 @@ where
 
     /// Get the length of the focused [`Vector`][Vector].
     ///
-    /// [Vector]: enum.Vector.html
+    /// [Vector]: type.Vector.html
     pub fn len(&self) -> usize {
         match self {
             Focus::Single(chunk) => chunk.len(),
@@ -133,7 +133,7 @@ where
 
     /// Test if the focused [`Vector`][Vector] is empty.
     ///
-    /// [Vector]: enum.Vector.html
+    /// [Vector]: type.Vector.html
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -188,7 +188,7 @@ where
     /// ```
     ///
     /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
-    /// [Vector::split_at]: enum.Vector.html#method.split_at
+    /// [Vector::split_at]: type.Vector.html#method.split_at
     #[must_use]
     pub fn narrow<R>(self, range: R) -> Self
     where
@@ -231,7 +231,7 @@ where
     /// ```
     ///
     /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
-    /// [Vector::split_at]: enum.Vector.html#method.split_at
+    /// [Vector::split_at]: type.Vector.html#method.split_at
     pub fn split_at(self, index: usize) -> (Self, Self) {
         if index > self.len() {
             panic!("vector::Focus::split_at: index out of bounds");
@@ -535,7 +535,7 @@ where
     /// ```
     ///
     /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
-    /// [Vector::split_at]: enum.Vector.html#method.split_at
+    /// [Vector::split_at]: type.Vector.html#method.split_at
     #[must_use]
     pub fn narrow<R>(self, range: R) -> Self
     where
@@ -585,7 +585,7 @@ where
     /// ```
     ///
     /// [slice::split_at]: https://doc.rust-lang.org/std/primitive.slice.html#method.split_at
-    /// [Vector::split_at]: enum.Vector.html#method.split_at
+    /// [Vector::split_at]: type.Vector.html#method.split_at
     #[allow(clippy::redundant_clone)]
     pub fn split_at(self, index: usize) -> (Self, Self) {
         if index > self.len() {

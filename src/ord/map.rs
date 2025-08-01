@@ -14,7 +14,7 @@
 //! where a [`HashMap`][hashmap::HashMap] has no guaranteed ordering.
 //!
 //! [1]: https://en.wikipedia.org/wiki/B%2B_tree
-//! [hashmap::HashMap]: ../hashmap/struct.HashMap.html
+//! [hashmap::HashMap]: ../hashmap/type.HashMap.html
 //! [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 
 use std::borrow::Borrow;
@@ -83,7 +83,7 @@ pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
 /// where a [`HashMap`][hashmap::HashMap] has no guaranteed ordering.
 ///
 /// [1]: https://en.wikipedia.org/wiki/B%2B_tree
-/// [hashmap::HashMap]: ../hashmap/struct.HashMap.html
+/// [hashmap::HashMap]: ../hashmap/type.HashMap.html
 /// [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
 pub struct GenericOrdMap<K, V, P: SharedPointerKind> {
     size: usize,

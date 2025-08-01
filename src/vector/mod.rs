@@ -1986,7 +1986,7 @@ impl<'a, A: Clone, P: SharedPointerKind> From<&'a Vec<A>> for GenericVector<A, P
 ///
 /// To obtain one, use [`Vector::iter()`][iter].
 ///
-/// [iter]: enum.Vector.html#method.iter
+/// [iter]: type.Vector.html#method.iter
 // TODO: we'd like to support Clone even if A is not Clone, but it isn't trivial because
 // the TreeFocus variant of Focus does need A to be Clone.
 pub struct Iter<'a, A, P: SharedPointerKind> {
@@ -2067,7 +2067,7 @@ impl<'a, A, P: SharedPointerKind + 'a> FusedIterator for Iter<'a, A, P> {}
 ///
 /// To obtain one, use [`Vector::iter_mut()`][iter_mut].
 ///
-/// [iter_mut]: enum.Vector.html#method.iter_mut
+/// [iter_mut]: type.Vector.html#method.iter_mut
 pub struct IterMut<'a, A, P: SharedPointerKind> {
     focus: FocusMut<'a, A, P>,
     front_index: usize,
@@ -2186,7 +2186,7 @@ impl<A: Clone, P: SharedPointerKind> FusedIterator for ConsumingIter<A, P> {}
 ///
 /// To obtain one, use [`Vector::chunks()`][chunks].
 ///
-/// [chunks]: enum.Vector.html#method.chunks
+/// [chunks]: type.Vector.html#method.chunks
 pub struct Chunks<'a, A, P: SharedPointerKind> {
     focus: Focus<'a, A, P>,
     front_index: usize,
@@ -2242,7 +2242,7 @@ impl<'a, A, P: SharedPointerKind + 'a> FusedIterator for Chunks<'a, A, P> {}
 ///
 /// To obtain one, use [`Vector::chunks_mut()`][chunks_mut].
 ///
-/// [chunks_mut]: enum.Vector.html#method.chunks_mut
+/// [chunks_mut]: type.Vector.html#method.chunks_mut
 pub struct ChunksMut<'a, A, P: SharedPointerKind> {
     focus: FocusMut<'a, A, P>,
     front_index: usize,
