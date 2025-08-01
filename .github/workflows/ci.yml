@@ -45,6 +45,8 @@ jobs:
 
   doc:
     runs-on: ${{ matrix.os }}
+    env:
+      RUSTDOCFLAGS: "-D warnings"
     strategy:
       fail-fast: false
       matrix:
