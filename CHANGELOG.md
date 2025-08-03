@@ -9,6 +9,8 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Lower HashMap and HashSet memory usage (#129)
+- Optimize HashMap and HashSet iteration speed (#129)
 - Fix `vector::Iter` is not `Clone` when `triomphe` is enabled (#107)
 
 ### Changed
@@ -24,7 +26,7 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ### Added
 
- - Support different pointer types (thanks @inker0!) (#90). This is technically a breaking
+- Support different pointer types (thanks @inker0!) (#90). This is technically a breaking
    change since some types (like iterators) grew additional generic parameters.
 
 ### Fixed

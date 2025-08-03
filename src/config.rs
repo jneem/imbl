@@ -9,9 +9,9 @@ pub(crate) const VECTOR_CHUNK_SIZE: usize = 4;
 pub(crate) const VECTOR_CHUNK_SIZE: usize = 64;
 
 /// The branching factor of B-trees
-// Must be an even number!
-// Value if 6 chosen improve test coverage, specifically
+// Value of 6 chosen improve test coverage, specifically
 // so that both deletion node merging and rebalancing are tested.
+// Must be an even number!
 #[cfg(feature = "small-chunks")]
 pub(crate) const ORD_CHUNK_SIZE: usize = 6;
 #[cfg(not(feature = "small-chunks"))]
@@ -19,7 +19,9 @@ pub(crate) const ORD_CHUNK_SIZE: usize = 64;
 
 /// The level size of HAMTs, in bits
 /// Branching factor is 2 ^ HashLevelSize.
+// The smallest supported value is 3 currently, as the small node
+// (half the size of a full node) requires at least 4 slots.
 #[cfg(feature = "small-chunks")]
-pub(crate) const HASH_LEVEL_SIZE: usize = 2;
+pub(crate) const HASH_LEVEL_SIZE: usize = 3;
 #[cfg(not(feature = "small-chunks"))]
 pub(crate) const HASH_LEVEL_SIZE: usize = 5;
