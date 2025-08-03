@@ -688,3 +688,16 @@ impl<A: fmt::Debug, P: SharedPointerKind> fmt::Debug for Node<A, P> {
         write!(f, " ]")
     }
 }
+
+#[cfg(test)]
+impl<A, P: SharedPointerKind> Node<A, P> {
+    /// Analyze the node structure for debugging/statistics
+    pub(crate) fn analyze_structure<F>(&self, mut visitor: F)
+    where
+        F: FnMut(&Entry<A, P>),
+    {
+        for i in self.data.indices() {
+            visitor(&self.data[i]);
+        }
+    }
+}

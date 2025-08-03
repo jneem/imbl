@@ -322,6 +322,113 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
         self.root = None;
         self.size = 0;
     }
+
+    /// Print a summary of the HashMap structure showing per-level statistics.
+    /// This includes the number of nodes at each level and the distribution of child types.
+    #[cfg(test)]
+    pub fn print_structure_summary(&self) {
+        use std::collections::VecDeque;
+        use crate::nodes::hamt::Entry as NodeEntry;
+
+        println!("HashMap Structure Summary:");
+
+        #[derive(Default, Debug)]
+        struct LevelStats {
+            node_count: usize,
+            value_count: usize,
+            collision_count: usize,
+            collision_entry_sum: usize,
+            child_node_count: usize,
+            total_entries: usize,
+        }
+
+        if self.root.is_none() {
+            println!("  Empty HashMap (no root node)");
+            println!("  Total entries: 0");
+            return;
+        }
+
+        let mut level_stats: Vec<LevelStats> = Vec::new();
+        let mut queue: VecDeque<(usize, SharedPointer<Node<(K, V), P>, P>)> = VecDeque::new();
+
+        // Start with root node at level 0
+        if let Some(ref root) = self.root {
+            queue.push_back((0, root.clone()));
+        }
+
+        // BFS traversal to collect statistics
+        while let Some((level, node)) = queue.pop_front() {
+            // Ensure we have stats for this level
+            while level_stats.len() <= level {
+                level_stats.push(LevelStats::default());
+            }
+
+            let stats = &mut level_stats[level];
+            stats.node_count += 1;
+
+            // Analyze this node's entries
+            node.analyze_structure(|entry| {
+                stats.total_entries += 1;
+                match entry {
+                    NodeEntry::Value(_, _) => stats.value_count += 1,
+                    NodeEntry::Collision(_coll) => {
+                        stats.collision_count += 1;
+                        // stats.collision_entry_sum += coll.len();
+                    }
+                    NodeEntry::Node(child_node) => {
+                        stats.child_node_count += 1;
+                        queue.push_back((level + 1, child_node.clone()));
+                    }
+                }
+            })
+        }
+
+        // Print the summary
+        println!(
+            "  Hash level size (bits): {}",
+            crate::config::HASH_LEVEL_SIZE
+        );
+        println!(
+            "  Branching factor: {}",
+            2_usize.pow(crate::config::HASH_LEVEL_SIZE as u32)
+        );
+        println!("  Total entries: {}", self.size);
+        println!("  Tree depth: {} levels", level_stats.len());
+        println!();
+
+        for (level, stats) in level_stats.iter().enumerate() {
+            println!("  Level {}:", level);
+            println!("    Nodes: {}", stats.node_count);
+
+            if stats.total_entries > 0 {
+                let avg_entries = stats.total_entries as f64 / stats.node_count as f64;
+                println!("    Average entries per node: {:.2}", avg_entries);
+
+                println!("    Entry types:");
+                println!(
+                    "      Values: {} ({:.1}%)",
+                    stats.value_count,
+                    (stats.value_count as f64 / stats.total_entries as f64) * 100.0
+                );
+                println!(
+                    "      Collisions: {} (avg len: {:.1}) ({:.1}%)",
+                    stats.collision_count,
+                    if stats.collision_count > 0 {
+                        stats.collision_entry_sum as f64 / stats.collision_count as f64
+                    } else {
+                        0.0
+                    },
+                    (stats.collision_count as f64 / stats.total_entries as f64) * 100.0
+                );
+                println!(
+                    "      Child nodes: {} ({:.1}%)",
+                    stats.child_node_count,
+                    (stats.child_node_count as f64 / stats.total_entries as f64) * 100.0
+                );
+            }
+            println!();
+        }
+    }
 }
 
 impl<K, V, S, P> GenericHashMap<K, V, S, P>
@@ -2419,5 +2526,26 @@ mod test {
                 assert_eq!(v, m1.get(k).or_else(|| m2.get(k)).unwrap());
             }
         }
+    }
+}
+
+#[test]
+fn test_structure_summary() {
+    // Test with different sizes of HashMaps
+    let sizes = vec![10, 100, 1_000, 10_000, 100_000];
+
+    for size in sizes {
+        println!("\n=== Testing with {} entries ===", size);
+
+        let mut map = HashMap::new();
+
+        // Insert entries
+        for i in 0..size {
+            // dbg!(i);
+            map.insert(i, i * 2);
+        }
+
+        // Print structure summary
+        map.print_structure_summary();
     }
 }
