@@ -2548,25 +2548,25 @@ mod test {
             }
         }
     }
-}
 
-#[test]
-fn test_structure_summary() {
-    // Test with different sizes of HashMaps
-    let sizes = vec![10, 100, 1_000, 10_000, 100_000];
+    #[test]
+    fn test_structure_summary() {
+        // Test with different sizes of HashMaps
+        let sizes = vec![10, 100, 1_000, 10_000, 100_000];
 
-    for size in sizes {
-        println!("\n=== Testing with {} entries ===", size);
+        for size in sizes {
+            println!("\n=== Testing with {} entries ===", size);
 
-        let mut map = HashMap::new();
+            let mut map = HashMap::new();
 
-        // Insert entries
-        for i in 0..size {
-            // dbg!(i);
-            map.insert(i, i * 2);
+            // Insert entries
+            for i in 0..size {
+                // dbg!(i);
+                map.insert(i, i * 2);
+            }
+
+            // Print structure summary
+            map.print_structure_summary();
         }
-
-        // Print structure summary
-        map.print_structure_summary();
     }
 }

@@ -90,6 +90,8 @@ where
         }
     }
 
+    /// Special constructor to allow initializing Nodes w/o incurring multiple memory copies.
+    /// These copies really slow things down once Node crosses a certain size threshold and copies become calls to memcopy.
     #[inline]
     fn with(with: impl FnOnce(&mut Self)) -> SharedPointer<Self, P> {
         let result: SharedPointer<UnsafeCell<mem::MaybeUninit<Self>>, P> =
@@ -356,18 +358,19 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
                         Ok(result) => return result,
                         Err(value) => {
                             // It's a collision, need to upgrade to Node
-                            let mut node = Node::new();
-                            for entry in mem::take(&mut small.data) {
-                                if let Entry::Value(v, h) = entry {
-                                    node.insert(h, shift + HASH_SHIFT, v);
-                                } else {
-                                    unreachable!("SmallNode should only contain Values");
+                            let node = Node::with(|node| {
+                                for entry in mem::take(&mut small.data) {
+                                    if let Entry::Value(v, h) = entry {
+                                        node.insert(h, shift + HASH_SHIFT, v);
+                                    } else {
+                                        unreachable!("SmallNode should only contain Values");
+                                    }
                                 }
-                            }
+                                // Insert the new value
+                                node.insert(hash, shift + HASH_SHIFT, value);
+                            });
 
-                            // Insert the new value
-                            node.insert(hash, shift + HASH_SHIFT, value);
-                            *entry = Entry::Node(SharedPointer::new(node));
+                            *entry = Entry::Node(node);
                             return None;
                         }
                     }
