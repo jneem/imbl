@@ -322,6 +322,130 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
         self.root = None;
         self.size = 0;
     }
+
+    /// Print a summary of the HashMap structure showing per-level statistics.
+    /// This includes the number of nodes at each level and the distribution of child types.
+    #[cfg(test)]
+    pub fn print_structure_summary(&self) {
+        use crate::nodes::hamt::Entry as NodeEntry;
+        use std::collections::VecDeque;
+
+        println!("HashMap Structure Summary:");
+
+        #[derive(Default, Debug)]
+        struct LevelStats {
+            node_count: usize,
+            value_count: usize,
+            collision_count: usize,
+            collision_entry_sum: usize,
+            child_node_count: usize,
+            small_node_count: usize,
+            small_node_entry_sum: usize,
+            total_entries: usize,
+        }
+
+        if self.root.is_none() {
+            println!("  Empty HashMap (no root node)");
+            println!("  Total entries: 0");
+            return;
+        }
+
+        let mut level_stats: Vec<LevelStats> = Vec::new();
+        let mut queue: VecDeque<(usize, SharedPointer<Node<(K, V), P>, P>)> = VecDeque::new();
+
+        // Start with root node at level 0
+        if let Some(ref root) = self.root {
+            queue.push_back((0, root.clone()));
+        }
+
+        // BFS traversal to collect statistics
+        while let Some((level, node)) = queue.pop_front() {
+            // Ensure we have stats for this level
+            while level_stats.len() <= level {
+                level_stats.push(LevelStats::default());
+            }
+
+            let stats = &mut level_stats[level];
+            stats.node_count += 1;
+
+            // Analyze this node's entries
+            node.analyze_structure(|entry| {
+                stats.total_entries += 1;
+                match entry {
+                    NodeEntry::Value(_, _) => stats.value_count += 1,
+                    NodeEntry::Collision(_coll) => {
+                        stats.collision_count += 1;
+                        // stats.collision_entry_sum += coll.len();
+                    }
+                    NodeEntry::Node(child_node) => {
+                        stats.child_node_count += 1;
+                        queue.push_back((level + 1, child_node.clone()));
+                    }
+                    NodeEntry::SmallNode(small_node) => {
+                        stats.small_node_count += 1;
+                        stats.small_node_entry_sum += small_node.len();
+                    }
+                }
+            })
+        }
+
+        // Print the summary
+        println!(
+            "  Hash level size (bits): {}",
+            crate::config::HASH_LEVEL_SIZE
+        );
+        println!(
+            "  Branching factor: {}",
+            2_usize.pow(crate::config::HASH_LEVEL_SIZE as u32)
+        );
+        println!("  Total entries: {}", self.size);
+        println!("  Tree depth: {} levels", level_stats.len());
+        println!();
+
+        for (level, stats) in level_stats.iter().enumerate() {
+            println!("  Level {}:", level);
+            println!("    Nodes: {}", stats.node_count);
+
+            if stats.total_entries > 0 {
+                let avg_entries = stats.total_entries as f64 / stats.node_count as f64;
+                println!("    Average entries per node: {:.2}", avg_entries);
+
+                println!("    Entry types:");
+                println!(
+                    "      Values: {} ({:.1}%)",
+                    stats.value_count,
+                    (stats.value_count as f64 / stats.total_entries as f64) * 100.0
+                );
+                println!(
+                    "      Collisions: {} (avg len: {:.1}) ({:.1}%)",
+                    stats.collision_count,
+                    if stats.collision_count > 0 {
+                        stats.collision_entry_sum as f64 / stats.collision_count as f64
+                    } else {
+                        0.0
+                    },
+                    (stats.collision_count as f64 / stats.total_entries as f64) * 100.0
+                );
+                println!(
+                    "      Child nodes: {} ({:.1}%)",
+                    stats.child_node_count,
+                    (stats.child_node_count as f64 / stats.total_entries as f64) * 100.0
+                );
+                println!(
+                    "      Small nodes: {} ({:.1}%)",
+                    stats.small_node_count,
+                    (stats.small_node_count as f64 / stats.total_entries as f64) * 100.0
+                );
+                if stats.small_node_count > 0 {
+                    println!(
+                        "        → Avg entries per small node: {:.1}",
+                        stats.small_node_entry_sum as f64 / stats.small_node_count as f64
+                    );
+                }
+            }
+            println!();
+        }
+    }
 }
 
 impl<K, V, S, P> GenericHashMap<K, V, S, P>
@@ -2274,7 +2398,7 @@ mod test {
 
     proptest! {
         #[test]
-        fn update_and_length(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..100)) {
+        fn update_and_length(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
             let mut map: GenericHashMap<i16, i16, BuildHasherDefault<LolHasher>, DefaultSharedPtr> = Default::default();
             for (index, (k, v)) in m.iter().enumerate() {
                 map = map.update(*k, *v);
@@ -2284,30 +2408,30 @@ mod test {
         }
 
         #[test]
-        fn from_iterator(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..100)) {
+        fn from_iterator(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
             let map: HashMap<i16, i16> =
                 FromIterator::from_iter(m.iter().map(|(k, v)| (*k, *v)));
             assert_eq!(m.len(), map.len());
         }
 
         #[test]
-        fn iterate_over(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..100)) {
+        fn iterate_over(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
             let map: HashMap<i16, i16> = FromIterator::from_iter(m.iter().map(|(k, v)| (*k, *v)));
             assert_eq!(m.len(), map.iter().count());
         }
 
         #[test]
-        fn equality(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..100)) {
+        fn equality(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
             let map1: HashMap<i16, i16> = FromIterator::from_iter(m.iter().map(|(k, v)| (*k, *v)));
             let map2: HashMap<i16, i16> = FromIterator::from_iter(m.iter().map(|(k, v)| (*k, *v)));
             assert_eq!(map1, map2);
         }
 
         #[test]
-        fn lookup(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..100)) {
+        fn lookup(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
             let map: HashMap<i16, i16> = FromIterator::from_iter(m.iter().map(|(k, v)| (*k, *v)));
             for (k, v) in m {
-                assert_eq!(Some(*v), map.get(k).cloned());
+                assert_eq!(Some(*v), map.get(k).cloned(), "{k} not found in map {map:?}");
             }
         }
 
@@ -2332,7 +2456,7 @@ mod test {
         }
 
         #[test]
-        fn insert(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..100)) {
+        fn insert(ref m in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
             let mut mut_map: GenericHashMap<i16, i16, BuildHasherDefault<LolHasher>, DefaultSharedPtr> = Default::default();
             let mut map: GenericHashMap<i16, i16, BuildHasherDefault<LolHasher>, DefaultSharedPtr> = Default::default();
             for (count, (k, v)) in m.iter().enumerate() {
@@ -2340,6 +2464,10 @@ mod test {
                 mut_map.insert(*k, *v);
                 assert_eq!(count + 1, map.len());
                 assert_eq!(count + 1, mut_map.len());
+            }
+            for (k, v) in m {
+                assert_eq!(Some(v), map.get(&k));
+                assert_eq!(Some(v), mut_map.get(&k));
             }
             assert_eq!(map, mut_map);
         }
@@ -2366,7 +2494,7 @@ mod test {
 
         #[test]
         fn delete_and_reinsert(
-            ref input in collection::hash_map(i16::ANY, i16::ANY, 1..100),
+            ref input in collection::hash_map(i16::ANY, i16::ANY, 1..1000),
             index_rand in usize::ANY
         ) {
             let index = *input.keys().nth(index_rand % input.len()).unwrap();
@@ -2418,6 +2546,27 @@ mod test {
             for (k, v) in union_map.iter() {
                 assert_eq!(v, m1.get(k).or_else(|| m2.get(k)).unwrap());
             }
+        }
+    }
+
+    #[test]
+    fn test_structure_summary() {
+        // Test with different sizes of HashMaps
+        let sizes = vec![10, 100, 1_000, 10_000, 100_000];
+
+        for size in sizes {
+            println!("\n=== Testing with {} entries ===", size);
+
+            let mut map = HashMap::new();
+
+            // Insert entries
+            for i in 0..size {
+                // dbg!(i);
+                map.insert(i, i * 2);
+            }
+
+            // Print structure summary
+            map.print_structure_summary();
         }
     }
 }
