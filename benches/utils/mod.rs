@@ -1,20 +1,10 @@
 #![allow(dead_code)]
-
-use rand::distr::{Distribution, StandardUniform};
 use rand::seq::SliceRandom;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
-
-pub fn rando<A>() -> impl Iterator<Item = A>
-where
-    StandardUniform: Distribution<A>,
-{
-    let mut rng = rand::rng();
-    std::iter::from_fn(move || Some(rng.random()))
-}
 
 // Trait for generating test data
 pub trait TestData: Clone + Debug + Ord + Eq + Hash {
