@@ -4,12 +4,11 @@
 
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
-use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::iter::FusedIterator;
 use std::mem::{ManuallyDrop, MaybeUninit};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
-use std::{mem, ptr};
+use std::{fmt, mem, ptr};
 
 use archery::{SharedPointer, SharedPointerKind};
 use bitmaps::{Bits, BitsImpl};
@@ -40,18 +39,35 @@ pub(crate) struct GenericNode<A, P: SharedPointerKind, const WIDTH: usize>
 where
     BitsImpl<WIDTH>: Bits,
 {
-    /// Whether this node is using linear probing for collision resolution.
-    /// When true all child nodes are `Value`s.
-    /// Default for a new node is true.
-    linear_probing: bool,
     /// Nodes with  `WIDTH` < `HASH_WIDTH` are used for small nodes.
-    /// Small only contains `Value`s, and are always linear probing.
+    /// Small only contains `Value`s.
     ///
     /// Note that using SparseChunk<(A, HashBits), WIDTH> for small nodes wouldn't yield
     /// memory savings in most cases the padding space allows the enum
     /// Entry to be stored in the same space. So we use
     /// SparseChunk<Entry<A, P>, WIDTH> instead to increase code reuse.
     data: SparseChunk<Entry<A, P>, WIDTH>,
+
+    /// SIMD control bytes for fast parallel lookup.
+    /// Each byte corresponds to a hash prefix (hash >> (HashBits::BITS - 8)).
+    /// 0 indicates an empty slot, 1-255 are valid hash prefixes.
+    /// For SmallNode (WIDTH=16): single group covers all slots
+    /// For Node (WIDTH=32): two groups, each item belongs to one group based on hash
+    /// When in PureHamt mode, these are unused (all zeros)
+    control: [wide::u8x16; 2],
+
+    /// Current mode of operation
+    /// SmallNode always uses SimdGroups, Node can switch to PureHamt when groups are full
+    mode: NodeMode,
+}
+
+/// Mode of operation for a Node
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum NodeMode {
+    /// Using SIMD groups for fast lookup
+    SimdGroups,
+    /// Fallback to classic HAMT when groups are full
+    PureHamt,
 }
 
 impl<A: Clone, P: SharedPointerKind, const WIDTH: usize> Clone for GenericNode<A, P, WIDTH>
@@ -60,8 +76,9 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            linear_probing: self.linear_probing,
             data: self.data.clone(),
+            control: self.control,
+            mode: self.mode,
         }
     }
 }
@@ -85,8 +102,9 @@ where
     #[inline(always)]
     pub(crate) fn new() -> Self {
         GenericNode {
-            linear_probing: true,
             data: SparseChunk::new(),
+            control: [wide::u8x16::default(); 2],
+            mode: NodeMode::SimdGroups,
         }
     }
 
@@ -123,46 +141,183 @@ where
     }
 }
 
-impl<A: HashValue, P: SharedPointerKind, const WIDTH: usize> GenericNode<A, P, WIDTH>
-where
-    BitsImpl<WIDTH>: Bits,
-{
+impl<A: HashValue, P: SharedPointerKind> SmallNode<A, P> {
+    pub(crate) fn get<BK>(&self, hash: HashBits, _shift: usize, key: &BK) -> Option<&A>
+    where
+        BK: Eq + ?Sized,
+        A::Key: Borrow<BK>,
+    {
+        let search = (hash >> (HashBits::BITS - 8)).max(1) as u8;
+        let mut mask = bitmaps::Bitmap::<16>::from_value(
+            self.control[0]
+                .cmp_eq(wide::u8x16::splat(search))
+                .move_mask() as u16,
+        );
+
+        while let Some(index) = mask.first_index() {
+            match self.data.get(index).unwrap() {
+                Entry::Value(ref value, value_hash) => {
+                    if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                        return Some(value);
+                    } else {
+                        mask.set(index, false);
+                    }
+                }
+                _ => unreachable!("Control byte doesn't point to a Value"),
+            }
+        }
+        None
+    }
+
+    pub(crate) fn get_mut<BK>(&mut self, hash: HashBits, _shift: usize, key: &BK) -> Option<&mut A>
+    where
+        A: Clone,
+        BK: Eq + ?Sized,
+        A::Key: Borrow<BK>,
+    {
+        let search = (hash >> (HashBits::BITS - 8)).max(1) as u8;
+        let mut mask = bitmaps::Bitmap::<16>::from_value(
+            self.control[0]
+                .cmp_eq(wide::u8x16::splat(search))
+                .move_mask() as u16,
+        );
+        let this = self as *mut Self;
+        #[allow(dropping_references)]
+        drop(self); // prevent self from being used or moved, so it's is safe to dereference `this` later
+        while let Some(index) = mask.first_index() {
+            // Restore a mutable reference to self to avoid hitting the borrow checker
+            // limitation that prevents us from returning mutable references from the original
+            // `self` inside a loop. This is safe because we only restore the mutable reference
+            // once per iteration and the references goes out of scope at the end of the loop.
+            #[allow(unsafe_code)]
+            let this = unsafe { &mut *this };
+            match this.data.get_mut(index).unwrap() {
+                Entry::Value(ref mut value, value_hash) => {
+                    if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                        return Some(value);
+                    } else {
+                        mask.set(index, false);
+                    }
+                }
+                _ => unreachable!("Control byte doesn't point to a Value"),
+            }
+        }
+        None
+    }
+
+    pub(crate) fn insert(&mut self, hash: HashBits, _shift: usize, value: A) -> Result<Option<A>, A>
+    where
+        A: Clone,
+    {
+        let search = (hash >> (HashBits::BITS - 8)).max(1) as u8;
+        let mut bitmap = bitmaps::Bitmap::<16>::from_value(
+            self.control[0]
+                .cmp_eq(wide::u8x16::splat(search))
+                .move_mask() as u16,
+        );
+
+        while let Some(index) = bitmap.first_index() {
+            if let Some(Entry::Value(current, current_hash)) = self.data.get_mut(index) {
+                if hash_may_eq::<A>(hash, *current_hash)
+                    && current.extract_key() == value.extract_key()
+                {
+                    return Ok(Some(mem::replace(current, value)));
+                }
+                bitmap.set(index, false);
+            } else {
+                unreachable!("Control byte doesn't point to a Value")
+            }
+        }
+
+        let bitmap = bitmaps::Bitmap::<16>::from_value(
+            self.control[0].cmp_eq(wide::u8x16::default()).move_mask() as u16,
+        );
+
+        if let Some(index) = bitmap.first_index() {
+            // If we found a free slot, we can insert the value
+            self.control[0].as_array_mut()[index] = search;
+            self.data.insert(index, Entry::Value(value, hash));
+            return Ok(None);
+        }
+
+        // If no free slot was found, we need to handle the collision
+        Err(value)
+    }
+
+    pub(crate) fn remove<BK>(&mut self, hash: HashBits, _shift: usize, key: &BK) -> Option<A>
+    where
+        A: Clone,
+        BK: Eq + ?Sized,
+        A::Key: Borrow<BK>,
+    {
+        let search = (hash >> (HashBits::BITS - 8)).max(1) as u8;
+        let mut bitmap = bitmaps::Bitmap::<16>::from_value(
+            self.control[0]
+                .cmp_eq(wide::u8x16::splat(search))
+                .move_mask() as u16,
+        );
+
+        // First find the entry to remove
+        while let Some(index) = bitmap.first_index() {
+            if let Some(Entry::Value(value, value_hash)) = self.data.get(index) {
+                if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                    self.control[0].as_array_mut()[index] = 0;
+                    return self.data.remove(index).map(Entry::unwrap_value);
+                }
+                bitmap.set(index, false);
+            } else {
+                unreachable!("Control byte doesn't point to a Value")
+            }
+        }
+        None
+    }
+}
+
+impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
     pub(crate) fn get<BK>(&self, hash: HashBits, shift: usize, key: &BK) -> Option<&A>
     where
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
     {
-        let mut index = Self::mask(hash, shift) as usize;
-        while let Some(entry) = self.data.get(index) {
-            return match entry {
-                Entry::Value(ref value, value_hash) => {
+        if self.mode == NodeMode::SimdGroups {
+            // Try SIMD search first for Value lookups
+            let search = (hash >> (HashBits::BITS - 8)).max(1) as u8;
+            let group = ((hash >> (HashBits::BITS - 9)) & 1) as usize;
+
+            // Search in the designated group
+            let mask = self.control[group]
+                .cmp_eq(wide::u8x16::splat(search))
+                .move_mask() as u16;
+            let mut bitmap = bitmaps::Bitmap::<16>::from_value(mask);
+
+            while let Some(offset) = bitmap.first_index() {
+                let index = group * 16 + offset;
+                if let Some(Entry::Value(value, value_hash)) = self.data.get(index) {
                     if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
-                        Some(value)
-                    } else if !self.linear_probing {
-                        None
-                    } else {
-                        index = (index + 1) % WIDTH;
-                        continue;
+                        return Some(value);
                     }
+                    bitmap.set(offset, false);
+                } else {
+                    unreachable!("Control byte doesn't point to a Value")
                 }
-                Entry::Node(ref child) => {
-                    assert_eq!(
-                        WIDTH, HASH_WIDTH,
-                        "SmallNode should not contain Node entries"
-                    );
-                    child.get(hash, shift + HASH_SHIFT, key)
-                }
-                Entry::SmallNode(ref small) => {
-                    assert_eq!(
-                        WIDTH, HASH_WIDTH,
-                        "SmallNode should not contain SmallNode entries"
-                    );
-                    small.get(hash, shift + HASH_SHIFT, key)
-                }
-                Entry::Collision(ref coll) => coll.get(key),
-            };
+            }
+            return None; // No match found in SIMD groups
         }
-        None
+
+        // Classic HAMT lookup
+        let index = Self::mask(hash, shift) as usize;
+        match self.data.get(index)? {
+            Entry::Value(ref value, value_hash) => {
+                if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                    Some(value)
+                } else {
+                    None
+                }
+            }
+            Entry::Node(ref child) => child.get(hash, shift + HASH_SHIFT, key),
+            Entry::SmallNode(ref small) => small.get(hash, shift + HASH_SHIFT, key),
+            Entry::Collision(ref coll) => coll.get(key),
+        }
     }
 
     pub(crate) fn get_mut<BK>(&mut self, hash: HashBits, shift: usize, key: &BK) -> Option<&mut A>
@@ -171,158 +326,78 @@ where
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
     {
+        let mode = self.mode;
         let this = self as *mut Self;
         #[allow(dropping_references)]
         drop(self); // prevent self from being used or moved, so it's is safe to dereference `this` later
-        let mut index = Self::mask(hash, shift) as usize;
-        loop {
-            // Restore a mutable reference to self to avoid hitting the borrow checker
-            // limitation that prevents us from returning mutable references from the original
-            // `self` inside a loop. This is safe because we only restore the mutable reference
-            // once per iteration and the references goes out of scope at the end of the loop.
+
+        if mode == NodeMode::SimdGroups {
+            // Try SIMD search first
+            let search = (hash >> (HashBits::BITS - 8)).max(1) as u8;
+            let group = ((hash >> (HashBits::BITS - 9)) & 1) as usize;
+
+            // Search in the designated group
             #[allow(unsafe_code)]
-            let this = unsafe { &mut *this };
-            return match this.data.get_mut(index) {
-                Some(Entry::Value(ref mut value, value_hash)) => {
+            let control = unsafe { &(*this).control };
+            let mask = control[group]
+                .cmp_eq(wide::u8x16::splat(search))
+                .move_mask() as u16;
+            let mut bitmap = bitmaps::Bitmap::<16>::from_value(mask);
+
+            while let Some(offset) = bitmap.first_index() {
+                let index = group * 16 + offset;
+                #[allow(unsafe_code)]
+                let this = unsafe { &mut *this };
+                if let Some(Entry::Value(value, value_hash)) = this.data.get_mut(index) {
                     if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
-                        Some(value)
-                    } else if !this.linear_probing {
-                        None
-                    } else {
-                        index = (index + 1) % WIDTH;
-                        continue;
+                        return Some(value);
                     }
+                    bitmap.set(offset, false);
+                } else {
+                    unreachable!("Control byte doesn't point to a Value")
                 }
-                Some(Entry::Node(ref mut child_ref)) => {
-                    assert_eq!(
-                        WIDTH, HASH_WIDTH,
-                        "SmallNode should not contain Node entries"
-                    );
-                    SharedPointer::make_mut(child_ref).get_mut(hash, shift + HASH_SHIFT, key)
+            }
+            return None; // No match found in SIMD groups
+        }
+
+        // Classic HAMT lookup
+        let index = Self::mask(hash, shift) as usize;
+        #[allow(unsafe_code)]
+        let this = unsafe { &mut *this };
+        match this.data.get_mut(index) {
+            Some(Entry::Value(ref mut value, value_hash)) => {
+                if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                    Some(value)
+                } else {
+                    None
                 }
-                Some(Entry::SmallNode(ref mut small_ref)) => {
-                    assert_eq!(
-                        WIDTH, HASH_WIDTH,
-                        "SmallNode should not contain SmallNode entries"
-                    );
-                    SharedPointer::make_mut(small_ref).get_mut(hash, shift + HASH_SHIFT, key)
-                }
-                Some(Entry::Collision(ref mut coll_ref)) => {
-                    SharedPointer::make_mut(coll_ref).get_mut(key)
-                }
-                None => None,
-            };
+            }
+            Some(Entry::Node(ref mut child_ref)) => {
+                SharedPointer::make_mut(child_ref).get_mut(hash, shift + HASH_SHIFT, key)
+            }
+            Some(Entry::SmallNode(ref mut small_ref)) => {
+                SharedPointer::make_mut(small_ref).get_mut(hash, shift + HASH_SHIFT, key)
+            }
+            Some(Entry::Collision(ref mut coll_ref)) => {
+                SharedPointer::make_mut(coll_ref).get_mut(key)
+            }
+            None => None,
         }
     }
 
-    /// Perform backwards shift if using linear probing or attempt to restore linear probing
-    #[inline]
-    fn adjust_post_removal(&mut self, shift: usize, mut index: usize) {
-        if self.linear_probing {
-            let mut next = (index + 1) % WIDTH;
-            while let Some(Entry::Value(_, value_hash)) = self.data.get(next) {
-                let ideal_index = Self::mask(*value_hash, shift) as usize;
-                let next_dib = next.wrapping_sub(ideal_index) % WIDTH;
-                let index_dib = index.wrapping_sub(ideal_index) % WIDTH;
-                if index_dib < next_dib {
-                    let entry = self.data.remove(next).unwrap();
-                    self.data.insert(index, entry);
-                    index = next;
-                }
-                next = (next + 1) % WIDTH;
-            }
-        } else {
-            // If we ended up with a single value, restore linear probing
-            if self.data.len() == 1 && self.data.iter().next().is_some_and(|e| e.is_value()) {
-                self.linear_probing = true;
-            }
-        }
-    }
-}
-
-// Separate implementation block for SmallNode-specific method
-impl<A: HashValue, P: SharedPointerKind> SmallNode<A, P> {
-    pub(crate) fn insert(&mut self, hash: HashBits, shift: usize, value: A) -> Result<Option<A>, A>
-    where
-        A: Clone,
-    {
-        let mut index = Self::mask(hash, shift) as usize;
-        while let Some(entry) = self.data.get_mut(index) {
-            match entry {
-                Entry::Value(ref mut existing, existing_hash) => {
-                    if hash_may_eq::<A>(hash, *existing_hash)
-                        && existing.extract_key() == value.extract_key()
-                    {
-                        return Ok(Some(mem::replace(existing, value)));
-                    }
-                    if self.linear_probing {
-                        index = (index + 1) % SMALL_NODE_WIDTH;
-                        continue;
-                    } else {
-                        return Err(value);
-                    }
-                }
-                _ => unreachable!("SmallNode should only contain Values"),
-            }
-        }
-
-        // Check if we need to disable linear probing
-        if self.linear_probing && self.data.len() >= SMALL_NODE_WIDTH / 2 {
-            // Need to upgrade to Node
-            return Err(value);
-        }
-
-        self.data.insert(index, Entry::Value(value, hash));
-        Ok(None)
-    }
-
-    pub(crate) fn remove<BK>(&mut self, hash: HashBits, shift: usize, key: &BK) -> Option<A>
-    where
-        A: Clone,
-        BK: Eq + ?Sized,
-        A::Key: Borrow<BK>,
-    {
-        let mut index = Self::mask(hash, shift) as usize;
-        loop {
-            match self.data.get(index) {
-                None => return None,
-                Some(Entry::Value(value, value_hash)) => {
-                    if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
-                        break;
-                    } else if !self.linear_probing {
-                        return None;
-                    } else {
-                        index = (index + 1) % SMALL_NODE_WIDTH;
-                    }
-                }
-                _ => unreachable!("SmallNode should only contain Values"),
-            }
-        }
-
-        let removed = self.data.remove(index).map(Entry::unwrap_value);
-        self.adjust_post_removal(shift, index);
-        removed
-    }
-}
-
-// Implementation block for Node-specific methods
-impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
     #[inline]
     fn merge_values(
         value1: A,
         hash1: HashBits,
         value2: A,
         hash2: HashBits,
-        shift: usize,
+        _shift: usize,
     ) -> Entry<A, P> {
-        let small_index1 = SmallNode::<A, P>::mask(hash1, shift) as usize;
-        let mut small_index2 = SmallNode::<A, P>::mask(hash2, shift) as usize;
-        if small_index1 == small_index2 {
-            small_index2 = (small_index1 + 1) % SMALL_NODE_WIDTH;
-        }
         let small_node = SmallNode::with(|node| {
-            node.data.insert(small_index1, Entry::Value(value1, hash1));
-            node.data.insert(small_index2, Entry::Value(value2, hash2));
+            node.data.insert(0, Entry::Value(value1, hash1));
+            node.data.insert(1, Entry::Value(value2, hash2));
+            node.control[0].as_array_mut()[0] = ((hash1 >> (HashBits::BITS - 8)) as u8).max(1);
+            node.control[0].as_array_mut()[1] = ((hash2 >> (HashBits::BITS - 8)) as u8).max(1);
         });
         Entry::SmallNode(small_node)
     }
@@ -332,8 +407,61 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
     where
         A: Clone,
     {
-        let mut index = Self::mask(hash, shift) as usize;
-        while let Some(entry) = self.data.get_mut(index) {
+        if self.mode == NodeMode::SimdGroups {
+            // Try to place in the designated SIMD group
+            let search = (hash >> (HashBits::BITS - 8)).max(1) as u8;
+            let group = ((hash >> (HashBits::BITS - 9)) & 1) as usize;
+
+            // First check if we're updating an existing value in the group
+            let mask = self.control[group]
+                .cmp_eq(wide::u8x16::splat(search))
+                .move_mask() as u16;
+            let mut bitmap = bitmaps::Bitmap::<16>::from_value(mask);
+
+            while let Some(offset) = bitmap.first_index() {
+                let index = group * 16 + offset;
+                if let Some(Entry::Value(current, current_hash)) = self.data.get_mut(index) {
+                    if hash_may_eq::<A>(hash, *current_hash)
+                        && current.extract_key() == value.extract_key()
+                    {
+                        return Some(mem::replace(current, value));
+                    }
+                    bitmap.set(offset, false);
+                } else {
+                    unreachable!("Control byte doesn't point to a Value");
+                }
+            }
+
+            // Try to find a free slot in the group
+            let mask = self.control[group]
+                .cmp_eq(wide::u8x16::default())
+                .move_mask() as u16;
+            let bitmap = bitmaps::Bitmap::<16>::from_value(mask);
+
+            if let Some(offset) = bitmap.first_index() {
+                // Found a free slot in the group
+                let index = group * 16 + offset;
+                self.data.insert(index, Entry::Value(value, hash));
+                self.control[group].as_array_mut()[offset] = search;
+                return None;
+            }
+
+            // Group is full, upgrade to PureHamt mode
+            // We need to relocate all existing values to their correct HAMT positions
+            self.mode = NodeMode::PureHamt;
+            for entry in mem::take(&mut self.data) {
+                let Entry::Value(value, hash) = entry else {
+                    unreachable!("Expected Value entry in SimdGroups mode");
+                };
+                self.insert(hash, shift, value);
+            }
+
+            // All entries have been relocated, we can now insert the new value below
+        }
+
+        // Classic HAMT insertion (either we're in PureHamt mode or just upgraded to it)
+        let index = Self::mask(hash, shift) as usize;
+        if let Some(entry) = self.data.get_mut(index) {
             // Value is here
             match entry {
                 // Update value or create a subtree
@@ -342,10 +470,6 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
                         && current.extract_key() == value.extract_key()
                     {
                         return Some(mem::replace(current, value));
-                    }
-                    if self.linear_probing {
-                        index = (index + 1) % HASH_WIDTH;
-                        continue;
                     }
                 }
                 Entry::Node(ref mut child_ref) => {
@@ -359,14 +483,21 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
                         Err(value) => {
                             // It's a collision, need to upgrade to Node
                             let node = Node::with(|node| {
-                                for entry in mem::take(&mut small.data) {
-                                    if let Entry::Value(v, h) = entry {
-                                        node.insert(h, shift + HASH_SHIFT, v);
-                                    } else {
-                                        unreachable!("SmallNode should only contain Values");
-                                    }
+                                let mut group_offsets = [0; 2];
+                                // Move small node entries into new node groups. These are guaranteed to fit
+                                while let Some(entry) = small.data.pop() {
+                                    let Entry::Value(_, hash) = entry else {
+                                        unreachable!("Expected Value entry in SmallNode data");
+                                    };
+                                    let search = (hash >> (HashBits::BITS - 8)).max(1) as u8;
+                                    let group = ((hash >> (HashBits::BITS - 9)) & 1) as usize;
+                                    let group_offset = group_offsets[group];
+                                    let data_offset = group * 16 + group_offset;
+                                    node.control[group].as_array_mut()[group_offset] = search;
+                                    node.data.insert(data_offset, entry);
+                                    group_offsets[group] += 1;
                                 }
-                                // Insert the new value
+                                // Insert the new value by recursing as it may overflow a group
                                 node.insert(hash, shift + HASH_SHIFT, value);
                             });
 
@@ -390,8 +521,7 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
             };
             let new_entry = if shift + HASH_SHIFT >= HASH_WIDTH {
                 // We're at the lowest level, need to set up a collision node.
-                let coll = CollisionNode::new(hash, old_value, value);
-                Entry::from(coll)
+                Entry::from(CollisionNode::new(hash, old_value, value))
             } else {
                 Node::merge_values(old_value, old_hash, value, hash, shift + HASH_SHIFT)
             };
@@ -399,17 +529,7 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
             return None;
         }
 
-        if self.linear_probing && self.data.len() >= HASH_WIDTH / 2 {
-            self.linear_probing = false;
-            for entry in mem::take(&mut self.data) {
-                if let Entry::Value(value, hash) = entry {
-                    self.insert(hash, shift, value);
-                } else {
-                    unreachable!("linear probing nodes should only contain values")
-                }
-            }
-            return self.insert(hash, shift, value);
-        }
+        // Insert at the classic HAMT empty position
         self.data.insert(index, Entry::Value(value, hash));
         None
     }
@@ -420,21 +540,47 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
     {
-        let mut index = Self::mask(hash, shift) as usize;
-        // First find the entry to remove
-        loop {
-            match self.data.get(index) {
-                None => return None,
-                Some(Entry::Value(value, value_hash)) => {
+        if self.mode == NodeMode::SimdGroups {
+            // Try SIMD search first
+            let search = (hash >> (HashBits::BITS - 8)).max(1) as u8;
+            let group = ((hash >> (HashBits::BITS - 9)) & 1) as usize;
+
+            // Search in the designated group
+            let mask = self.control[group]
+                .cmp_eq(wide::u8x16::splat(search))
+                .move_mask() as u16;
+            let mut bitmap = bitmaps::Bitmap::<16>::from_value(mask);
+
+            while let Some(offset) = bitmap.first_index() {
+                let index = group * 16 + offset;
+                if let Some(Entry::Value(value, value_hash)) = self.data.get(index) {
                     if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
-                        break;
-                    } else if !self.linear_probing {
-                        return None;
-                    } else {
-                        index = (index + 1) % HASH_WIDTH;
+                        // Found it in the group
+                        let removed = self.data.remove(index).map(Entry::unwrap_value);
+                        self.control[group].as_array_mut()[offset] = 0;
+                        return removed;
                     }
+                    bitmap.set(offset, false);
+                } else {
+                    unreachable!("Node should only contain Values in SimdGroups mode")
                 }
-                Some(Entry::Collision(_) | Entry::Node(_) | Entry::SmallNode(_)) => break,
+            }
+            return None; // No match found in SIMD groups
+        }
+
+        // Classic HAMT lookup
+        let index = Self::mask(hash, shift) as usize;
+        match self.data.get(index) {
+            None => return None,
+            Some(Entry::Value(value, value_hash)) => {
+                if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                    return self.data.remove(index).map(Entry::unwrap_value);
+                } else {
+                    return None;
+                }
+            }
+            Some(Entry::Collision(_) | Entry::Node(_) | Entry::SmallNode(_)) => {
+                // Continue with nested structure handling
             }
         }
 
@@ -489,7 +635,10 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
         if let Some(node) = new_node {
             self.data.insert(index, node);
         } else {
-            self.adjust_post_removal(shift, index);
+            // if there's a single value child, restore SIMD mode
+            // if self.data.len() == 1 && self.data.iter().next().is_some_and(|e| e.is_value()) {
+            //     self.mode = NodeMode::SimdGroups;
+            // }
         }
 
         removed
@@ -594,17 +743,12 @@ impl<A: HashValue> CollisionNode<A> {
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
     {
-        let mut loc = None;
         for (index, item) in self.data.iter().enumerate() {
             if key == item.extract_key().borrow() {
-                loc = Some(index);
+                return Some(self.data.swap_remove(index));
             }
         }
-        if let Some(index) = loc {
-            Some(self.data.remove(index))
-        } else {
-            None
-        }
+        None
     }
 
     fn pop<P: SharedPointerKind>(&mut self) -> Entry<A, P> {
@@ -937,7 +1081,7 @@ impl<A: fmt::Debug, P: SharedPointerKind> fmt::Debug for SmallNode<A, P> {
             write!(f, "{}: ", i)?;
             match &self.data[i] {
                 Entry::Value(v, h) => write!(f, "{:?} :: {}, ", v, h)?,
-                _ => unreachable!("SmallNode should only contain Values"),
+                _ => unreachable!("Control byte doesn't point to a Value"),
             }
         }
         write!(f, " ]")
