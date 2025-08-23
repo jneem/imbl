@@ -353,6 +353,10 @@ pub mod proptest;
 #[doc(hidden)]
 pub mod ser;
 
+#[cfg(feature = "bincode")]
+#[doc(hidden)]
+pub mod bincode;
+
 #[cfg(feature = "arbitrary")]
 #[doc(hidden)]
 pub mod arbitrary;
