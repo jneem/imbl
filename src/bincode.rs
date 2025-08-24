@@ -187,11 +187,27 @@ mod test {
 
         #[cfg_attr(miri, ignore)]
         #[test]
+        fn ordset_and_btree_set_encoded_the_same_way(ref bts in ::proptest::collection::btree_set(i32::ANY, 0..100)) {
+            let s = OrdSet::from(bts);
+            let config =  bincode::config::standard();
+            assert_eq!(encode_to_vec(bts, config).unwrap(), encode_to_vec(s, config).unwrap());
+        }
+
+        #[cfg_attr(miri, ignore)]
+        #[test]
         fn encode_and_decode_ordmap(ref v in ord_map(i32::ANY, i32::ANY, 0..100)) {
             let config =  bincode::config::standard();
             assert_eq!(v,
                 &decode_from_slice::<OrdMap::<i32, i32>, _>(&encode_to_vec(v, config).unwrap(), config).unwrap().0
             )
+        }
+
+        #[cfg_attr(miri, ignore)]
+        #[test]
+        fn ordmap_and_btree_map_encoded_the_same_way(ref btm in ::proptest::collection::btree_map(i32::ANY, i32::ANY, 0..100)) {
+            let s: OrdMap<i32, i32>  = OrdMap::from(btm);
+            let config =  bincode::config::standard();
+            assert_eq!(encode_to_vec(btm, config).unwrap(), encode_to_vec(s, config).unwrap());
         }
 
         #[cfg_attr(miri, ignore)]
@@ -205,6 +221,19 @@ mod test {
 
         #[cfg_attr(miri, ignore)]
         #[test]
+        fn encoding_std_hashmap_and_decoding_as_imbl_hashmap_is_same_as_converting(
+            ref std_hm in ::proptest::collection::hash_map(i32::ANY, i32::ANY, 0..100)
+        ) {
+            // In fact, std's HashMap and imbl's HashMap are _not_ encoded the same since the order of the items can differ.
+            let config =  bincode::config::standard();
+            let encoded = encode_to_vec(&std_hm, config).unwrap();
+            let converted = HashMap::from(std_hm);
+            let decoded : HashMap<i32, i32> = decode_from_slice(&encoded, config).unwrap().0;
+            assert_eq!(decoded, converted);
+        }
+
+        #[cfg_attr(miri, ignore)]
+        #[test]
         fn encode_and_decode_hashset(ref v in hash_set(i32::ANY, 0..100)) {
             let config =  bincode::config::standard();
             assert_eq!(v,
@@ -213,12 +242,33 @@ mod test {
         }
 
         #[cfg_attr(miri, ignore)]
+        #[cfg_attr(miri, ignore)]
+        #[test]
+        fn encoding_std_hashset_and_decoding_as_imbl_hashset_is_same_as_converting(
+            ref std_hs in ::proptest::collection::hash_set(i32::ANY, 0..100)
+        ) {
+            // In fact, std's HashSet and imbl's HashSet are _not_ encoded the same since the order of the items can differ.
+            let config =  bincode::config::standard();
+            let encoded = encode_to_vec(&std_hs, config).unwrap();
+            let converted = HashSet::from(std_hs);
+            let decoded : HashSet<i32> = decode_from_slice(&encoded, config).unwrap().0;
+            assert_eq!(decoded, converted);
+        }
+
         #[test]
         fn encode_and_decode_vector(ref v in vector(i32::ANY, 0..100)) {
             let config =  bincode::config::standard();
             assert_eq!(v,
                 &decode_from_slice::<Vector::<i32>, _>(&encode_to_vec(v, config).unwrap(), config).unwrap().0
             )
+        }
+
+        #[cfg_attr(miri, ignore)]
+        #[test]
+        fn vector_and_vec_encoded_the_same_way(ref vec in ::proptest::collection::vec(i32::ANY, 0..100)) {
+            let vector = Vector::from(vec);
+            let config =  bincode::config::standard();
+            assert_eq!(encode_to_vec(vec, config).unwrap(), encode_to_vec(vector, config).unwrap());
         }
     }
 }
