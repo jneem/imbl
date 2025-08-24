@@ -24,7 +24,7 @@ Changes from `im` include:
 
 ## Minimum supported rust version
 
-This crate supports rust 1.77 and later. As const generics become more useful,
+This crate supports rust 1.85 and later. As const generics become more useful,
 the minimum supported rust version will increase.
 
 ## Licence

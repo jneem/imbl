@@ -8,7 +8,7 @@ authors = [
 ]
 edition = "2018"
 license = "MPL-2.0+"
-rust-version = "1.77"
+rust-version = "1.85"
 description = "Immutable collection datatypes"
 repository = "https://github.com/jneem/imbl"
 documentation = "https://docs.rs/imbl"
