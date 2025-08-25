@@ -297,7 +297,7 @@
 //!
 //! ```no_compile
 //! [dependencies]
-//! imbl = { version = "*", features = ["proptest", "serde"] }
+//! imbl = { version = "*", features = ["proptest", "serde", "bincode"] }
 //! ```
 //!
 //! | Feature | Description |
@@ -306,6 +306,7 @@
 //! | [`quickcheck`](https://crates.io/crates/quickcheck) | [`quickcheck::Arbitrary`](https://docs.rs/quickcheck/latest/quickcheck/trait.Arbitrary.html) implementations for all `imbl` datatypes |
 //! | [`rayon`](https://crates.io/crates/rayon) | parallel iterator implementations for [`Vector`] |
 //! | [`serde`](https://crates.io/crates/serde) | [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) and [`Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) implementations for all `imbl` datatypes |
+//! | [`bincode`](https://crates.io/crates/bincode) | [`Encode`](https://docs.rs/bincode/latest/bincode/enc/trait.Encode.html) and [`Decode`](https://docs.rs/bincode/latest/bincode/de/trait.Decode.html) implementations for all `imbl` datatypes |
 //! | [`arbitrary`](https://crates.io/crates/arbitrary/) | [`arbitrary::Arbitrary`](https://docs.rs/arbitrary/latest/arbitrary/trait.Arbitrary.html) implementations for all `imbl` datatypes |
 //! | [`triomphe`](https://crates.io/crates/triomphe/) | Use [`triomphe::Arc`](https://docs.rs/triomphe/latest/triomphe/struct.Arc.html) for the default shared pointer. This is a drop-in replacement for [`std::sync::Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html) that is faster in some cases. |
 //!
@@ -352,6 +353,10 @@ pub mod proptest;
 #[cfg(any(test, feature = "serde"))]
 #[doc(hidden)]
 pub mod ser;
+
+#[cfg(feature = "bincode")]
+#[doc(hidden)]
+pub mod bincode;
 
 #[cfg(feature = "arbitrary")]
 #[doc(hidden)]
