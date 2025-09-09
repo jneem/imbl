@@ -5,12 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Lower HashMap and HashSet memory usage (#129)
+- Optimize HashMap and HashSet iteration speed (#129)
+
 ## [6.0.0] - 2025-07-15
 
 ### Fixed
 
-- Lower HashMap and HashSet memory usage (#129)
-- Optimize HashMap and HashSet iteration speed (#129)
 - Fix `vector::Iter` is not `Clone` when `triomphe` is enabled (#107)
 
 ### Changed
