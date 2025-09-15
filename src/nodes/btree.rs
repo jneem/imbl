@@ -1098,7 +1098,7 @@ impl<'a, K, V, P: SharedPointerKind> Clone for Cursor<'a, K, V, P> {
     fn clone(&self) -> Self {
         Self {
             stack: self.stack.clone(),
-            leaf: self.leaf.clone(),
+            leaf: self.leaf,
         }
     }
 }
