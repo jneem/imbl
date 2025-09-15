@@ -262,7 +262,6 @@ fn bench_split<V: BenchVector<usize>>(b: &mut Bencher, size: usize) {
 }
 
 fn bench_append<V: BenchVector<usize>>(b: &mut Bencher, size: usize) {
-    let size = size;
     let v1: V = (0..size / 2).collect();
     let v2: V = (size / 2..size).collect();
     b.iter(|| {
