@@ -404,7 +404,6 @@ mod tests;
 /// # }
 /// ```
 ///
-
 #[macro_export]
 macro_rules! update_in {
     ($target:expr, $path:expr => $($tail:tt) => *, $value:expr ) => {{
@@ -436,7 +435,6 @@ macro_rules! update_in {
 /// assert_eq!(Some(&6), get_in![vec_inside_vec, 1 => 2]);
 /// # }
 /// ```
-
 #[macro_export]
 macro_rules! get_in {
     ($target:expr, $path:expr => $($tail:tt) => * ) => {{
