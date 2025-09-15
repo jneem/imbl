@@ -3,8 +3,8 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use archery::SharedPointerKind;
-use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use serde_core::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+use serde_core::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use std::fmt;
 use std::hash::{BuildHasher, Hash};
 use std::marker::PhantomData;

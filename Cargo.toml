@@ -35,6 +35,7 @@ version_check = "0.9"
 
 [features]
 debug = []
+serde = ["dep:serde_core"]
 small-chunks = []
 triomphe = ["archery/triomphe"]
 
@@ -46,7 +47,7 @@ rand_xoshiro = "0.7"
 archery = "1.2.1"
 quickcheck = { version = "1.0", optional = true }
 proptest = { version = "1.0", optional = true }
-serde = { version = "1", optional = true }
+serde_core = { version = "1.0.224", optional = true }
 rayon = { version = "1", optional = true }
 refpool = { version = "0.4", optional = true }
 arbitrary = { version = "1.0", optional = true }
@@ -54,7 +55,7 @@ bincode = {version = "2.0.1", optional = true, default-features=false, features 
 
 [dev-dependencies]
 proptest = "1.0"
-serde = "1"
+serde_core = "1"
 serde_json = "1"
 rayon = "1"
 rand = { version = "0.9", features = ["small_rng"] }
