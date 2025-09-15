@@ -327,7 +327,6 @@ dependencies = [
  "rand_core 0.9.0",
  "rand_xoshiro",
  "rayon",
- "refpool",
  "rpds",
  "serde_core",
  "serde_json",
@@ -648,12 +647,6 @@ dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
 ]
-
-[[package]]
-name = "refpool"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "369e86b80fa7dc8c561dd9613a5bf25c59d2d3073cd66c47fd9e39802f0ecb58"
 
 [[package]]
 name = "regex"
