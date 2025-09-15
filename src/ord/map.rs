@@ -156,7 +156,7 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     /// Time: O(1)
     pub fn ptr_eq(&self, other: &Self) -> bool {
         match (&self.root, &other.root) {
-            (Some(a), Some(b)) => a.ptr_eq(&b),
+            (Some(a), Some(b)) => a.ptr_eq(b),
             (None, None) => true,
             _ => false,
         }
@@ -2673,7 +2673,7 @@ mod test {
                 diff.push(DiffItem::Add(k, v));
             }
         }
-        fn diff_item_key<'a, 'b, K, V>(di: &'a DiffItem<'b, 'b, K, V>) -> &'b K {
+        fn diff_item_key<'b, K, V>(di: &DiffItem<'b, 'b, K, V>) -> &'b K {
             match di {
                 DiffItem::Add(k, _) => k,
                 DiffItem::Remove(k, _) => k,

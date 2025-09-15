@@ -262,7 +262,6 @@ fn bench_split<V: BenchVector<usize>>(b: &mut Bencher, size: usize) {
 }
 
 fn bench_append<V: BenchVector<usize>>(b: &mut Bencher, size: usize) {
-    let size = size;
     let v1: V = (0..size / 2).collect();
     let v2: V = (size / 2..size).collect();
     b.iter(|| {
@@ -329,15 +328,15 @@ fn bench_sort_group<V: BenchVector<usize>>(c: &mut Criterion, group_name: &str) 
     let mut group = c.benchmark_group(format!("{}_sort", group_name));
 
     for size in &[500, 1000, 1500, 2000, 2500] {
-        group.bench_function(&format!("sorted_{}", size), |b| {
+        group.bench_function(format!("sorted_{}", size), |b| {
             bench_sort_sorted::<V>(b, *size)
         });
 
-        group.bench_function(&format!("reverse_{}", size), |b| {
+        group.bench_function(format!("reverse_{}", size), |b| {
             bench_sort_reverse::<V>(b, *size)
         });
 
-        group.bench_function(&format!("shuffled_{}", size), |b| {
+        group.bench_function(format!("shuffled_{}", size), |b| {
             bench_sort_shuffled::<V>(b, *size)
         });
     }
@@ -350,36 +349,36 @@ fn bench_ops_group<V: BenchVector<usize>>(c: &mut Criterion, group_name: &str) {
     let mut group = c.benchmark_group(format!("{}_ops", group_name));
 
     for size in &[100, 1000, 100000] {
-        group.bench_function(&format!("push_front_{}", size), |b| {
+        group.bench_function(format!("push_front_{}", size), |b| {
             bench_push_front::<V>(b, *size)
         });
 
-        group.bench_function(&format!("push_back_{}", size), |b| {
+        group.bench_function(format!("push_back_{}", size), |b| {
             bench_push_back::<V>(b, *size)
         });
 
-        group.bench_function(&format!("pop_front_{}", size), |b| {
+        group.bench_function(format!("pop_front_{}", size), |b| {
             bench_pop_front::<V>(b, *size)
         });
 
-        group.bench_function(&format!("pop_back_{}", size), |b| {
+        group.bench_function(format!("pop_back_{}", size), |b| {
             bench_pop_back::<V>(b, *size)
         });
 
-        group.bench_function(&format!("split_{}", size), |b| bench_split::<V>(b, *size));
+        group.bench_function(format!("split_{}", size), |b| bench_split::<V>(b, *size));
 
-        group.bench_function(&format!("iter_{}", size), |b| bench_iter::<V>(b, *size));
+        group.bench_function(format!("iter_{}", size), |b| bench_iter::<V>(b, *size));
 
-        group.bench_function(&format!("get_seq_{}", size), |b| {
+        group.bench_function(format!("get_seq_{}", size), |b| {
             bench_get_seq::<V>(b, *size)
         });
 
         if <V as BenchVector<usize>>::supports_focus() {
-            group.bench_function(&format!("get_seq_focus_{}", size), |b| {
+            group.bench_function(format!("get_seq_focus_{}", size), |b| {
                 bench_get_seq_focus::<V>(b, *size)
             });
 
-            group.bench_function(&format!("get_seq_focus_mut_{}", size), |b| {
+            group.bench_function(format!("get_seq_focus_mut_{}", size), |b| {
                 bench_get_seq_focus_mut::<V>(b, *size)
             });
         }
@@ -387,12 +386,12 @@ fn bench_ops_group<V: BenchVector<usize>>(c: &mut Criterion, group_name: &str) {
 
     // Append has different sizes
     for size in &[10, 100, 1000, 10000, 100000] {
-        group.bench_function(&format!("append_{}", size), |b| bench_append::<V>(b, *size));
+        group.bench_function(format!("append_{}", size), |b| bench_append::<V>(b, *size));
     }
 
     // Iterator max benchmarks
     for size in &[1000, 100000, 10000000] {
-        group.bench_function(&format!("iter_max_{}", size), |b| {
+        group.bench_function(format!("iter_max_{}", size), |b| {
             bench_iter_max::<V>(b, *size)
         });
     }

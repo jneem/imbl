@@ -372,52 +372,52 @@ where
     let mut group = c.benchmark_group(group_name);
 
     for size in &[100, 1000, 10000, 100000] {
-        group.bench_function(&format!("lookup_{}", size), |b| {
+        group.bench_function(format!("lookup_{}", size), |b| {
             bench_lookup::<M, K, V>(b, *size)
         });
     }
 
     for size in &[10000, 100000] {
-        group.bench_function(&format!("lookup_ne_{}", size), |b| {
+        group.bench_function(format!("lookup_ne_{}", size), |b| {
             bench_lookup_ne::<M, K, V>(b, *size)
         });
     }
 
     for size in &[100, 1000, 10000, 100000] {
-        group.bench_function(&format!("insert_mut_{}", size), |b| {
+        group.bench_function(format!("insert_mut_{}", size), |b| {
             bench_insert_mut::<M, K, V>(b, *size)
         });
     }
 
     for size in &[100, 1000, 10000] {
-        group.bench_function(&format!("remove_mut_{}", size), |b| {
+        group.bench_function(format!("remove_mut_{}", size), |b| {
             bench_remove_mut::<M, K, V>(b, *size)
         });
     }
 
     for size in &[1000, 10000] {
-        group.bench_function(&format!("iter_{}", size), |b| {
+        group.bench_function(format!("iter_{}", size), |b| {
             bench_iter::<M, K, V>(b, *size)
         });
     }
 
     if M::IMMUTABLE {
         for size in &[100, 1000, 10000] {
-            group.bench_function(&format!("insert_{}", size), |b| {
+            group.bench_function(format!("insert_{}", size), |b| {
                 bench_insert::<M, K, V>(b, *size)
             });
 
-            group.bench_function(&format!("remove_{}", size), |b| {
+            group.bench_function(format!("remove_{}", size), |b| {
                 bench_remove::<M, K, V>(b, *size)
             });
         }
 
         for size in &[100, 1000, 10000, 100000] {
-            group.bench_function(&format!("insert_once_{}", size), |b| {
+            group.bench_function(format!("insert_once_{}", size), |b| {
                 bench_insert_once::<M, K, V>(b, *size)
             });
 
-            group.bench_function(&format!("remove_once_{}", size), |b| {
+            group.bench_function(format!("remove_once_{}", size), |b| {
                 bench_remove_once::<M, K, V>(b, *size)
             });
         }

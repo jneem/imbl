@@ -1832,7 +1832,7 @@ impl<A: Clone, P: SharedPointerKind> Add for GenericVector<A, P> {
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> Add for &'a GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind> Add for &GenericVector<A, P> {
     type Output = GenericVector<A, P>;
 
     /// Concatenate two vectors.
@@ -1931,7 +1931,7 @@ impl<A: Clone, P: SharedPointerKind> FromIterator<A> for GenericVector<A, P> {
     }
 }
 
-impl<'s, 'a, A, OA, P1, P2> From<&'s GenericVector<&'a A, P2>> for GenericVector<OA, P1>
+impl<A, OA, P1, P2> From<&GenericVector<&A, P2>> for GenericVector<OA, P1>
 where
     A: ToOwned<Owned = OA>,
     OA: Borrow<A> + Clone,
@@ -1952,7 +1952,7 @@ where
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> From<&'a [A]> for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind> From<&[A]> for GenericVector<A, P> {
     fn from(slice: &[A]) -> Self {
         slice.iter().cloned().collect()
     }
@@ -1969,7 +1969,7 @@ impl<A: Clone, P: SharedPointerKind> From<Vec<A>> for GenericVector<A, P> {
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> From<&'a Vec<A>> for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind> From<&Vec<A>> for GenericVector<A, P> {
     /// Create a vector from a [`std::vec::Vec`][vec].
     ///
     /// Time: O(n)
@@ -2633,13 +2633,13 @@ mod test {
 
     #[test]
     fn issue_131() {
-        let smol = std::iter::repeat(42).take(64).collect::<Vector<_>>();
+        let smol = std::iter::repeat_n(42, 64).collect::<Vector<_>>();
         let mut smol2 = smol.clone();
         assert!(smol.ptr_eq(&smol2));
         smol2.set(63, 420);
         assert!(!smol.ptr_eq(&smol2));
 
-        let huge = std::iter::repeat(42).take(65).collect::<Vector<_>>();
+        let huge = std::iter::repeat_n(42, 65).collect::<Vector<_>>();
         let mut huge2 = huge.clone();
         assert!(huge.ptr_eq(&huge2));
         huge2.set(63, 420);
@@ -2650,7 +2650,7 @@ mod test {
     fn ptr_eq() {
         const MAX: usize = if cfg!(miri) { 64 } else { 256 };
         for len in 32..MAX {
-            let input = std::iter::repeat(42).take(len).collect::<Vector<_>>();
+            let input = std::iter::repeat_n(42, len).collect::<Vector<_>>();
             let mut inp2 = input.clone();
             assert!(input.ptr_eq(&inp2));
             inp2.set(len - 1, 98);

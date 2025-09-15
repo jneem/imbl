@@ -226,7 +226,7 @@ mod test {
         ) {
             // In fact, std's HashMap and imbl's HashMap are _not_ encoded the same since the order of the items can differ.
             let config =  bincode::config::standard();
-            let encoded = encode_to_vec(&std_hm, config).unwrap();
+            let encoded = encode_to_vec(std_hm, config).unwrap();
             let converted = HashMap::from(std_hm);
             let decoded : HashMap<i32, i32> = decode_from_slice(&encoded, config).unwrap().0;
             assert_eq!(decoded, converted);
@@ -249,7 +249,7 @@ mod test {
         ) {
             // In fact, std's HashSet and imbl's HashSet are _not_ encoded the same since the order of the items can differ.
             let config =  bincode::config::standard();
-            let encoded = encode_to_vec(&std_hs, config).unwrap();
+            let encoded = encode_to_vec(std_hs, config).unwrap();
             let converted = HashSet::from(std_hs);
             let decoded : HashSet<i32> = decode_from_slice(&encoded, config).unwrap().0;
             assert_eq!(decoded, converted);
