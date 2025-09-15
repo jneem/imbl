@@ -2466,8 +2466,8 @@ mod test {
                 assert_eq!(count + 1, mut_map.len());
             }
             for (k, v) in m {
-                assert_eq!(Some(v), map.get(&k));
-                assert_eq!(Some(v), mut_map.get(&k));
+                assert_eq!(Some(v), map.get(k));
+                assert_eq!(Some(v), mut_map.get(k));
             }
             assert_eq!(map, mut_map);
         }

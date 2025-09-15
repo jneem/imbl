@@ -1122,10 +1122,10 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
         if let Some(node) = node {
             self.stack.reserve_exact(node.level());
             match node {
-                Node::Branch(branch) => self.stack.push((0, &*branch)),
+                Node::Branch(branch) => self.stack.push((0, branch)),
                 Node::Leaf(leaf) => {
                     debug_assert!(self.leaf.is_none());
-                    self.leaf = Some((0, &*leaf))
+                    self.leaf = Some((0, leaf))
                 }
             }
         }
