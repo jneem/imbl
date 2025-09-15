@@ -5,7 +5,7 @@
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
 use std::fmt;
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::{BuildHasher, Hash};
 use std::iter::FusedIterator;
 use std::mem::{ManuallyDrop, MaybeUninit};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
@@ -24,9 +24,7 @@ const ITER_STACK_CAPACITY: usize = HASH_WIDTH.div_ceil(HASH_SHIFT) + 1;
 const SMALL_NODE_WIDTH: usize = HASH_WIDTH / 2;
 
 pub(crate) fn hash_key<K: Hash + ?Sized, S: BuildHasher>(bh: &S, key: &K) -> HashBits {
-    let mut hasher = bh.build_hasher();
-    key.hash(&mut hasher);
-    hasher.finish() as HashBits
+    bh.hash_one(key) as HashBits
 }
 
 pub trait HashValue {
