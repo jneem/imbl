@@ -1782,7 +1782,7 @@ where
     }
 }
 
-impl<'a, K, V, S, P> Add for &'a GenericHashMap<K, V, S, P>
+impl<K, V, S, P> Add for &GenericHashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
@@ -1828,7 +1828,7 @@ where
     }
 }
 
-impl<'a, BK, K, V, S, P> Index<&'a BK> for GenericHashMap<K, V, S, P>
+impl<BK, K, V, S, P> Index<&BK> for GenericHashMap<K, V, S, P>
 where
     BK: Hash + Eq + ?Sized,
     K: Hash + Eq + Borrow<BK>,
@@ -1845,7 +1845,7 @@ where
     }
 }
 
-impl<'a, BK, K, V, S, P> IndexMut<&'a BK> for GenericHashMap<K, V, S, P>
+impl<BK, K, V, S, P> IndexMut<&BK> for GenericHashMap<K, V, S, P>
 where
     BK: Hash + Eq + ?Sized,
     K: Hash + Eq + Clone + Borrow<BK>,
@@ -2085,7 +2085,7 @@ impl<K, V, S, P: SharedPointerKind> AsRef<GenericHashMap<K, V, S, P>>
     }
 }
 
-impl<'m, 'k, 'v, K, V, OK, OV, SA, SB, P1, P2> From<&'m GenericHashMap<&'k K, &'v V, SA, P1>>
+impl<K, V, OK, OV, SA, SB, P1, P2> From<&GenericHashMap<&K, &V, SA, P1>>
     for GenericHashMap<OK, OV, SB, P2>
 where
     K: Hash + Eq + ToOwned<Owned = OK> + ?Sized,

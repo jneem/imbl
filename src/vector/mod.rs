@@ -1832,7 +1832,7 @@ impl<A: Clone, P: SharedPointerKind> Add for GenericVector<A, P> {
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> Add for &'a GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind> Add for &GenericVector<A, P> {
     type Output = GenericVector<A, P>;
 
     /// Concatenate two vectors.
@@ -1931,7 +1931,7 @@ impl<A: Clone, P: SharedPointerKind> FromIterator<A> for GenericVector<A, P> {
     }
 }
 
-impl<'s, 'a, A, OA, P1, P2> From<&'s GenericVector<&'a A, P2>> for GenericVector<OA, P1>
+impl<A, OA, P1, P2> From<&GenericVector<&A, P2>> for GenericVector<OA, P1>
 where
     A: ToOwned<Owned = OA>,
     OA: Borrow<A> + Clone,
@@ -1952,7 +1952,7 @@ where
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> From<&'a [A]> for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind> From<&[A]> for GenericVector<A, P> {
     fn from(slice: &[A]) -> Self {
         slice.iter().cloned().collect()
     }
@@ -1969,7 +1969,7 @@ impl<A: Clone, P: SharedPointerKind> From<Vec<A>> for GenericVector<A, P> {
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> From<&'a Vec<A>> for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind> From<&Vec<A>> for GenericVector<A, P> {
     /// Create a vector from a [`std::vec::Vec`][vec].
     ///
     /// Time: O(n)

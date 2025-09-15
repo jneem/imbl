@@ -694,7 +694,7 @@ where
     }
 }
 
-impl<'a, A, S, P> Add for &'a GenericHashSet<A, S, P>
+impl<A, S, P> Add for &GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Clone,
@@ -707,7 +707,7 @@ where
     }
 }
 
-impl<'a, A, S, P> Mul for &'a GenericHashSet<A, S, P>
+impl<A, S, P> Mul for &GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Clone,
@@ -887,8 +887,7 @@ where
 
 // Conversions
 
-impl<'s, 'a, A, OA, SA, SB, P1, P2> From<&'s GenericHashSet<&'a A, SA, P1>>
-    for GenericHashSet<OA, SB, P2>
+impl<A, OA, SA, SB, P1, P2> From<&GenericHashSet<&A, SA, P1>> for GenericHashSet<OA, SB, P2>
 where
     A: ToOwned<Owned = OA> + Hash + Eq + ?Sized,
     OA: Borrow<A> + Hash + Eq + Clone,
@@ -935,7 +934,7 @@ where
     }
 }
 
-impl<'a, A, S, P> From<&'a Vec<A>> for GenericHashSet<A, S, P>
+impl<A, S, P> From<&Vec<A>> for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default + Clone,
@@ -958,7 +957,7 @@ where
     }
 }
 
-impl<'a, A, S, P1, P2> From<&'a GenericVector<A, P2>> for GenericHashSet<A, S, P1>
+impl<A, S, P1, P2> From<&GenericVector<A, P2>> for GenericHashSet<A, S, P1>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default + Clone,
@@ -981,7 +980,7 @@ where
     }
 }
 
-impl<'a, A, S, P> From<&'a collections::HashSet<A>> for GenericHashSet<A, S, P>
+impl<A, S, P> From<&collections::HashSet<A>> for GenericHashSet<A, S, P>
 where
     A: Eq + Hash + Clone,
     S: BuildHasher + Default + Clone,
@@ -992,7 +991,7 @@ where
     }
 }
 
-impl<'a, A, S, P> From<&'a BTreeSet<A>> for GenericHashSet<A, S, P>
+impl<A, S, P> From<&BTreeSet<A>> for GenericHashSet<A, S, P>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default + Clone,
@@ -1015,7 +1014,7 @@ where
     }
 }
 
-impl<'a, A, S, P1, P2> From<&'a GenericOrdSet<A, P2>> for GenericHashSet<A, S, P1>
+impl<A, S, P1, P2> From<&GenericOrdSet<A, P2>> for GenericHashSet<A, S, P1>
 where
     A: Ord + Hash + Eq + Clone,
     S: BuildHasher + Default + Clone,
@@ -1090,7 +1089,7 @@ mod test {
 
             let hasher = MetroHashBuilder::new(i);
             let mut iset: GenericHashSet<_, MetroHashBuilder, DefaultSharedPtr> =
-                GenericHashSet::with_hasher(hasher.clone());
+                GenericHashSet::with_hasher(hasher);
             for &i in &lhs {
                 iset.insert(i);
             }
