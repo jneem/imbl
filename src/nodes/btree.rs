@@ -1150,9 +1150,7 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
                 debug_assert_eq!(i, &0);
                 return leaf.keys.first();
             }
-            let Some((i, branch)) = self.stack.last() else {
-                return None;
-            };
+            let (i, branch) = self.stack.last()?;
             debug_assert_eq!(i, &0);
             self.push_child(branch, 0);
         }
@@ -1165,9 +1163,7 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
                 *i = leaf.keys.len().saturating_sub(1);
                 return leaf.keys.last();
             }
-            let Some((i, branch)) = self.stack.last_mut() else {
-                return None;
-            };
+            let (i, branch) = self.stack.last_mut()?;
             debug_assert_eq!(i, &0);
             *i = branch.children.len() - 1;
             let (i, branch) = (*i, *branch);
