@@ -281,9 +281,7 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let i = self
-            .keys
-            .binary_search_by(|k| k.borrow().cmp(key))
+        let i = slice_ext::binary_search_by(&self.keys, |k| k.borrow().cmp(key))
             .map(|x| x + 1)
             .unwrap_or_else(|x| x);
         let rebalance = match &mut self.children {
@@ -310,7 +308,7 @@ impl<K: Ord + Clone, V: Clone> Leaf<K, V> {
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        if let Ok(i) = self.keys.binary_search_by(|(k, _)| k.borrow().cmp(key)) {
+        if let Ok(i) = slice_ext::binary_search_by(&self.keys, |(k, _)| k.borrow().cmp(key)) {
             *removed = Some(self.keys.remove(i));
         }
         // Underflow if the leaf is < 1/3 full. This relaxed underflow (vs. 1/2 full) is
@@ -503,9 +501,7 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
 
 impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
     pub(crate) fn insert(&mut self, key: K, value: V) -> InsertAction<K, V, P> {
-        let i = self
-            .keys
-            .binary_search(&key)
+        let i = slice_ext::binary_search_by(&self.keys, |k| k.cmp(&key))
             .map(|x| x + 1)
             .unwrap_or_else(|x| x);
         let insert_action = match &mut self.children {
@@ -535,7 +531,7 @@ impl<K: Ord + Clone, V: Clone> Leaf<K, V> {
         key: K,
         value: V,
     ) -> InsertAction<K, V, P> {
-        match self.keys.binary_search_by(|(k, _)| k.cmp(&key)) {
+        match slice_ext::binary_search_by(&self.keys, |(k, _)| k.cmp(&key)) {
             Ok(i) => {
                 let (k, v) = mem::replace(&mut self.keys[i], (key, value));
                 InsertAction::Replaced(k, v)
@@ -621,9 +617,7 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
         BK: Ord + ?Sized,
         K: Borrow<BK>,
     {
-        let i = self
-            .keys
-            .binary_search_by(|k| k.borrow().cmp(key))
+        let i = slice_ext::binary_search_by(&self.keys, |k| k.borrow().cmp(key))
             .map(|x| x + 1)
             .unwrap_or_else(|x| x);
         match &mut self.children {
@@ -642,7 +636,7 @@ impl<K: Ord + Clone, V: Clone> Leaf<K, V> {
         K: Borrow<BK>,
     {
         let keys = &mut self.keys;
-        let i = keys.binary_search_by(|(k, _)| k.borrow().cmp(key)).ok()?;
+        let i = slice_ext::binary_search_by(keys, |(k, _)| k.borrow().cmp(key)).ok()?;
         keys.get_mut(i).map(|(k, v)| (&*k, v))
     }
 }
@@ -702,9 +696,7 @@ impl<K: Ord, V, P: SharedPointerKind> Branch<K, V, P> {
     {
         let mut node = self;
         loop {
-            let i = node
-                .keys
-                .binary_search_by(|k| k.borrow().cmp(key))
+            let i = slice_ext::binary_search_by(&node.keys, |k| k.borrow().cmp(key))
                 .map(|x| x + 1)
                 .unwrap_or_else(|x| x);
             match &node.children {
@@ -728,7 +720,7 @@ impl<K: Ord, V> Leaf<K, V> {
         K: Borrow<BK>,
     {
         let keys = &self.keys;
-        let i = keys.binary_search_by(|(k, _)| k.borrow().cmp(key)).ok()?;
+        let i = slice_ext::binary_search_by(keys, |(k, _)| k.borrow().cmp(key)).ok()?;
         keys.get(i)
     }
 }
@@ -1178,7 +1170,7 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
     {
         loop {
             if let Some((i, leaf)) = &mut self.leaf {
-                let search = leaf.keys.binary_search_by(|(k, _)| k.borrow().cmp(key));
+                let search = slice_ext::binary_search_by(&leaf.keys, |(k, _)| k.borrow().cmp(key));
                 *i = search.unwrap_or_else(|x| x);
                 if for_prev {
                     if search.is_err() {
@@ -1192,9 +1184,7 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
             let Some((i, branch)) = self.stack.last_mut() else {
                 return false;
             };
-            *i = branch
-                .keys
-                .binary_search_by(|k| k.borrow().cmp(key))
+            *i = slice_ext::binary_search_by(&branch.keys, |k| k.borrow().cmp(key))
                 .map(|x| x + 1)
                 .unwrap_or_else(|x| x);
             let (i, branch) = (*i, *branch);
@@ -1290,5 +1280,58 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
         } else {
             None
         }
+    }
+}
+
+mod slice_ext {
+    #[inline]
+    #[allow(unsafe_code)]
+    pub(super) fn binary_search_by<T, F>(slice: &[T], mut f: F) -> Result<usize, usize>
+    where
+        F: FnMut(&T) -> std::cmp::Ordering,
+    {
+        // Optimization: defer to std-lib if we think we're comparing integers, in which case
+        // the stdlib implementation optimizes better using a fully branchless approach.
+        // This branch is fully resolved at compile-time and will not incur any space or runtime overhead.
+        // There is a mild assumption that the std-lib implementation will remain optimized for primitive types.
+        if !std::mem::needs_drop::<T>() && std::mem::size_of::<T>() <= 16 {
+            return slice.binary_search_by(f);
+        }
+
+        // This binary search implementation will always perform the minimum number of
+        // comparisons and also allows for early return from the search loop when the comparison
+        // function returns `Equal`, which is best when the comparison function isn't trivial
+        // (e.g. `memcmp` vs. integer comparison).
+
+        use std::cmp::Ordering::*;
+        let mut low = 0;
+        let mut high = slice.len();
+        // Compared to the stdlib this implementation perform early return when the comparison
+        // function returns Equal and will perform the optimal number of comparisons.
+        // This is a tradeoff when the comparisons aren't cheap, as is the case
+        // when the comparison is a memcmp of the field name and CRDT type.
+        while low < high {
+            // the midpoint is biased (truncated) towards low so it will always be less than high
+            let mid = low + (high - low) / 2;
+            // Safety: mid is always in bounds as low < high <= slice.len(); thus mid < slice.len()
+            let cmp = f(unsafe { slice.get_unchecked(mid) });
+            // TODO: Use select_unpredictable when min rustc_version >= 1.88
+            // to guarantee conditional move optimization.
+            // low can only get up to slice.len() as mid < slice.len()
+            low = if cmp == Less { mid + 1 } else { low };
+            high = if cmp == Greater { mid } else { high };
+            if cmp == Equal {
+                // Safety: same as above
+                unsafe {
+                    std::hint::assert_unchecked(mid < slice.len());
+                }
+                return Ok(mid);
+            }
+        }
+        // Safety: see low assignment above
+        unsafe {
+            std::hint::assert_unchecked(low <= slice.len());
+        }
+        Err(low)
     }
 }
