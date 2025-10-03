@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v2
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - name: cargo fmt
         run: cargo fmt --check
 
