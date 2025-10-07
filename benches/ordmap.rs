@@ -567,7 +567,7 @@ where
     }
 
     if M::IMMUTABLE {
-        for size in &[100, 1000, 10000] {
+        for size in &[100, 1000, 10000, 100000] {
             group.bench_function(format!("insert_{}", size), |b| {
                 bench_insert::<M, K, V>(b, *size)
             });
