@@ -338,8 +338,10 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
             collision_count: usize,
             collision_entry_sum: usize,
             child_node_count: usize,
-            small_node_count: usize,
-            small_node_entry_sum: usize,
+            small_simd_node_count: usize,
+            large_simd_node_count: usize,
+            small_simd_entry_sum: usize,
+            large_simd_entry_sum: usize,
             total_entries: usize,
         }
 
@@ -351,6 +353,7 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
 
         let mut level_stats: Vec<LevelStats> = Vec::new();
         let mut queue: VecDeque<(usize, SharedPointer<Node<(K, V), P>, P>)> = VecDeque::new();
+        let mut max_depth = 0;
 
         // Start with root node at level 0
         if let Some(ref root) = self.root {
@@ -371,18 +374,28 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
             node.analyze_structure(|entry| {
                 stats.total_entries += 1;
                 match entry {
-                    NodeEntry::Value(_, _) => stats.value_count += 1,
+                    NodeEntry::Value(_, _) => {
+                        stats.value_count += 1;
+                        max_depth = max_depth.max(level);
+                    }
                     NodeEntry::Collision(_coll) => {
                         stats.collision_count += 1;
                         // stats.collision_entry_sum += coll.len();
+                        max_depth = max_depth.max(level);
                     }
-                    NodeEntry::Node(child_node) => {
+                    NodeEntry::HamtNode(child_node) => {
                         stats.child_node_count += 1;
                         queue.push_back((level + 1, child_node.clone()));
                     }
-                    NodeEntry::SmallNode(small_node) => {
-                        stats.small_node_count += 1;
-                        stats.small_node_entry_sum += small_node.len();
+                    NodeEntry::SmallSimdNode(small_node) => {
+                        stats.small_simd_node_count += 1;
+                        stats.small_simd_entry_sum += small_node.len();
+                        max_depth = max_depth.max(level + 1);
+                    }
+                    NodeEntry::LargeSimdNode(large_node) => {
+                        stats.large_simd_node_count += 1;
+                        stats.large_simd_entry_sum += large_node.len();
+                        max_depth = max_depth.max(level + 1);
                     }
                 }
             })
@@ -398,7 +411,7 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
             2_usize.pow(crate::config::HASH_LEVEL_SIZE as u32)
         );
         println!("  Total entries: {}", self.size);
-        println!("  Tree depth: {} levels", level_stats.len());
+        println!("  Tree depth: {} levels", max_depth + 1);
         println!();
 
         for (level, stats) in level_stats.iter().enumerate() {
@@ -426,19 +439,32 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
                     (stats.collision_count as f64 / stats.total_entries as f64) * 100.0
                 );
                 println!(
-                    "      Child nodes: {} ({:.1}%)",
+                    "      Child HAMT nodes: {} ({:.1}%)",
                     stats.child_node_count,
                     (stats.child_node_count as f64 / stats.total_entries as f64) * 100.0
                 );
-                println!(
-                    "      Small nodes: {} ({:.1}%)",
-                    stats.small_node_count,
-                    (stats.small_node_count as f64 / stats.total_entries as f64) * 100.0
-                );
-                if stats.small_node_count > 0 {
+                if stats.small_simd_node_count > 0 {
                     println!(
-                        "        → Avg entries per small node: {:.1}",
-                        stats.small_node_entry_sum as f64 / stats.small_node_count as f64
+                        "      Small SIMD leaf nodes: {} ({:.1}%) [total values: {}]",
+                        stats.small_simd_node_count,
+                        (stats.small_simd_node_count as f64 / stats.total_entries as f64) * 100.0,
+                        stats.small_simd_entry_sum
+                    );
+                    println!(
+                        "        → Avg values per small SIMD node: {:.1}",
+                        stats.small_simd_entry_sum as f64 / stats.small_simd_node_count as f64
+                    );
+                }
+                if stats.large_simd_node_count > 0 {
+                    println!(
+                        "      Large SIMD leaf nodes: {} ({:.1}%) [total values: {}]",
+                        stats.large_simd_node_count,
+                        (stats.large_simd_node_count as f64 / stats.total_entries as f64) * 100.0,
+                        stats.large_simd_entry_sum
+                    );
+                    println!(
+                        "        → Avg values per large SIMD node: {:.1}",
+                        stats.large_simd_entry_sum as f64 / stats.large_simd_node_count as f64
                     );
                 }
             }

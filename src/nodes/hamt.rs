@@ -4,12 +4,11 @@
 
 use std::borrow::Borrow;
 use std::cell::UnsafeCell;
-use std::fmt;
 use std::hash::{BuildHasher, Hash};
 use std::iter::FusedIterator;
 use std::mem::{ManuallyDrop, MaybeUninit};
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
-use std::{mem, ptr};
+use std::{fmt, mem, ptr};
 
 use archery::{SharedPointer, SharedPointerKind};
 use bitmaps::{Bits, BitsImpl};
@@ -22,9 +21,59 @@ pub(crate) type HashBits = <BitsImpl<HASH_WIDTH> as Bits>::Store; // a uint of H
 const HASH_WIDTH: usize = 2_usize.pow(HASH_SHIFT as u32);
 const ITER_STACK_CAPACITY: usize = HASH_WIDTH.div_ceil(HASH_SHIFT) + 1;
 const SMALL_NODE_WIDTH: usize = HASH_WIDTH / 2;
+const GROUP_WIDTH: usize = HASH_WIDTH / 2;
 
+type SimdGroup = wide::u8x16;
+type GroupBitmap = bitmaps::Bitmap<GROUP_WIDTH>;
+
+const _: () = {
+    // Limitations of the current implementation, can only handle up to 2 groups,
+    // but can be lifted with further code changes
+    assert!(HASH_SHIFT <= 5, "HASH_LEVEL_SIZE must be at most 5");
+    assert!(HASH_SHIFT >= 3, "HASH_LEVEL_SIZE must be at least 3");
+};
+
+#[inline]
 pub(crate) fn hash_key<K: Hash + ?Sized, S: BuildHasher>(bh: &S, key: &K) -> HashBits {
     bh.hash_one(key) as HashBits
+}
+
+#[inline]
+fn group_find_empty(control: &SimdGroup) -> Option<usize> {
+    let idx = group_find(control, 0).first_index();
+    // if the GROUP_WIDTH != SimdGroup lanes, we need to handle finding
+    // a zero in an index outside the valid range
+    if GROUP_WIDTH != size_of::<SimdGroup>() {
+        idx.filter(|&i| i < GROUP_WIDTH)
+    } else {
+        idx
+    }
+}
+
+#[inline]
+fn group_find(control: &SimdGroup, value: u8) -> GroupBitmap {
+    let mask = control.cmp_eq(SimdGroup::splat(value)).move_mask();
+    GroupBitmap::from_value(mask as _)
+}
+
+/// Special constructor to allow initializing Nodes w/o incurring multiple memory copies.
+/// These copies really slow things down once Node crosses a certain size threshold and copies become calls to memcopy.
+#[inline]
+fn node_with<T, P: SharedPointerKind>(with: impl FnOnce(&mut T)) -> SharedPointer<T, P>
+where
+    T: Default,
+{
+    let result: SharedPointer<UnsafeCell<mem::MaybeUninit<T>>, P> =
+        SharedPointer::new(UnsafeCell::new(mem::MaybeUninit::uninit()));
+    #[allow(unsafe_code)]
+    unsafe {
+        (&mut *result.get()).write(T::default());
+        let mut_ptr = &mut *UnsafeCell::raw_get(&*result);
+        let mut_ptr = MaybeUninit::as_mut_ptr(mut_ptr);
+        with(&mut *mut_ptr);
+        let result = ManuallyDrop::new(result);
+        mem::transmute_copy(&result)
+    }
 }
 
 pub trait HashValue {
@@ -34,40 +83,61 @@ pub trait HashValue {
     fn ptr_eq(&self, other: &Self) -> bool;
 }
 
-pub(crate) struct GenericNode<A, P: SharedPointerKind, const WIDTH: usize>
+/// Generic SIMD node that stores leaf values only (no child nodes).
+/// Uses SIMD control bytes for fast parallel lookup.
+pub(crate) struct GenericSimdNode<A, const WIDTH: usize, const GROUPS: usize>
 where
     BitsImpl<WIDTH>: Bits,
 {
-    /// Whether this node is using linear probing for collision resolution.
-    /// When true all child nodes are `Value`s.
-    /// Default for a new node is true.
-    linear_probing: bool,
-    /// Nodes with  `WIDTH` < `HASH_WIDTH` are used for small nodes.
-    /// Small only contains `Value`s, and are always linear probing.
-    ///
-    /// Note that using SparseChunk<(A, HashBits), WIDTH> for small nodes wouldn't yield
-    /// memory savings in most cases the padding space allows the enum
-    /// Entry to be stored in the same space. So we use
-    /// SparseChunk<Entry<A, P>, WIDTH> instead to increase code reuse.
-    data: SparseChunk<Entry<A, P>, WIDTH>,
+    /// Stores value-hash pairs directly (leaf-only)
+    data: SparseChunk<(A, HashBits), WIDTH>,
+
+    /// SIMD control bytes for fast parallel lookup.
+    /// Each byte corresponds to the u8 suffix of the hash.
+    /// 0 indicates an empty slot, 1-255 are valid hash prefixes.
+    control: [SimdGroup; GROUPS],
 }
 
-impl<A: Clone, P: SharedPointerKind, const WIDTH: usize> Clone for GenericNode<A, P, WIDTH>
+/// HAMT node that stores Entry enum (can contain values or child nodes).
+/// Uses classic HAMT bitmap-indexed structure without SIMD.
+pub(crate) struct HamtNode<A, P: SharedPointerKind>
+where
+    BitsImpl<HASH_WIDTH>: Bits,
+{
+    /// Stores Entry enum which can contain values, collision nodes, or child nodes
+    data: SparseChunk<Entry<A, P>, HASH_WIDTH>,
+}
+
+impl<A: Clone, const WIDTH: usize, const GROUPS: usize> Clone for GenericSimdNode<A, WIDTH, GROUPS>
 where
     BitsImpl<WIDTH>: Bits,
 {
     fn clone(&self) -> Self {
         Self {
-            linear_probing: self.linear_probing,
+            data: self.data.clone(),
+            control: self.control,
+        }
+    }
+}
+
+impl<A: Clone, P: SharedPointerKind> Clone for HamtNode<A, P>
+where
+    BitsImpl<HASH_WIDTH>: Bits,
+{
+    fn clone(&self) -> Self {
+        Self {
             data: self.data.clone(),
         }
     }
 }
 
-pub(crate) type Node<A, P> = GenericNode<A, P, HASH_WIDTH>;
-pub(crate) type SmallNode<A, P> = GenericNode<A, P, SMALL_NODE_WIDTH>;
+pub(crate) type SmallSimdNode<A> = GenericSimdNode<A, SMALL_NODE_WIDTH, 1>;
+pub(crate) type LargeSimdNode<A> = GenericSimdNode<A, HASH_WIDTH, 2>;
 
-impl<A, P: SharedPointerKind, const WIDTH: usize> Default for GenericNode<A, P, WIDTH>
+// Legacy type alias for compatibility
+pub(crate) type Node<A, P> = HamtNode<A, P>;
+
+impl<A, const WIDTH: usize, const GROUPS: usize> Default for GenericSimdNode<A, WIDTH, GROUPS>
 where
     BitsImpl<WIDTH>: Bits,
 {
@@ -76,33 +146,172 @@ where
     }
 }
 
-impl<A, P: SharedPointerKind, const WIDTH: usize> GenericNode<A, P, WIDTH>
+impl<A, P: SharedPointerKind> Default for HamtNode<A, P>
+where
+    BitsImpl<HASH_WIDTH>: Bits,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<A, const WIDTH: usize, const GROUPS: usize> GenericSimdNode<A, WIDTH, GROUPS>
 where
     BitsImpl<WIDTH>: Bits,
 {
     #[inline(always)]
     pub(crate) fn new() -> Self {
-        GenericNode {
-            linear_probing: true,
+        GenericSimdNode {
+            data: SparseChunk::new(),
+            control: [SimdGroup::default(); GROUPS],
+        }
+    }
+
+    #[inline]
+    fn with<P: SharedPointerKind>(with: impl FnOnce(&mut Self)) -> SharedPointer<Self, P> {
+        node_with(with)
+    }
+
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    #[inline]
+    fn ctrl_hash_and_group(hash: HashBits) -> (u8, usize) {
+        let ctrl_hash = Self::ctrl_hash(hash);
+        if GROUPS == 1 {
+            return (ctrl_hash, 0);
+        }
+        let group = (hash >> (HashBits::BITS.saturating_sub(9))) as usize % GROUPS;
+        (ctrl_hash, group)
+    }
+
+    #[inline]
+    fn ctrl_hash(hash: HashBits) -> u8 {
+        ((hash >> (HashBits::BITS - 8)) as u8).max(1)
+    }
+
+    #[inline]
+    fn pop_value<P: SharedPointerKind>(&mut self) -> Entry<A, P> {
+        let (val, hash) = self.data.pop().unwrap();
+        Entry::Value(val, hash)
+    }
+}
+
+impl<A: HashValue, const WIDTH: usize, const GROUPS: usize> GenericSimdNode<A, WIDTH, GROUPS>
+where
+    BitsImpl<WIDTH>: Bits,
+{
+    #[inline]
+    pub(crate) fn get<BK>(&self, hash: HashBits, key: &BK) -> Option<&A>
+    where
+        BK: Eq + ?Sized,
+        A::Key: Borrow<BK>,
+    {
+        let (search, group) = Self::ctrl_hash_and_group(hash);
+        let mut bitmap = group_find(&self.control[group], search);
+
+        while let Some(offset) = bitmap.first_index() {
+            let index = group * GROUP_WIDTH + offset;
+            let (ref value, value_hash) = self.data.get(index).unwrap();
+            if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                return Some(value);
+            }
+            bitmap.set(offset, false);
+        }
+        None
+    }
+
+    pub(crate) fn get_mut<BK>(&mut self, hash: HashBits, key: &BK) -> Option<&mut A>
+    where
+        BK: Eq + ?Sized,
+        A::Key: Borrow<BK>,
+    {
+        let (search, group) = Self::ctrl_hash_and_group(hash);
+        let mut bitmap = group_find(&self.control[group], search);
+        let this = self as *mut Self;
+        #[allow(dropping_references)]
+        drop(self);
+
+        while let Some(offset) = bitmap.first_index() {
+            let index = group * GROUP_WIDTH + offset;
+            #[allow(unsafe_code)]
+            let this = unsafe { &mut *this };
+            let (ref mut value, value_hash) = this.data.get_mut(index).unwrap();
+            if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                return Some(value);
+            }
+            bitmap.set(offset, false);
+        }
+        None
+    }
+
+    pub(crate) fn remove<BK>(&mut self, hash: HashBits, key: &BK) -> Option<A>
+    where
+        BK: Eq + ?Sized,
+        A::Key: Borrow<BK>,
+    {
+        let (search, group) = Self::ctrl_hash_and_group(hash);
+        let mut bitmap = group_find(&self.control[group], search);
+
+        while let Some(offset) = bitmap.first_index() {
+            let index = group * GROUP_WIDTH + offset;
+            let (ref value, value_hash) = self.data.get(index).unwrap();
+            if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                let mut ctrl_array = self.control[group].to_array();
+                ctrl_array[offset] = 0;
+                self.control[group] = SimdGroup::from(ctrl_array);
+                return self.data.remove(index).map(|(v, _)| v);
+            }
+            bitmap.set(offset, false);
+        }
+        None
+    }
+
+    pub(crate) fn insert(&mut self, hash: HashBits, value: A) -> Result<Option<A>, A> {
+        let (search, group) = Self::ctrl_hash_and_group(hash);
+        // First check if we're updating an existing value in the group
+        let mut bitmap = group_find(&self.control[group], search);
+        while let Some(offset) = bitmap.first_index() {
+            let index = group * GROUP_WIDTH + offset;
+            let (current, current_hash) = self.data.get_mut(index).unwrap();
+            if hash_may_eq::<A>(hash, *current_hash) && current.extract_key() == value.extract_key()
+            {
+                return Ok(Some(mem::replace(current, value)));
+            }
+            bitmap.set(offset, false);
+        }
+
+        // Try to insert into the designated group
+        if let Some(offset) = group_find_empty(&self.control[group]) {
+            let index = group * GROUP_WIDTH + offset;
+            self.data.insert(index, (value, hash));
+            let mut ctrl_array = self.control[group].to_array();
+            ctrl_array[offset] = search;
+            self.control[group] = SimdGroup::from(ctrl_array);
+            return Ok(None);
+        }
+
+        // Group is full, need to upgrade
+        Err(value)
+    }
+}
+
+impl<A, P: SharedPointerKind> HamtNode<A, P>
+where
+    BitsImpl<HASH_WIDTH>: Bits,
+{
+    #[inline(always)]
+    pub(crate) fn new() -> Self {
+        HamtNode {
             data: SparseChunk::new(),
         }
     }
 
-    /// Special constructor to allow initializing Nodes w/o incurring multiple memory copies.
-    /// These copies really slow things down once Node crosses a certain size threshold and copies become calls to memcopy.
     #[inline]
     fn with(with: impl FnOnce(&mut Self)) -> SharedPointer<Self, P> {
-        let result: SharedPointer<UnsafeCell<mem::MaybeUninit<Self>>, P> =
-            SharedPointer::new(UnsafeCell::new(mem::MaybeUninit::uninit()));
-        #[allow(unsafe_code)]
-        unsafe {
-            (&mut *result.get()).write(Self::new());
-            let mut_ptr = &mut *UnsafeCell::raw_get(&*result);
-            let mut_ptr = MaybeUninit::as_mut_ptr(mut_ptr);
-            with(&mut *mut_ptr);
-            let result = ManuallyDrop::new(result);
-            mem::transmute_copy(&result)
-        }
+        node_with(with)
     }
 
     #[inline]
@@ -112,8 +321,8 @@ where
 
     #[inline]
     fn mask(hash: HashBits, shift: usize) -> HashBits {
-        let mask = (WIDTH - 1) as HashBits;
-        hash >> shift & mask
+        let mask = (HASH_WIDTH - 1) as HashBits;
+        (hash >> shift) & mask
     }
 
     fn pop(&mut self) -> Entry<A, P> {
@@ -121,46 +330,129 @@ where
     }
 }
 
-impl<A: HashValue, P: SharedPointerKind, const WIDTH: usize> GenericNode<A, P, WIDTH>
-where
-    BitsImpl<WIDTH>: Bits,
-{
+impl<A: HashValue> SmallSimdNode<A> {
+    #[cold]
+    fn upgrade_to_large<P: SharedPointerKind>(
+        &mut self,
+        hash: HashBits,
+        shift: usize,
+        value: A,
+    ) -> Entry<A, P>
+    where
+        A: Clone,
+    {
+        // Move all small node entries into a LargeSimdNode and try to insert the new value
+        // Existing entries are guaranteed to fit since SmallNode has 16 entries max
+        // and LargeSimdNode has 2 groups of 16 (32 total)
+        let mut remaining_value = None;
+        let mut large_node = LargeSimdNode::with(|node| {
+            let mut group_offsets = [0; 2];
+            while let Some((val, entry_hash)) = self.data.pop() {
+                let (search, group) = LargeSimdNode::<A>::ctrl_hash_and_group(entry_hash);
+                let group_offset = group_offsets[group];
+                group_offsets[group] += 1;
+                let data_offset = group * GROUP_WIDTH + group_offset;
+                let mut ctrl_array = node.control[group].to_array();
+                ctrl_array[group_offset] = search;
+                node.control[group] = SimdGroup::from(ctrl_array);
+                node.data.insert(data_offset, (val, entry_hash));
+            }
+            if let Err(val) = node.insert(hash, value) {
+                // Put it back if insert failed
+                remaining_value = Some(val);
+            }
+        });
+
+        // Check if insertion succeeded
+        if let Some(value) = remaining_value {
+            // LargeSimdNode group is full, upgrade to HamtNode
+            let large_mut = SharedPointer::make_mut(&mut large_node);
+            large_mut.upgrade_to_hamt(hash, shift, value)
+        } else {
+            // Successfully inserted into LargeSimdNode
+            Entry::LargeSimdNode(large_node)
+        }
+    }
+}
+
+impl<A: HashValue> LargeSimdNode<A> {
+    #[cold]
+    fn upgrade_to_hamt<P: SharedPointerKind>(
+        &mut self,
+        hash: HashBits,
+        shift: usize,
+        value: A,
+    ) -> Entry<A, P>
+    where
+        A: Clone,
+    {
+        let hamt_node = HamtNode::with(|node| {
+            // Relocate all existing values to their correct HAMT positions
+            while let Some((value, hash)) = self.data.pop() {
+                node.insert(hash, shift, value);
+            }
+            // Insert the new value
+            node.insert(hash, shift, value);
+        });
+        Entry::HamtNode(hamt_node)
+    }
+}
+
+impl<A: HashValue, P: SharedPointerKind> HamtNode<A, P> {
     pub(crate) fn get<BK>(&self, hash: HashBits, shift: usize, key: &BK) -> Option<&A>
     where
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
     {
-        let mut index = Self::mask(hash, shift) as usize;
-        while let Some(entry) = self.data.get(index) {
-            return match entry {
+        let mut node = self;
+        let mut shift = shift;
+
+        loop {
+            let index = Self::mask(hash, shift) as usize;
+            let entry = node.data.get(index)?;
+
+            // Check HamtNode and Value first and check the others
+            // in a cold function that's also inlined.
+            // This prevents the compiler from putting all node types
+            // in a jump table, which makes things slower.
+            // This is less relevant in other code paths that may include
+            // atomics, memory allocation (e.g. insert, remove) etc..
+            match entry {
+                Entry::HamtNode(ref child) => {
+                    node = child;
+                    shift += HASH_SHIFT;
+                    continue;
+                }
                 Entry::Value(ref value, value_hash) => {
-                    if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                    return if hash_may_eq::<A>(hash, *value_hash)
+                        && key == value.extract_key().borrow()
+                    {
                         Some(value)
-                    } else if !self.linear_probing {
-                        None
                     } else {
-                        index = (index + 1) % WIDTH;
-                        continue;
-                    }
+                        None
+                    };
                 }
-                Entry::Node(ref child) => {
-                    assert_eq!(
-                        WIDTH, HASH_WIDTH,
-                        "SmallNode should not contain Node entries"
-                    );
-                    child.get(hash, shift + HASH_SHIFT, key)
-                }
-                Entry::SmallNode(ref small) => {
-                    assert_eq!(
-                        WIDTH, HASH_WIDTH,
-                        "SmallNode should not contain SmallNode entries"
-                    );
-                    small.get(hash, shift + HASH_SHIFT, key)
-                }
-                Entry::Collision(ref coll) => coll.get(key),
-            };
+                // Note: tried a bunch of things here, like (un)likely intrinsics,
+                // but none of them worked as reliably as the cold function
+                // that is also inlined.
+                _ => return Self::get_terminal(entry, hash, key),
+            }
         }
-        None
+    }
+
+    #[cold]
+    #[inline(always)]
+    fn get_terminal<'a, BK>(entry: &'a Entry<A, P>, hash: HashBits, key: &BK) -> Option<&'a A>
+    where
+        BK: Eq + ?Sized,
+        A::Key: Borrow<BK>,
+    {
+        match entry {
+            Entry::SmallSimdNode(ref small) => small.get(hash, key),
+            Entry::LargeSimdNode(ref large) => large.get(hash, key),
+            Entry::Collision(ref coll) => coll.get(key),
+            _ => unreachable!(),
+        }
     }
 
     pub(crate) fn get_mut<BK>(&mut self, hash: HashBits, shift: usize, key: &BK) -> Option<&mut A>
@@ -169,160 +461,41 @@ where
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
     {
-        let this = self as *mut Self;
-        #[allow(dropping_references)]
-        drop(self); // prevent self from being used or moved, so it's is safe to dereference `this` later
-        let mut index = Self::mask(hash, shift) as usize;
-        loop {
-            // Restore a mutable reference to self to avoid hitting the borrow checker
-            // limitation that prevents us from returning mutable references from the original
-            // `self` inside a loop. This is safe because we only restore the mutable reference
-            // once per iteration and the references goes out of scope at the end of the loop.
-            #[allow(unsafe_code)]
-            let this = unsafe { &mut *this };
-            return match this.data.get_mut(index) {
-                Some(Entry::Value(ref mut value, value_hash)) => {
-                    if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
-                        Some(value)
-                    } else if !this.linear_probing {
-                        None
-                    } else {
-                        index = (index + 1) % WIDTH;
-                        continue;
-                    }
+        let index = Self::mask(hash, shift) as usize;
+        match self.data.get_mut(index) {
+            Some(Entry::HamtNode(ref mut child_ref)) => {
+                SharedPointer::make_mut(child_ref).get_mut(hash, shift + HASH_SHIFT, key)
+            }
+            Some(Entry::SmallSimdNode(ref mut small_ref)) => {
+                SharedPointer::make_mut(small_ref).get_mut(hash, key)
+            }
+            Some(Entry::LargeSimdNode(ref mut large_ref)) => {
+                SharedPointer::make_mut(large_ref).get_mut(hash, key)
+            }
+            Some(Entry::Value(ref mut value, value_hash)) => {
+                if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                    Some(value)
+                } else {
+                    None
                 }
-                Some(Entry::Node(ref mut child_ref)) => {
-                    assert_eq!(
-                        WIDTH, HASH_WIDTH,
-                        "SmallNode should not contain Node entries"
-                    );
-                    SharedPointer::make_mut(child_ref).get_mut(hash, shift + HASH_SHIFT, key)
-                }
-                Some(Entry::SmallNode(ref mut small_ref)) => {
-                    assert_eq!(
-                        WIDTH, HASH_WIDTH,
-                        "SmallNode should not contain SmallNode entries"
-                    );
-                    SharedPointer::make_mut(small_ref).get_mut(hash, shift + HASH_SHIFT, key)
-                }
-                Some(Entry::Collision(ref mut coll_ref)) => {
-                    SharedPointer::make_mut(coll_ref).get_mut(key)
-                }
-                None => None,
-            };
+            }
+            Some(Entry::Collision(ref mut coll_ref)) => {
+                SharedPointer::make_mut(coll_ref).get_mut(key)
+            }
+            None => None,
         }
     }
 
-    /// Perform backwards shift if using linear probing or attempt to restore linear probing
-    #[inline]
-    fn adjust_post_removal(&mut self, shift: usize, mut index: usize) {
-        if self.linear_probing {
-            let mut next = (index + 1) % WIDTH;
-            while let Some(Entry::Value(_, value_hash)) = self.data.get(next) {
-                let ideal_index = Self::mask(*value_hash, shift) as usize;
-                let next_dib = next.wrapping_sub(ideal_index) % WIDTH;
-                let index_dib = index.wrapping_sub(ideal_index) % WIDTH;
-                if index_dib < next_dib {
-                    let entry = self.data.remove(next).unwrap();
-                    self.data.insert(index, entry);
-                    index = next;
-                }
-                next = (next + 1) % WIDTH;
-            }
-        } else {
-            // If we ended up with a single value, restore linear probing
-            if self.data.len() == 1 && self.data.iter().next().is_some_and(|e| e.is_value()) {
-                self.linear_probing = true;
-            }
-        }
-    }
-}
-
-// Separate implementation block for SmallNode-specific method
-impl<A: HashValue, P: SharedPointerKind> SmallNode<A, P> {
-    pub(crate) fn insert(&mut self, hash: HashBits, shift: usize, value: A) -> Result<Option<A>, A>
-    where
-        A: Clone,
-    {
-        let mut index = Self::mask(hash, shift) as usize;
-        while let Some(entry) = self.data.get_mut(index) {
-            match entry {
-                Entry::Value(ref mut existing, existing_hash) => {
-                    if hash_may_eq::<A>(hash, *existing_hash)
-                        && existing.extract_key() == value.extract_key()
-                    {
-                        return Ok(Some(mem::replace(existing, value)));
-                    }
-                    if self.linear_probing {
-                        index = (index + 1) % SMALL_NODE_WIDTH;
-                        continue;
-                    } else {
-                        return Err(value);
-                    }
-                }
-                _ => unreachable!("SmallNode should only contain Values"),
-            }
-        }
-
-        // Check if we need to disable linear probing
-        if self.linear_probing && self.data.len() >= SMALL_NODE_WIDTH / 2 {
-            // Need to upgrade to Node
-            return Err(value);
-        }
-
-        self.data.insert(index, Entry::Value(value, hash));
-        Ok(None)
-    }
-
-    pub(crate) fn remove<BK>(&mut self, hash: HashBits, shift: usize, key: &BK) -> Option<A>
-    where
-        A: Clone,
-        BK: Eq + ?Sized,
-        A::Key: Borrow<BK>,
-    {
-        let mut index = Self::mask(hash, shift) as usize;
-        loop {
-            match self.data.get(index) {
-                None => return None,
-                Some(Entry::Value(value, value_hash)) => {
-                    if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
-                        break;
-                    } else if !self.linear_probing {
-                        return None;
-                    } else {
-                        index = (index + 1) % SMALL_NODE_WIDTH;
-                    }
-                }
-                _ => unreachable!("SmallNode should only contain Values"),
-            }
-        }
-
-        let removed = self.data.remove(index).map(Entry::unwrap_value);
-        self.adjust_post_removal(shift, index);
-        removed
-    }
-}
-
-// Implementation block for Node-specific methods
-impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
-    #[inline]
-    fn merge_values(
-        value1: A,
-        hash1: HashBits,
-        value2: A,
-        hash2: HashBits,
-        shift: usize,
-    ) -> Entry<A, P> {
-        let small_index1 = SmallNode::<A, P>::mask(hash1, shift) as usize;
-        let mut small_index2 = SmallNode::<A, P>::mask(hash2, shift) as usize;
-        if small_index1 == small_index2 {
-            small_index2 = (small_index1 + 1) % SMALL_NODE_WIDTH;
-        }
-        let small_node = SmallNode::with(|node| {
-            node.data.insert(small_index1, Entry::Value(value1, hash1));
-            node.data.insert(small_index2, Entry::Value(value2, hash2));
+    fn merge_values(value1: A, hash1: HashBits, value2: A, hash2: HashBits) -> Entry<A, P> {
+        let small_node = SmallSimdNode::with(|node| {
+            node.data.insert(0, (value1, hash1));
+            node.data.insert(1, (value2, hash2));
+            let mut ctrl_array = node.control[0].to_array();
+            ctrl_array[0] = SmallSimdNode::<A>::ctrl_hash(hash1);
+            ctrl_array[1] = SmallSimdNode::<A>::ctrl_hash(hash2);
+            node.control[0] = SimdGroup::from(ctrl_array);
         });
-        Entry::SmallNode(small_node)
+        Entry::SmallSimdNode(small_node)
     }
 
     #[allow(unsafe_code)]
@@ -330,85 +503,67 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
     where
         A: Clone,
     {
-        let mut index = Self::mask(hash, shift) as usize;
-        while let Some(entry) = self.data.get_mut(index) {
-            // Value is here
-            match entry {
-                // Update value or create a subtree
-                Entry::Value(ref mut current, current_hash) => {
-                    if hash_may_eq::<A>(hash, *current_hash)
-                        && current.extract_key() == value.extract_key()
-                    {
-                        return Some(mem::replace(current, value));
-                    }
-                    if self.linear_probing {
-                        index = (index + 1) % HASH_WIDTH;
-                        continue;
-                    }
-                }
-                Entry::Node(ref mut child_ref) => {
-                    let child = SharedPointer::make_mut(child_ref);
-                    return child.insert(hash, shift + HASH_SHIFT, value);
-                }
-                Entry::SmallNode(ref mut small_ref) => {
-                    let small = SharedPointer::make_mut(small_ref);
-                    match small.insert(hash, shift + HASH_SHIFT, value) {
-                        Ok(result) => return result,
-                        Err(value) => {
-                            // It's a collision, need to upgrade to Node
-                            let node = Node::with(|node| {
-                                for entry in mem::take(&mut small.data) {
-                                    if let Entry::Value(v, h) = entry {
-                                        node.insert(h, shift + HASH_SHIFT, v);
-                                    } else {
-                                        unreachable!("SmallNode should only contain Values");
-                                    }
-                                }
-                                // Insert the new value
-                                node.insert(hash, shift + HASH_SHIFT, value);
-                            });
-
-                            *entry = Entry::Node(node);
-                            return None;
-                        }
-                    }
-                }
-                // There's already a collision here.
-                Entry::Collision(ref mut collision) => {
-                    let coll = SharedPointer::make_mut(collision);
-                    return coll.insert(value);
-                }
-            }
-
-            // If we get here, we're inserting a value over an exiting value (collision).
-            // We're going to be unsafe and pry it out of the reference, trusting
-            // that we overwrite it with the merged node.
-            let Entry::Value(old_value, old_hash) = (unsafe { ptr::read(entry) }) else {
-                unreachable!()
-            };
-            let new_entry = if shift + HASH_SHIFT >= HASH_WIDTH {
-                // We're at the lowest level, need to set up a collision node.
-                let coll = CollisionNode::new(hash, old_value, value);
-                Entry::from(coll)
-            } else {
-                Node::merge_values(old_value, old_hash, value, hash, shift + HASH_SHIFT)
-            };
-            unsafe { ptr::write(entry, new_entry) };
+        let index = Self::mask(hash, shift) as usize;
+        let Some(entry) = self.data.get_mut(index) else {
+            // Insert at empty HAMT position
+            self.data.insert(index, Entry::Value(value, hash));
             return None;
-        }
+        };
 
-        if self.linear_probing && self.data.len() >= HASH_WIDTH / 2 {
-            self.linear_probing = false;
-            for entry in mem::take(&mut self.data) {
-                if let Entry::Value(value, hash) = entry {
-                    self.insert(hash, shift, value);
-                } else {
-                    unreachable!("linear probing nodes should only contain values")
+        match entry {
+            Entry::HamtNode(child_ref) => {
+                let child = SharedPointer::make_mut(child_ref);
+                return child.insert(hash, shift + HASH_SHIFT, value);
+            }
+            Entry::SmallSimdNode(small_ref) => {
+                let small = SharedPointer::make_mut(small_ref);
+                match small.insert(hash, value) {
+                    Ok(result) => return result,
+                    Err(value) => {
+                        // Small SIMD node is full, upgrade to LargeSimdNode
+                        *entry = small.upgrade_to_large(hash, shift + HASH_SHIFT, value);
+                        return None;
+                    }
                 }
             }
-            return self.insert(hash, shift, value);
+            Entry::LargeSimdNode(large_ref) => {
+                let large = SharedPointer::make_mut(large_ref);
+                match large.insert(hash, value) {
+                    Ok(result) => return result,
+                    Err(value) => {
+                        // Large SIMD node is full, upgrade to HamtNode
+                        *entry = large.upgrade_to_hamt(hash, shift + HASH_SHIFT, value);
+                        return None;
+                    }
+                }
+            }
+            // Update value or create a subtree
+            Entry::Value(current, current_hash) => {
+                if hash_may_eq::<A>(hash, *current_hash)
+                    && current.extract_key() == value.extract_key()
+                {
+                    return Some(mem::replace(current, value));
+                }
+            }
+            Entry::Collision(collision) => {
+                let coll = SharedPointer::make_mut(collision);
+                return coll.insert(value);
+            }
         }
-        self.data.insert(index, Entry::Value(value, hash));
+
+        // If we get here, we're inserting a value over an existing value (collision).
+        // We're going to be unsafe and pry it out of the reference, trusting
+        // that we overwrite it with the merged node.
+        let Entry::Value(old_value, old_hash) = (unsafe { ptr::read(entry) }) else {
+            unreachable!()
+        };
+        let new_entry = if shift + HASH_SHIFT >= HASH_WIDTH {
+            // We're at the lowest level, need to set up a collision node.
+            Entry::from(CollisionNode::new(hash, old_value, value))
+        } else {
+            Self::merge_values(old_value, old_hash, value, hash)
+        };
+        unsafe { ptr::write(entry, new_entry) };
         None
     }
 
@@ -418,78 +573,44 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
     {
-        let mut index = Self::mask(hash, shift) as usize;
-        // First find the entry to remove
-        loop {
-            match self.data.get(index) {
-                None => return None,
-                Some(Entry::Value(value, value_hash)) => {
-                    if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
-                        break;
-                    } else if !self.linear_probing {
-                        return None;
-                    } else {
-                        index = (index + 1) % HASH_WIDTH;
-                    }
-                }
-                Some(Entry::Collision(_) | Entry::Node(_) | Entry::SmallNode(_)) => break,
-            }
-        }
-
-        let new_node;
+        let index = Self::mask(hash, shift) as usize;
         let removed;
-        match self.data.get_mut(index).unwrap() {
-            Entry::Node(ref mut child_ref) => {
+        let new_node = match self.data.get_mut(index)? {
+            Entry::HamtNode(child_ref) => {
                 let child = SharedPointer::make_mut(child_ref);
-                match child.remove(hash, shift + HASH_SHIFT, key) {
-                    None => return None,
-                    Some(value) => {
-                        if child.len() == 1
-                            && child.data.iter().next().is_some_and(|e| e.is_value())
-                        {
-                            removed = Some(value);
-                            new_node = Some(child.pop());
-                        } else {
-                            return Some(value);
-                        }
-                    }
+                removed = child.remove(hash, shift + HASH_SHIFT, key);
+                if child.len() == 1 && child.data.iter().next().is_some_and(|e| e.is_value()) {
+                    Some(child.pop())
+                } else {
+                    None
                 }
             }
-            Entry::SmallNode(ref mut small_ref) => {
+            Entry::SmallSimdNode(small_ref) => {
                 let small = SharedPointer::make_mut(small_ref);
-                match small.remove(hash, shift + HASH_SHIFT, key) {
-                    None => return None,
-                    Some(value) => {
-                        if small.len() == 1 {
-                            removed = Some(value);
-                            new_node = Some(small.pop());
-                        } else {
-                            return Some(value);
-                        }
-                    }
+                removed = small.remove(hash, key);
+                (small.len() == 1).then(|| small.pop_value())
+            }
+            Entry::LargeSimdNode(large_ref) => {
+                let large = SharedPointer::make_mut(large_ref);
+                removed = large.remove(hash, key);
+                (large.len() == 1).then(|| large.pop_value())
+            }
+            Entry::Value(value, value_hash) => {
+                if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
+                    return self.data.remove(index).map(Entry::unwrap_value);
+                } else {
+                    return None;
                 }
             }
-            Entry::Value(..) => {
-                new_node = None;
-                removed = self.data.remove(index).map(Entry::unwrap_value);
-            }
-            Entry::Collision(ref mut coll_ref) => {
+            Entry::Collision(coll_ref) => {
                 let coll = SharedPointer::make_mut(coll_ref);
                 removed = coll.remove(key);
-                if coll.len() == 1 {
-                    new_node = Some(coll.pop());
-                } else {
-                    return removed;
-                }
+                (coll.len() == 1).then(|| coll.pop_value())
             }
+        };
+        if let Some(new_node) = new_node {
+            self.data.insert(index, new_node);
         }
-
-        if let Some(node) = new_node {
-            self.data.insert(index, node);
-        } else {
-            self.adjust_post_removal(shift, index);
-        }
-
         removed
     }
 }
@@ -501,19 +622,21 @@ pub(crate) struct CollisionNode<A> {
 }
 
 pub(crate) enum Entry<A, P: SharedPointerKind> {
+    HamtNode(SharedPointer<HamtNode<A, P>, P>),
+    SmallSimdNode(SharedPointer<SmallSimdNode<A>, P>),
+    LargeSimdNode(SharedPointer<LargeSimdNode<A>, P>),
     Value(A, HashBits),
     Collision(SharedPointer<CollisionNode<A>, P>),
-    Node(SharedPointer<Node<A, P>, P>),
-    SmallNode(SharedPointer<SmallNode<A, P>, P>),
 }
 
 impl<A: Clone, P: SharedPointerKind> Clone for Entry<A, P> {
     fn clone(&self) -> Self {
         match self {
+            Entry::HamtNode(node) => Entry::HamtNode(node.clone()),
+            Entry::SmallSimdNode(node) => Entry::SmallSimdNode(node.clone()),
+            Entry::LargeSimdNode(node) => Entry::LargeSimdNode(node.clone()),
             Entry::Value(value, hash) => Entry::Value(value.clone(), *hash),
             Entry::Collision(coll) => Entry::Collision(coll.clone()),
-            Entry::Node(node) => Entry::Node(node.clone()),
-            Entry::SmallNode(node) => Entry::SmallNode(node.clone()),
         }
     }
 }
@@ -523,6 +646,7 @@ impl<A, P: SharedPointerKind> Entry<A, P> {
         matches!(self, Entry::Value(_, _))
     }
 
+    #[inline(always)]
     fn unwrap_value(self) -> A {
         match self {
             Entry::Value(a, _) => a,
@@ -545,6 +669,7 @@ fn hash_may_eq<A: HashValue>(hash: HashBits, other_hash: HashBits) -> bool {
 }
 
 impl<A: HashValue> CollisionNode<A> {
+    #[cold]
     fn new(hash: HashBits, value1: A, value2: A) -> Self {
         CollisionNode {
             hash,
@@ -557,6 +682,7 @@ impl<A: HashValue> CollisionNode<A> {
         self.data.len()
     }
 
+    #[cold]
     fn get<BK>(&self, key: &BK) -> Option<&A>
     where
         BK: Eq + ?Sized,
@@ -567,6 +693,7 @@ impl<A: HashValue> CollisionNode<A> {
             .find(|&entry| key == entry.extract_key().borrow())
     }
 
+    #[cold]
     fn get_mut<BK>(&mut self, key: &BK) -> Option<&mut A>
     where
         BK: Eq + ?Sized,
@@ -577,6 +704,7 @@ impl<A: HashValue> CollisionNode<A> {
             .find(|entry| key == entry.extract_key().borrow())
     }
 
+    #[cold]
     fn insert(&mut self, value: A) -> Option<A> {
         for item in &mut self.data {
             if value.extract_key() == item.extract_key() {
@@ -587,25 +715,22 @@ impl<A: HashValue> CollisionNode<A> {
         None
     }
 
+    #[cold]
     fn remove<BK>(&mut self, key: &BK) -> Option<A>
     where
         BK: Eq + ?Sized,
         A::Key: Borrow<BK>,
     {
-        let mut loc = None;
         for (index, item) in self.data.iter().enumerate() {
             if key == item.extract_key().borrow() {
-                loc = Some(index);
+                return Some(self.data.swap_remove(index));
             }
         }
-        if let Some(index) = loc {
-            Some(self.data.remove(index))
-        } else {
-            None
-        }
+        None
     }
 
-    fn pop<P: SharedPointerKind>(&mut self) -> Entry<A, P> {
+    #[inline]
+    fn pop_value<P: SharedPointerKind>(&mut self) -> Entry<A, P> {
         Entry::Value(self.data.pop().unwrap(), self.hash)
     }
 }
@@ -627,8 +752,10 @@ impl<A, P: SharedPointerKind> Node<A, P> {
 type InlineStack<T> = InlineArray<T, (usize, [T; ITER_STACK_CAPACITY])>;
 
 enum IterItem<'a, A, P: SharedPointerKind> {
-    Node(ChunkIter<'a, Entry<A, P>, HASH_WIDTH>),
-    SmallNode(ChunkIter<'a, Entry<A, P>, SMALL_NODE_WIDTH>),
+    SmallSimdNode(ChunkIter<'a, (A, HashBits), SMALL_NODE_WIDTH>),
+    LargeSimdNode(ChunkIter<'a, (A, HashBits), HASH_WIDTH>),
+    HamtNode(ChunkIter<'a, Entry<A, P>, HASH_WIDTH>),
+    CollisionNode(HashBits, SliceIter<'a, A>),
 }
 
 // We manually impl Clone for IterItem to allow cloning even when A isn't Clone
@@ -636,8 +763,10 @@ enum IterItem<'a, A, P: SharedPointerKind> {
 impl<'a, A, P: SharedPointerKind> Clone for IterItem<'a, A, P> {
     fn clone(&self) -> Self {
         match self {
-            IterItem::Node(iter) => IterItem::Node(iter.clone()),
-            IterItem::SmallNode(iter) => IterItem::SmallNode(iter.clone()),
+            IterItem::SmallSimdNode(iter) => IterItem::SmallSimdNode(iter.clone()),
+            IterItem::LargeSimdNode(iter) => IterItem::LargeSimdNode(iter.clone()),
+            IterItem::HamtNode(iter) => IterItem::HamtNode(iter.clone()),
+            IterItem::CollisionNode(hash, iter) => IterItem::CollisionNode(*hash, iter.clone()),
         }
     }
 }
@@ -647,7 +776,6 @@ impl<'a, A, P: SharedPointerKind> Clone for IterItem<'a, A, P> {
 pub(crate) struct Iter<'a, A, P: SharedPointerKind> {
     count: usize,
     stack: InlineStack<IterItem<'a, A, P>>,
-    collision: Option<(HashBits, SliceIter<'a, A>)>,
 }
 
 // We impl Clone instead of deriving it, because we want Clone even if K and V aren't.
@@ -656,7 +784,6 @@ impl<'a, A, P: SharedPointerKind> Clone for Iter<'a, A, P> {
         Self {
             count: self.count,
             stack: self.stack.clone(),
-            collision: self.collision.clone(),
         }
     }
 }
@@ -670,10 +797,9 @@ where
         let mut result = Iter {
             count: size,
             stack: InlineStack::new(),
-            collision: None,
         };
         if let Some(node) = root {
-            result.stack.push(IterItem::Node(node.data.iter()));
+            result.stack.push(IterItem::HamtNode(node.data.iter()));
         }
         result
     }
@@ -687,44 +813,52 @@ where
     type Item = (&'a A, HashBits);
 
     fn next(&mut self) -> Option<Self::Item> {
-        'outer: loop {
-            if let Some((hash, ref mut coll)) = self.collision {
-                match coll.next() {
-                    None => self.collision = None,
-                    Some(value) => {
-                        self.count -= 1;
-                        return Some((value, hash));
-                    }
-                };
-            }
-
-            while let Some(current) = self.stack.last_mut() {
-                let next_entry = match current {
-                    IterItem::Node(iter) => iter.next(),
-                    IterItem::SmallNode(iter) => iter.next(),
-                };
-                match next_entry {
-                    Some(Entry::Value(value, hash)) => {
+        while let Some(current) = self.stack.last_mut() {
+            match current {
+                IterItem::SmallSimdNode(iter) => {
+                    if let Some((value, hash)) = iter.next() {
                         self.count -= 1;
                         return Some((value, *hash));
                     }
-                    Some(Entry::Node(child)) => {
-                        self.stack.push(IterItem::Node(child.data.iter()));
+                }
+                IterItem::LargeSimdNode(iter) => {
+                    if let Some((value, hash)) = iter.next() {
+                        self.count -= 1;
+                        return Some((value, *hash));
                     }
-                    Some(Entry::SmallNode(small)) => {
-                        self.stack.push(IterItem::SmallNode(small.data.iter()));
+                }
+                IterItem::HamtNode(iter) => {
+                    if let Some(entry) = iter.next() {
+                        let iter_item = match entry {
+                            Entry::Value(value, hash) => {
+                                self.count -= 1;
+                                return Some((value, *hash));
+                            }
+                            Entry::HamtNode(child) => IterItem::HamtNode(child.data.iter()),
+                            Entry::SmallSimdNode(small) => {
+                                IterItem::SmallSimdNode(small.data.iter())
+                            }
+                            Entry::LargeSimdNode(large) => {
+                                IterItem::LargeSimdNode(large.data.iter())
+                            }
+                            Entry::Collision(coll) => {
+                                IterItem::CollisionNode(coll.hash, coll.data.iter())
+                            }
+                        };
+                        self.stack.push(iter_item);
+                        continue;
                     }
-                    Some(Entry::Collision(coll)) => {
-                        self.collision = Some((coll.hash, coll.data.iter()));
-                        continue 'outer;
-                    }
-                    None => {
-                        self.stack.pop();
+                }
+                IterItem::CollisionNode(hash, iter) => {
+                    if let Some(value) = iter.next() {
+                        self.count -= 1;
+                        return Some((value, *hash));
                     }
                 }
             }
-            return None;
+            self.stack.pop();
         }
+        None
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -739,14 +873,15 @@ impl<'a, A, P: SharedPointerKind> FusedIterator for Iter<'a, A, P> where A: 'a {
 // Mut ref iterator
 
 enum IterMutItem<'a, A, P: SharedPointerKind> {
-    Node(ChunkIterMut<'a, Entry<A, P>, HASH_WIDTH>),
-    SmallNode(ChunkIterMut<'a, Entry<A, P>, SMALL_NODE_WIDTH>),
+    SmallSimdNode(ChunkIterMut<'a, (A, HashBits), SMALL_NODE_WIDTH>),
+    LargeSimdNode(ChunkIterMut<'a, (A, HashBits), HASH_WIDTH>),
+    HamtNode(ChunkIterMut<'a, Entry<A, P>, HASH_WIDTH>),
+    CollisionNode(HashBits, SliceIterMut<'a, A>),
 }
 
 pub(crate) struct IterMut<'a, A, P: SharedPointerKind> {
     count: usize,
     stack: InlineStack<IterMutItem<'a, A, P>>,
-    collision: Option<(HashBits, SliceIterMut<'a, A>)>,
 }
 
 impl<'a, A, P> IterMut<'a, A, P>
@@ -758,10 +893,11 @@ where
         let mut result = IterMut {
             count: size,
             stack: InlineStack::new(),
-            collision: None,
         };
         if let Some(node) = root {
-            result.stack.push(IterMutItem::Node(node.data.iter_mut()));
+            result
+                .stack
+                .push(IterMutItem::HamtNode(node.data.iter_mut()));
         }
         result
     }
@@ -775,49 +911,58 @@ where
     type Item = (&'a mut A, HashBits);
 
     fn next(&mut self) -> Option<Self::Item> {
-        'outer: loop {
-            if let Some((hash, ref mut coll)) = self.collision {
-                match coll.next() {
-                    None => self.collision = None,
-                    Some(value) => {
-                        self.count -= 1;
-                        return Some((value, hash));
-                    }
-                };
-            }
-
-            while let Some(current) = self.stack.last_mut() {
-                let next_entry = match current {
-                    IterMutItem::Node(iter) => iter.next(),
-                    IterMutItem::SmallNode(iter) => iter.next(),
-                };
-
-                match next_entry {
-                    Some(Entry::Value(value, hash)) => {
+        while let Some(current) = self.stack.last_mut() {
+            match current {
+                IterMutItem::SmallSimdNode(iter) => {
+                    if let Some((value, hash)) = iter.next() {
                         self.count -= 1;
                         return Some((value, *hash));
                     }
-                    Some(Entry::Node(child_ref)) => {
-                        let child = SharedPointer::make_mut(child_ref);
-                        self.stack.push(IterMutItem::Node(child.data.iter_mut()));
+                }
+                IterMutItem::LargeSimdNode(iter) => {
+                    if let Some((value, hash)) = iter.next() {
+                        self.count -= 1;
+                        return Some((value, *hash));
                     }
-                    Some(Entry::SmallNode(small_ref)) => {
-                        let small = SharedPointer::make_mut(small_ref);
-                        self.stack
-                            .push(IterMutItem::SmallNode(small.data.iter_mut()));
+                }
+                IterMutItem::HamtNode(iter) => {
+                    if let Some(entry) = iter.next() {
+                        let iter_item = match entry {
+                            Entry::Value(value, hash) => {
+                                self.count -= 1;
+                                return Some((value, *hash));
+                            }
+                            Entry::HamtNode(child_ref) => {
+                                let child = SharedPointer::make_mut(child_ref);
+                                IterMutItem::HamtNode(child.data.iter_mut())
+                            }
+                            Entry::SmallSimdNode(small_ref) => {
+                                let small = SharedPointer::make_mut(small_ref);
+                                IterMutItem::SmallSimdNode(small.data.iter_mut())
+                            }
+                            Entry::LargeSimdNode(large_ref) => {
+                                let large = SharedPointer::make_mut(large_ref);
+                                IterMutItem::LargeSimdNode(large.data.iter_mut())
+                            }
+                            Entry::Collision(coll_ref) => {
+                                let coll = SharedPointer::make_mut(coll_ref);
+                                IterMutItem::CollisionNode(coll.hash, coll.data.iter_mut())
+                            }
+                        };
+                        self.stack.push(iter_item);
+                        continue;
                     }
-                    Some(Entry::Collision(coll_ref)) => {
-                        let coll = SharedPointer::make_mut(coll_ref);
-                        self.collision = Some((coll.hash, coll.data.iter_mut()));
-                        continue 'outer;
-                    }
-                    None => {
-                        self.stack.pop();
+                }
+                IterMutItem::CollisionNode(hash, iter) => {
+                    if let Some(value) = iter.next() {
+                        self.count -= 1;
+                        return Some((value, *hash));
                     }
                 }
             }
-            return None;
+            self.stack.pop();
         }
+        None
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -832,8 +977,9 @@ impl<'a, A, P: SharedPointerKind> FusedIterator for IterMut<'a, A, P> where A: C
 // Consuming iterator
 
 enum DrainItem<A, P: SharedPointerKind> {
-    Node(SharedPointer<Node<A, P>, P>),
-    SmallNode(SharedPointer<SmallNode<A, P>, P>),
+    SmallSimdNode(SharedPointer<SmallSimdNode<A>, P>),
+    LargeSimdNode(SharedPointer<LargeSimdNode<A>, P>),
+    HamtNode(SharedPointer<HamtNode<A, P>, P>),
     Collision(SharedPointer<CollisionNode<A>, P>),
 }
 
@@ -849,7 +995,7 @@ impl<A, P: SharedPointerKind> Drain<A, P> {
             stack: InlineStack::new(),
         };
         if let Some(root) = root {
-            result.stack.push(DrainItem::Node(root));
+            result.stack.push(DrainItem::HamtNode(root));
         }
         result
     }
@@ -864,31 +1010,33 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(current) = self.stack.last_mut() {
             match current {
-                DrainItem::Node(node_ref) => match SharedPointer::make_mut(node_ref).data.pop() {
-                    Some(Entry::Value(value, hash)) => {
+                DrainItem::SmallSimdNode(small_ref) => {
+                    if let Some((value, hash)) = SharedPointer::make_mut(small_ref).data.pop() {
                         self.count -= 1;
                         return Some((value, hash));
                     }
-                    Some(Entry::Node(child)) => {
-                        self.stack.push(DrainItem::Node(child));
-                    }
-                    Some(Entry::SmallNode(small)) => {
-                        self.stack.push(DrainItem::SmallNode(small));
-                    }
-                    Some(Entry::Collision(coll)) => {
-                        self.stack.push(DrainItem::Collision(coll));
-                    }
-                    None => {
-                        self.stack.pop();
-                    }
-                },
-                DrainItem::SmallNode(small_ref) => {
-                    let small = SharedPointer::make_mut(small_ref);
-                    if let Some(Entry::Value(value, hash)) = small.data.pop() {
+                }
+                DrainItem::LargeSimdNode(large_ref) => {
+                    if let Some((value, hash)) = SharedPointer::make_mut(large_ref).data.pop() {
                         self.count -= 1;
                         return Some((value, hash));
                     }
-                    self.stack.pop();
+                }
+                DrainItem::HamtNode(node_ref) => {
+                    if let Some(entry) = SharedPointer::make_mut(node_ref).data.pop() {
+                        let drain_item = match entry {
+                            Entry::Value(value, hash) => {
+                                self.count -= 1;
+                                return Some((value, hash));
+                            }
+                            Entry::HamtNode(child) => DrainItem::HamtNode(child),
+                            Entry::SmallSimdNode(small) => DrainItem::SmallSimdNode(small),
+                            Entry::LargeSimdNode(large) => DrainItem::LargeSimdNode(large),
+                            Entry::Collision(coll) => DrainItem::Collision(coll),
+                        };
+                        self.stack.push(drain_item);
+                        continue;
+                    }
                 }
                 DrainItem::Collision(coll_ref) => {
                     let coll = SharedPointer::make_mut(coll_ref);
@@ -896,9 +1044,9 @@ where
                         self.count -= 1;
                         return Some((value, coll.hash));
                     }
-                    self.stack.pop();
                 }
             }
+            self.stack.pop();
         }
         None
     }
@@ -912,31 +1060,34 @@ impl<A, P: SharedPointerKind> ExactSizeIterator for Drain<A, P> where A: Clone {
 
 impl<A, P: SharedPointerKind> FusedIterator for Drain<A, P> where A: Clone {}
 
-impl<A: fmt::Debug, P: SharedPointerKind> fmt::Debug for Node<A, P> {
+impl<A: fmt::Debug, P: SharedPointerKind> fmt::Debug for HamtNode<A, P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Node[ ")?;
+        write!(f, "HamtNode[ ")?;
         for i in self.data.indices() {
             write!(f, "{}: ", i)?;
             match &self.data[i] {
                 Entry::Value(v, h) => write!(f, "{:?} :: {}, ", v, h)?,
                 Entry::Collision(c) => write!(f, "Coll{:?} :: {}", c.data, c.hash)?,
-                Entry::Node(n) => write!(f, "{:?}, ", n)?,
-                Entry::SmallNode(s) => write!(f, "{:?}, ", s)?,
+                Entry::HamtNode(n) => write!(f, "{:?}, ", n)?,
+                Entry::SmallSimdNode(s) => write!(f, "{:?}, ", s)?,
+                Entry::LargeSimdNode(l) => write!(f, "{:?}, ", l)?,
             }
         }
         write!(f, " ]")
     }
 }
 
-impl<A: fmt::Debug, P: SharedPointerKind> fmt::Debug for SmallNode<A, P> {
+impl<A: fmt::Debug, const WIDTH: usize, const GROUPS: usize> fmt::Debug
+    for GenericSimdNode<A, WIDTH, GROUPS>
+where
+    BitsImpl<WIDTH>: Bits,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "SmallNode[ ")?;
+        write!(f, "SimdNode<{}, {}>[ ", WIDTH, GROUPS)?;
         for i in self.data.indices() {
             write!(f, "{}: ", i)?;
-            match &self.data[i] {
-                Entry::Value(v, h) => write!(f, "{:?} :: {}, ", v, h)?,
-                _ => unreachable!("SmallNode should only contain Values"),
-            }
+            let (v, h) = &self.data[i];
+            write!(f, "{:?} :: {}, ", v, h)?;
         }
         write!(f, " ]")
     }
