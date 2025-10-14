@@ -170,6 +170,21 @@ pub struct RRB<A, P: SharedPointerKind> {
     outer_b: SharedPointer<Chunk<A>, P>,
 }
 
+fn rrb_from_chunk<A, P: SharedPointerKind>(
+    chunk: SharedPointer<Chunk<A>, P>,
+    front: bool,
+) -> RRB<A, P> {
+    RRB {
+        length: chunk.len(),
+        middle_level: 0,
+        outer_f: SharedPointer::default(),
+        inner_f: chunk,
+        middle: SharedPointer::new(Node::new()),
+        inner_b: SharedPointer::default(),
+        outer_b: SharedPointer::default(),
+    }
+}
+
 impl<A, P: SharedPointerKind> Clone for RRB<A, P> {
     fn clone(&self) -> Self {
         RRB {
@@ -391,7 +406,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     #[inline]
     #[must_use]
     pub fn focus(&self) -> Focus<'_, A, P> {
-        Focus::new(self)
+        Focus::new_inner(&self.vector)
     }
 
     /// Get a reference to the value at index `index` in a vector.
@@ -2913,4 +2928,258 @@ mod test {
         //     assert_eq!(Some(&slice_at), l.get(slice_at));
         // }
     }
+}
+
+/// Represents a stateful map between two persistent [`imbl::Vector`]s. Internally remembers the previous state that was passed in, so
+/// as much of the output Vector can be re-used as possible.
+pub struct MapSeqWithKey<In, Out, Key: Eq + Hash, P: SharedPointerKind> {
+    previous_in: VectorInner<In, P>,
+    previous_out: VectorInner<Out, P>,
+    keylookup: std::collections::HashMap<Key, (Out, usize)>,
+}
+
+impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> MapSeqWithKey<In, Out, Key, P> {
+    /// Initializes a new empty map state
+    pub fn new() -> Self {
+        Self {
+            previous_in: Inline(InlineArray::new()),
+            previous_out: Inline(InlineArray::new()),
+            keylookup: std::collections::HashMap::new(),
+        }
+    }
+
+    fn clear_prev_in<'a>(
+        keylookup: &mut std::collections::HashMap<Key, (Out, usize)>,
+        prev_in: impl Iterator<Item = &'a In>,
+        ex: &impl Fn(&In) -> Key,
+    ) where
+        In: 'a,
+    {
+        for item in prev_in {
+            if let std::collections::hash_map::Entry::Occupied(mut o) = keylookup.entry(ex(item)) {
+                if o.get().1 <= 1 {
+                    o.remove();
+                } else {
+                    o.get_mut().1 -= 1;
+                }
+            }
+        }
+    }
+
+    /// Produces an output vector from the input vector using a map function and a key extractor.
+    pub fn map(
+        &mut self,
+        from: &GenericVector<In, P>,
+        mut ma: impl FnMut(&In) -> Out,
+        ex: impl Fn(&In) -> Key,
+    ) -> GenericVector<Out, P> {
+        match &from.vector {
+            Inline(chunk) => {
+                let mut inline = InlineArray::new();
+                for item in chunk {
+                    inline.push(
+                        self.keylookup
+                            .entry(ex(item))
+                            .and_modify(|x| x.1 += 1)
+                            .or_insert_with(|| (ma(item), 1))
+                            .0
+                            .clone(),
+                    );
+                }
+                Self::clear_prev_in(
+                    &mut self.keylookup,
+                    Iter::from_focus(focus::Focus::new_inner(&self.previous_in)),
+                    &ex,
+                );
+                self.previous_in = VectorInner::Inline(chunk.clone());
+                GenericVector {
+                    vector: VectorInner::Inline(inline),
+                }
+            }
+            Single(p) => {
+                let mut pending_rrb = None;
+                match &mut self.previous_in {
+                    Inline(chunk) => self.previous_in = Single(SharedPointer::new(chunk.into())),
+                    Single(p) => (),
+                    Full(rrb) => {
+                        pending_rrb = Some(rrb);
+                        self.previous_in = VectorInner::Single(SharedPointer::new(Chunk::new()))
+                    }
+                }
+                match &mut self.previous_out {
+                    Inline(chunk) => self.previous_out = Single(SharedPointer::new(chunk.into())),
+                    Single(p) => (),
+                    Full(_) => {
+                        self.previous_out = VectorInner::Single(SharedPointer::new(Chunk::new()))
+                    }
+                }
+
+                let (VectorInner::Single(prev_in), VectorInner::Single(prev_out), keylookup) =
+                    (&self.previous_in, &self.previous_out, &mut self.keylookup)
+                else {
+                    panic!("invalid internal state");
+                };
+
+                let out = GenericVector {
+                    vector: VectorInner::Single(Self::map_subvalues(
+                        &prev_in, &p, &prev_out, keylookup, &ex, &mut ma,
+                    )),
+                };
+                out
+            }
+            Full(rrb) => GenericVector {
+                vector: VectorInner::Full(Self::map_with_key_internal(self, rrb, &ex, ma)),
+            },
+        }
+    }
+
+    fn map_subvalues(
+        prev_in: &SharedPointer<Chunk<In>, P>,
+        next_in: &SharedPointer<Chunk<In>, P>,
+        prev_out: &SharedPointer<Chunk<Out>, P>,
+        keylookup: &mut std::collections::HashMap<Key, (Out, usize)>,
+        ex: &impl Fn(&In) -> Key,
+        mut ma: impl FnMut(&In) -> Out,
+    ) -> SharedPointer<Chunk<Out>, P> {
+        if SharedPointer::<imbl_sized_chunks::Chunk<In, CHUNK_SIZE>, P>::ptr_eq(prev_in, next_in) {
+            prev_out.clone()
+        } else {
+            let chunk = SharedPointer::new(Chunk::collect_from(
+                &mut next_in.iter().map(|x| {
+                    keylookup
+                        .entry(ex(x))
+                        .and_modify(|v| v.1 += 1)
+                        .or_insert_with(|| (ma(x), 1))
+                        .0
+                        .clone()
+                }),
+                CHUNK_SIZE,
+            ));
+            Self::clear_prev_in(keylookup, prev_in.iter(), &ex);
+            chunk
+        }
+    }
+
+    fn map_with_key_internal(
+        state: &mut MapSeqWithKey<In, Out, Key, P>,
+        next_in: &RRB<In, P>,
+        ex: &impl Fn(&In) -> Key,
+        mut ma: impl FnMut(&In) -> Out,
+    ) -> RRB<Out, P> {
+        use crate::nodes::rrb::map_subsequence;
+
+        match &mut state.previous_in {
+            Inline(chunk) => {
+                state.previous_in =
+                    VectorInner::Full(rrb_from_chunk(SharedPointer::new(chunk.into()), true))
+            }
+            Single(chunk) => {
+                state.previous_in = VectorInner::Full(rrb_from_chunk(chunk.clone(), true))
+            }
+            Full(_) => (),
+        }
+
+        match &mut state.previous_out {
+            Inline(chunk) => {
+                state.previous_out =
+                    VectorInner::Full(rrb_from_chunk(SharedPointer::new(chunk.into()), true))
+            }
+            Single(chunk) => {
+                state.previous_out = VectorInner::Full(rrb_from_chunk(chunk.clone(), true))
+            }
+            Full(_) => (),
+        }
+
+        let (VectorInner::Full(prev_in), VectorInner::Full(prev_out), keylookup) = (
+            &state.previous_in,
+            &state.previous_out,
+            &mut state.keylookup,
+        ) else {
+            panic!("invalid internal state");
+        };
+
+        let outer_f = Self::map_subvalues(
+            &prev_in.outer_f,
+            &next_in.outer_f,
+            &prev_out.outer_f,
+            keylookup,
+            ex,
+            &mut ma,
+        );
+        let inner_f = Self::map_subvalues(
+            &prev_in.inner_f,
+            &next_in.inner_f,
+            &prev_out.inner_f,
+            keylookup,
+            ex,
+            &mut ma,
+        );
+        let inner_b = Self::map_subvalues(
+            &prev_in.inner_b,
+            &next_in.inner_b,
+            &prev_out.inner_b,
+            keylookup,
+            ex,
+            &mut ma,
+        );
+        let outer_b = Self::map_subvalues(
+            &prev_in.outer_b,
+            &next_in.outer_b,
+            &prev_out.outer_b,
+            keylookup,
+            ex,
+            &mut ma,
+        );
+
+        let middle = map_subsequence(
+            &prev_in.middle,
+            &next_in.middle,
+            next_in.middle_level,
+            &prev_out.middle,
+            &mut |x| {
+                keylookup
+                    .entry(ex(x))
+                    .and_modify(|v| v.1 += 1)
+                    .or_insert_with(|| (ma(x), 1))
+                    .0
+                    .clone()
+            },
+        );
+
+        let next_out = RRB {
+            length: next_in.length,
+            middle_level: next_in.middle_level,
+            outer_f,
+            inner_f,
+            middle: SharedPointer::new(middle),
+            inner_b,
+            outer_b,
+        };
+
+        state.previous_in = VectorInner::Full(next_in.clone());
+        state.previous_out = VectorInner::Full(next_out.clone());
+
+        next_out
+    }
+}
+
+#[test]
+fn test_vector_map_basic() {
+    let a = vector![1, 2, 3, 4];
+
+    let mut map = MapSeqWithKey::<i32, i32, i32, _>::new();
+
+    let b = map.map(&a, |x| *x * *x, |x| *x);
+
+    println!("{b:?}")
+}
+
+#[test]
+fn test_vector_map_big() {
+    let mut a = Vector::from_iter(0..100);
+    let mut map = MapSeqWithKey::<i32, i32, i32, _>::new();
+
+    let b = map.map(&a, |x| *x * *x, |x| *x);
+
+    println!("{b:?}")
 }

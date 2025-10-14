@@ -1104,6 +1104,20 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
             Self::merge_rebalance(level, left, merged, right)
         }
     }
+
+    pub fn ptr_eq(&self, rhs: &Self) -> bool {
+        match (&self.children, &rhs.children) {
+            (Nodes(lsize, l), Nodes(rsize, r)) => {
+                SharedPointer::<imbl_sized_chunks::Chunk<Node<A, P>, CHUNK_SIZE>, P>::ptr_eq(l, r)
+                    && lsize.size() == rsize.size()
+            }
+            (Values(l), Values(r)) => {
+                SharedPointer::<imbl_sized_chunks::Chunk<A, CHUNK_SIZE>, P>::ptr_eq(l, r)
+            }
+            (Empty, Empty) => true,
+            _ => false,
+        }
+    }
 }
 
 // fn print_indent<W>(f: &mut W, indent: usize) -> Result<(), fmt::Error>
@@ -1115,3 +1129,89 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
 //     }
 //     Ok(())
 // }
+
+pub(crate) fn map_subsequence<In: Clone, Out: Clone, P: SharedPointerKind>(
+    prev_in: &Node<In, P>,
+    next_in: &Node<In, P>,
+    level: usize,
+    prev_out: &Node<Out, P>,
+    f: &mut impl FnMut(&In) -> Out,
+) -> Node<Out, P> {
+    if prev_in.ptr_eq(next_in) {
+        prev_out.clone()
+    } else {
+        match &next_in.children {
+            Entry::Values(xs) => {
+                return Node::from_chunk(
+                    level,
+                    SharedPointer::new(Chunk::collect_from(
+                        &mut xs.iter().map(|x| f(x)),
+                        CHUNK_SIZE,
+                    )),
+                )
+            }
+            Entry::Nodes(_, children) => {
+                let Entry::Nodes(_, prev_children) = &prev_in.children else {
+                    return Node::parent(
+                        level,
+                        Chunk::collect_from(
+                            &mut children
+                                .iter()
+                                .map(|x| map_subseq_unpaired(x, level - 1, f)),
+                            CHUNK_SIZE,
+                        ),
+                    );
+                };
+                let Entry::Nodes(_, prev_out_children) = &prev_out.children else {
+                    panic!("previous out structure doesn't match previous in structure")
+                };
+                return Node::parent(
+                    level,
+                    Chunk::collect_from(
+                        &mut prev_children
+                            .iter()
+                            .zip(children.iter())
+                            .zip(prev_out_children.iter())
+                            .map(|((prev_child_in, next_child_in), prev_child_out)| {
+                                map_subsequence(
+                                    prev_child_in,
+                                    next_child_in,
+                                    level - 1,
+                                    prev_child_out,
+                                    f,
+                                )
+                            }),
+                        CHUNK_SIZE,
+                    ),
+                );
+            }
+            Entry::Empty => Node::new(),
+        }
+    }
+}
+
+fn map_subseq_unpaired<In, Out, P: SharedPointerKind>(
+    next_in: &Node<In, P>,
+    level: usize,
+    f: &mut impl FnMut(&In) -> Out,
+) -> Node<Out, P> {
+    match &next_in.children {
+        Entry::Values(xs) => Node::from_chunk(
+            level,
+            SharedPointer::new(Chunk::collect_from(
+                &mut xs.iter().map(|x| f(x)),
+                CHUNK_SIZE,
+            )),
+        ),
+        Entry::Nodes(_, children) => Node::parent(
+            level,
+            Chunk::collect_from(
+                &mut children
+                    .iter()
+                    .map(|x| map_subseq_unpaired(x, level - 1, f)),
+                CHUNK_SIZE,
+            ),
+        ),
+        Entry::Empty => Node::new(),
+    }
+}

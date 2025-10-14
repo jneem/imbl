@@ -114,7 +114,11 @@ where
     ///
     /// [Vector]: type.Vector.html
     pub fn new(vector: &'a GenericVector<A, P>) -> Self {
-        match &vector.vector {
+        Self::new_inner(&vector.vector)
+    }
+
+    pub(super) fn new_inner(vector: &'a crate::vector::VectorInner<A, P>) -> Self {
+        match vector {
             Inline(chunk) => Focus::Single(chunk),
             Single(chunk) => Focus::Single(chunk),
             Full(tree) => Focus::Full(TreeFocus::new(tree)),
