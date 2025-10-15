@@ -331,6 +331,7 @@ mod config;
 mod nodes;
 mod sort;
 mod sync;
+pub use archery;
 
 #[macro_use]
 mod ord;
