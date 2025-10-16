@@ -2927,19 +2927,38 @@ mod test {
 
 /// Represents a stateful map between two persistent [`imbl::Vector`]s. Internally remembers the previous state that was passed in, so
 /// as much of the output Vector can be re-used as possible.
-pub struct PersistentMap<In, Out, Key: Eq + Hash, P: SharedPointerKind> {
+pub struct PersistentMap<
+    In,
+    Out,
+    Key: Eq + Hash,
+    P: SharedPointerKind,
+    F: FnMut(&In) -> Out,
+    Ex: Fn(&In) -> Key,
+> {
     previous_in: VectorInner<In, P>,
     previous_out: VectorInner<Out, P>,
     keylookup: std::collections::HashMap<Key, (Out, usize)>,
+    f: F,
+    ex: Ex,
 }
 
-impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<In, Out, Key, P> {
+impl<
+        In: Clone,
+        Out: Clone,
+        Key: Eq + Hash,
+        P: SharedPointerKind,
+        F: FnMut(&In) -> Out,
+        Ex: Fn(&In) -> Key,
+    > PersistentMap<In, Out, Key, P, F, Ex>
+{
     /// Initializes a new empty map state
-    pub fn new() -> Self {
+    pub fn new(f: F, ex: Ex) -> Self {
         Self {
             previous_in: Inline(InlineArray::new()),
             previous_out: Inline(InlineArray::new()),
             keylookup: std::collections::HashMap::new(),
+            f,
+            ex,
         }
     }
 
@@ -3000,22 +3019,21 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
     }
 
     /// Produces an output vector from the input vector using a map function and a key extractor.
-    pub fn map(
-        &mut self,
-        from: &GenericVector<In, P>,
-        mut ma: impl FnMut(&In) -> Out,
-        ex: impl Fn(&In) -> Key,
-    ) -> GenericVector<Out, P> {
+    pub fn map(&mut self, from: &GenericVector<In, P>) -> GenericVector<Out, P> {
         match &from.vector {
             Inline(next_in) => {
                 let mut inline = InlineArray::new();
-                Self::map_next_in(&mut self.keylookup, next_in.iter(), &ex, &mut ma, |item| {
-                    inline.push(item.clone())
-                });
+                Self::map_next_in(
+                    &mut self.keylookup,
+                    next_in.iter(),
+                    &self.ex,
+                    &mut self.f,
+                    |item| inline.push(item.clone()),
+                );
                 Self::clear_prev_in(
                     &mut self.keylookup,
                     Iter::from_focus(focus::Focus::new_inner(&self.previous_in)),
-                    &ex,
+                    &self.ex,
                 );
                 self.previous_in = VectorInner::Inline(next_in.clone());
                 GenericVector {
@@ -3028,13 +3046,17 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
                     Single(_) => (),
                     Full(_) => {
                         let mut chunk = Chunk::new();
-                        Self::map_next_in(&mut self.keylookup, next_in.iter(), &ex, &mut ma, |v| {
-                            chunk.push_back(v.clone())
-                        });
+                        Self::map_next_in(
+                            &mut self.keylookup,
+                            next_in.iter(),
+                            &self.ex,
+                            &mut self.f,
+                            |v| chunk.push_back(v.clone()),
+                        );
                         Self::clear_prev_in(
                             &mut self.keylookup,
                             Iter::from_focus(focus::Focus::new_inner(&self.previous_in)),
-                            &ex,
+                            &self.ex,
                         );
                         return GenericVector {
                             vector: VectorInner::Single(SharedPointer::new(chunk)),
@@ -3049,21 +3071,28 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
                         else {
                             panic!("invalid internal state");
                         };
-                        Self::map_chunk(&prev_in, next_in, &prev_out, keylookup, &ex, &mut ma)
+                        Self::map_chunk(
+                            &prev_in,
+                            next_in,
+                            &prev_out,
+                            keylookup,
+                            &self.ex,
+                            &mut self.f,
+                        )
                     }
                     Inline(_) | Full(_) => {
                         let mut chunk = Chunk::new();
                         Self::map_next_in(
                             &mut self.keylookup,
                             next_in.iter(),
-                            &ex,
-                            &mut ma,
+                            &self.ex,
+                            &mut self.f,
                             |item| chunk.push_back(item.clone()),
                         );
                         Self::clear_prev_in(
                             &mut self.keylookup,
                             Iter::from_focus(focus::Focus::new_inner(&self.previous_in)),
-                            &ex,
+                            &self.ex,
                         );
                         SharedPointer::new(chunk)
                     }
@@ -3075,41 +3104,38 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
                 out
             }
             Full(rrb) => GenericVector {
-                vector: VectorInner::Full(Self::map_with_key_internal(self, rrb, &ex, ma)),
+                vector: VectorInner::Full(self.map_with_key_internal(rrb)),
             },
         }
     }
 
-    fn map_with_key_internal(
-        state: &mut PersistentMap<In, Out, Key, P>,
-        next_in: &RRB<In, P>,
-        ex: &impl Fn(&In) -> Key,
-        mut ma: impl FnMut(&In) -> Out,
-    ) -> RRB<Out, P> {
+    fn map_with_key_internal(&mut self, next_in: &RRB<In, P>) -> RRB<Out, P> {
         use crate::nodes::rrb::map_subsequence;
 
-        match &mut state.previous_in {
+        match &mut self.previous_in {
             Inline(chunk) => {
-                state.previous_in =
+                self.previous_in =
                     VectorInner::Full(rrb_from_chunk(SharedPointer::new(chunk.into())))
             }
-            Single(chunk) => state.previous_in = VectorInner::Full(rrb_from_chunk(chunk.clone())),
+            Single(chunk) => self.previous_in = VectorInner::Full(rrb_from_chunk(chunk.clone())),
             Full(_) => (),
         }
 
-        match &mut state.previous_out {
+        match &mut self.previous_out {
             Inline(chunk) => {
-                state.previous_out =
+                self.previous_out =
                     VectorInner::Full(rrb_from_chunk(SharedPointer::new(chunk.into())))
             }
-            Single(chunk) => state.previous_out = VectorInner::Full(rrb_from_chunk(chunk.clone())),
+            Single(chunk) => self.previous_out = VectorInner::Full(rrb_from_chunk(chunk.clone())),
             Full(_) => (),
         }
 
-        let (VectorInner::Full(prev_in), VectorInner::Full(prev_out), keylookup) = (
-            &state.previous_in,
-            &state.previous_out,
-            &mut state.keylookup,
+        let (VectorInner::Full(prev_in), VectorInner::Full(prev_out), keylookup, ex, ma) = (
+            &self.previous_in,
+            &self.previous_out,
+            &mut self.keylookup,
+            &self.ex,
+            &mut self.f,
         ) else {
             panic!("invalid internal state");
         };
@@ -3120,7 +3146,7 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
             &prev_out.outer_f,
             keylookup,
             ex,
-            &mut ma,
+            ma,
         );
         let inner_f = Self::map_chunk(
             &prev_in.inner_f,
@@ -3128,7 +3154,7 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
             &prev_out.inner_f,
             keylookup,
             ex,
-            &mut ma,
+            ma,
         );
         let inner_b = Self::map_chunk(
             &prev_in.inner_b,
@@ -3136,7 +3162,7 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
             &prev_out.inner_b,
             keylookup,
             ex,
-            &mut ma,
+            ma,
         );
         let outer_b = Self::map_chunk(
             &prev_in.outer_b,
@@ -3144,7 +3170,7 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
             &prev_out.outer_b,
             keylookup,
             ex,
-            &mut ma,
+            ma,
         );
 
         let middle = map_subsequence(
@@ -3158,7 +3184,7 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
                     None
                 } else {
                     let mut chunk = Chunk::new();
-                    Self::map_next_in(keylookup, next_in.iter(), ex, &mut ma, |item| {
+                    Self::map_next_in(keylookup, next_in.iter(), ex, ma, |item| {
                         chunk.push_back(item.clone())
                     });
                     Some(chunk)
@@ -3176,8 +3202,8 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
             outer_b,
         };
 
-        state.previous_in = VectorInner::Full(next_in.clone());
-        state.previous_out = VectorInner::Full(next_out.clone());
+        self.previous_in = VectorInner::Full(next_in.clone());
+        self.previous_out = VectorInner::Full(next_out.clone());
 
         next_out
     }
@@ -3187,38 +3213,44 @@ impl<In: Clone, Out: Clone, Key: Eq + Hash, P: SharedPointerKind> PersistentMap<
 fn test_vector_map_basic() {
     let a = vector![1, 2, 3, 4];
 
-    let mut map = PersistentMap::<i32, i32, i32, _>::new();
+    let mut map = PersistentMap::<i32, i32, i32, _, _, _>::new(|x| *x * *x, |x| *x);
 
-    let b = map.map(&a, |x| *x * *x, |x| *x);
+    let b = map.map(&a);
 
-    println!("{b:?}")
+    assert_eq!(b[0], 1);
+    assert_eq!(b[1], 4);
+    assert_eq!(b[2], 9);
+    assert_eq!(b[3], 16);
 }
 
 #[test]
 fn test_vector_map_big() {
     const COUNT: usize = 10000;
     let mut a = Vector::from_iter((0..COUNT).map(|i| i as i64));
-    let mut map = PersistentMap::<i64, i64, usize, _>::new();
-
-    let mut b = map.map(&a, |x| *x + 1, |x| *x as usize);
-
     let mut mutation_count = 0;
 
-    for i in 0..COUNT {
-        a[i] *= a[i];
-        b = map.map(
-            &a,
+    let len = {
+        let mut map = PersistentMap::<i64, i64, usize, _, _, _>::new(
             |x| {
                 mutation_count += 1;
                 *x + 1
             },
             |x| *x as usize,
         );
-    }
 
-    for i in 0..COUNT as i64 {
-        assert_eq!(b[i as usize], (i * i) + 1);
-    }
-    assert_eq!(map.keylookup.len(), COUNT);
-    assert!(mutation_count < map.keylookup.len());
+        let mut b = map.map(&a);
+
+        for i in 0..COUNT {
+            a[i] *= a[i];
+            b = map.map(&a);
+        }
+
+        for i in 0..COUNT as i64 {
+            assert_eq!(b[i as usize], (i * i) + 1);
+        }
+        assert_eq!(map.keylookup.len(), COUNT);
+        map.keylookup.len()
+    };
+
+    assert!(mutation_count < len * 2);
 }
