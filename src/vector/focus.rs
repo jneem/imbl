@@ -97,27 +97,27 @@ fn check_indices<const N: usize>(len: usize, indices: &[usize; N]) -> Option<()>
 /// [Iter]: struct.Iter.html
 /// [narrow]: #method.narrow
 /// [split_at]: #method.split_at
-pub enum Focus<'a, A, P: SharedPointerKind> {
+pub enum Focus<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
     #[doc(hidden)]
     /// The Single variant is a focus of a simple Vector that can be represented as a single slice.
     Single(&'a [A]),
     #[doc(hidden)]
     /// The Full variant is a focus of a more complex Vector that cannot be represented as a single slice.
-    Full(TreeFocus<A, P>),
+    Full(TreeFocus<A, P, CHUNK_SIZE>),
 }
 
-impl<'a, A, P: SharedPointerKind> Focus<'a, A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> Focus<'a, A, P, CHUNK_SIZE>
 where
     A: 'a,
 {
     /// Construct a `Focus` for a [`Vector`][Vector].
     ///
     /// [Vector]: type.Vector.html
-    pub fn new(vector: &'a GenericVector<A, P>) -> Self {
+    pub fn new(vector: &'a GenericVector<A, P, CHUNK_SIZE>) -> Self {
         Self::new_inner(&vector.vector)
     }
 
-    pub(super) fn new_inner(vector: &'a crate::vector::VectorInner<A, P>) -> Self {
+    pub(super) fn new_inner(vector: &'a crate::vector::VectorInner<A, P, CHUNK_SIZE>) -> Self {
         match vector {
             Inline(chunk) => Focus::Single(chunk),
             Single(chunk) => Focus::Single(chunk),
@@ -253,19 +253,20 @@ where
     }
 }
 
-impl<'a, A, P: SharedPointerKind + 'a> IntoIterator for Focus<'a, A, P>
+impl<'a, A, P: SharedPointerKind + 'a, const CHUNK_SIZE: usize> IntoIterator
+    for Focus<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + 'a,
 {
     type Item = &'a A;
-    type IntoIter = Iter<'a, A, P>;
+    type IntoIter = Iter<'a, A, P, CHUNK_SIZE>;
 
     fn into_iter(self) -> Self::IntoIter {
         Iter::from_focus(self)
     }
 }
 
-impl<'a, A, P: SharedPointerKind> Clone for Focus<'a, A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> Clone for Focus<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + 'a,
 {
@@ -277,10 +278,10 @@ where
     }
 }
 
-pub struct TreeFocus<A, P: SharedPointerKind> {
+pub struct TreeFocus<A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
     /// A clone of the Vector's internal tree that this focus points to. A clone ensures that we don't require a
     /// reference to the original tree.
-    tree: RRB<A, P>,
+    tree: RRB<A, P, CHUNK_SIZE>,
     /// The view represents the range of the tree that this TreeFocus can see. The view can be narrowed by calling
     /// either the narrow or split_at methods.
     view: Range<usize>,
@@ -291,10 +292,10 @@ pub struct TreeFocus<A, P: SharedPointerKind> {
     /// chunks front/back chunks or one of the leaves of the tree. The target_ptr is the pointer to the actual chunk
     /// in question. The target_range is the range that the chunk represents.
     target_range: Range<usize>,
-    target_ptr: *const Chunk<A>,
+    target_ptr: *const Chunk<A, CHUNK_SIZE>,
 }
 
-impl<A, P: SharedPointerKind> Clone for TreeFocus<A, P> {
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Clone for TreeFocus<A, P, CHUNK_SIZE> {
     fn clone(&self) -> Self {
         let tree = self.tree.clone();
         TreeFocus {
@@ -307,17 +308,23 @@ impl<A, P: SharedPointerKind> Clone for TreeFocus<A, P> {
     }
 }
 
-unsafe impl<A: Send, P: SharedPointerKind + Send> Send for TreeFocus<A, P> {}
-unsafe impl<A: Sync, P: SharedPointerKind + Sync> Sync for TreeFocus<A, P> {}
+unsafe impl<A: Send, P: SharedPointerKind + Send, const CHUNK_SIZE: usize> Send
+    for TreeFocus<A, P, CHUNK_SIZE>
+{
+}
+unsafe impl<A: Sync, P: SharedPointerKind + Sync, const CHUNK_SIZE: usize> Sync
+    for TreeFocus<A, P, CHUNK_SIZE>
+{
+}
 
 #[inline]
 fn contains<A: Ord>(range: &Range<A>, index: &A) -> bool {
     *index >= range.start && *index < range.end
 }
 
-impl<A, P: SharedPointerKind> TreeFocus<A, P> {
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> TreeFocus<A, P, CHUNK_SIZE> {
     /// Creates a new TreeFocus for a Vector's RRB tree.
-    fn new(tree: &RRB<A, P>) -> Self {
+    fn new(tree: &RRB<A, P, CHUNK_SIZE>) -> Self {
         let middle_start = tree.outer_f.len() + tree.inner_f.len();
         let middle_end = middle_start + tree.middle.len();
         TreeFocus {
@@ -400,7 +407,7 @@ impl<A, P: SharedPointerKind> TreeFocus<A, P> {
     }
 
     /// Gets the chunk that this TreeFocus is focused on.
-    fn get_focus(&self) -> &Chunk<A> {
+    fn get_focus(&self) -> &Chunk<A, CHUNK_SIZE> {
         unsafe { &*self.target_ptr }
     }
 
@@ -493,16 +500,16 @@ impl<A, P: SharedPointerKind> TreeFocus<A, P> {
 /// ```
 ///
 /// [Focus]: enum.Focus.html
-pub enum FocusMut<'a, A, P: SharedPointerKind> {
+pub enum FocusMut<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
     #[doc(hidden)]
     /// The Single variant is a focusmut of a simple Vector that can be represented as a single slice.
     Single(&'a mut [A]),
     #[doc(hidden)]
     /// The Full variant is a focus of a more complex Vector that cannot be represented as a single slice.
-    Full(TreeFocusMut<'a, A, P>),
+    Full(TreeFocusMut<'a, A, P, CHUNK_SIZE>),
 }
 
-impl<'a, A, P: SharedPointerKind> FocusMut<'a, A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> FocusMut<'a, A, P, CHUNK_SIZE>
 where
     A: 'a,
 {
@@ -608,7 +615,7 @@ where
     }
 
     /// Convert a `FocusMut` into a `Focus`.
-    pub fn unmut(self) -> Focus<'a, A, P> {
+    pub fn unmut(self) -> Focus<'a, A, P, CHUNK_SIZE> {
         match self {
             FocusMut::Single(chunk) => Focus::Single(chunk),
             FocusMut::Full(mut tree) => Focus::Full(TreeFocus {
@@ -625,12 +632,12 @@ where
     }
 }
 
-impl<'a, A, P: SharedPointerKind> FocusMut<'a, A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> FocusMut<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + 'a,
 {
     /// Construct a `FocusMut` for a `Vector`.
-    pub fn new(vector: &'a mut GenericVector<A, P>) -> Self {
+    pub fn new(vector: &'a mut GenericVector<A, P, CHUNK_SIZE>) -> Self {
         match &mut vector.vector {
             Inline(chunk) => FocusMut::Single(chunk),
             Single(chunk) => FocusMut::Single(SharedPointer::make_mut(chunk).as_mut_slice()),
@@ -786,34 +793,36 @@ where
     }
 }
 
-impl<'a, A, P: SharedPointerKind> IntoIterator for FocusMut<'a, A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoIterator
+    for FocusMut<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + 'a,
 {
     type Item = &'a mut A;
-    type IntoIter = IterMut<'a, A, P>;
+    type IntoIter = IterMut<'a, A, P, CHUNK_SIZE>;
 
     fn into_iter(self) -> Self::IntoIter {
         IterMut::from_focus(self)
     }
 }
 
-impl<'a, A, P: SharedPointerKind> From<FocusMut<'a, A, P>> for Focus<'a, A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> From<FocusMut<'a, A, P, CHUNK_SIZE>>
+    for Focus<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + 'a,
 {
-    fn from(f: FocusMut<'a, A, P>) -> Focus<'a, A, P> {
+    fn from(f: FocusMut<'a, A, P, CHUNK_SIZE>) -> Self {
         f.unmut()
     }
 }
 
 // NOTE: The documentation the mutable version is similar to the non-mutable version. I will comment for the places
 // where there are differences, otherwise the documentation is copied directly.
-pub struct TreeFocusMut<'a, A, P: SharedPointerKind> {
+pub struct TreeFocusMut<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
     /// The tree that this TreeFocusMut refers to. Unlike the non-mutable version, TreeFocusMut needs to store a
     /// mutable reference. Additionally, there may be multiple TreeFocusMuts that refer to the same tree so we need a
     /// Lock to synchronise the changes.
-    tree: Lock<&'a mut RRB<A, P>>,
+    tree: Lock<&'a mut RRB<A, P, CHUNK_SIZE>>,
     /// The view represents the range of the tree that this TreeFocusMut can see. The view can be narrowed by calling
     /// either the narrow or split_at methods.
     view: Range<usize>,
@@ -826,15 +835,15 @@ pub struct TreeFocusMut<'a, A, P: SharedPointerKind> {
     target_range: Range<usize>,
     /// Not actually sure why this needs to be an atomic, it seems like it is unneccessary. This is just a pointer to
     /// the chunk referred to above.
-    target_ptr: AtomicPtr<Chunk<A>>,
+    target_ptr: AtomicPtr<Chunk<A, CHUNK_SIZE>>,
 }
 
-impl<'a, A, P: SharedPointerKind> TreeFocusMut<'a, A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> TreeFocusMut<'a, A, P, CHUNK_SIZE>
 where
     A: 'a,
 {
     /// Creates a new TreeFocusMut for a Vector's RRB tree.
-    fn new(tree: &'a mut RRB<A, P>) -> Self {
+    fn new(tree: &'a mut RRB<A, P, CHUNK_SIZE>) -> Self {
         let middle_start = tree.outer_f.len() + tree.inner_f.len();
         let middle_end = middle_start + tree.middle.len();
         TreeFocusMut {
@@ -898,16 +907,16 @@ where
     }
 
     /// Gets the chunk for an index and its corresponding range within the TreeFocusMut.
-    fn get_focus(&mut self) -> &mut Chunk<A> {
+    fn get_focus(&mut self) -> &mut Chunk<A, CHUNK_SIZE> {
         unsafe { &mut *self.target_ptr.load(Ordering::Relaxed) }
     }
 
-    fn get_focus_ptr(&mut self) -> *mut Chunk<A> {
+    fn get_focus_ptr(&mut self) -> *mut Chunk<A, CHUNK_SIZE> {
         self.target_ptr.load(Ordering::Relaxed)
     }
 }
 
-impl<'a, A, P: SharedPointerKind> TreeFocusMut<'a, A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> TreeFocusMut<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + 'a,
 {
