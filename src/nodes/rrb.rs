@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use std::iter::FromIterator;
 use std::mem::replace;
 use std::ops::Range;
 
@@ -602,6 +603,18 @@ impl<A, P: SharedPointerKind> Node<A, P> {
     //         }
     //     }
     // }
+
+    pub(crate) fn process(&self, f: &mut impl FnMut(&Chunk<A>)) {
+        match &self.children {
+            Entry::Values(xs) => f(&xs),
+            Entry::Nodes(_, children) => {
+                for child in children.iter() {
+                    child.process(f);
+                }
+            }
+            Entry::Empty => (),
+        }
+    }
 }
 
 impl<A: Clone, P: SharedPointerKind> Node<A, P> {
@@ -1104,6 +1117,20 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
             Self::merge_rebalance(level, left, merged, right)
         }
     }
+
+    pub(crate) fn ptr_eq(&self, rhs: &Self) -> bool {
+        match (&self.children, &rhs.children) {
+            (Nodes(lsize, l), Nodes(rsize, r)) => {
+                SharedPointer::<imbl_sized_chunks::Chunk<Node<A, P>, CHUNK_SIZE>, P>::ptr_eq(l, r)
+                    && lsize.size() == rsize.size()
+            }
+            (Values(l), Values(r)) => {
+                SharedPointer::<imbl_sized_chunks::Chunk<A, CHUNK_SIZE>, P>::ptr_eq(l, r)
+            }
+            (Empty, Empty) => true,
+            _ => false,
+        }
+    }
 }
 
 // fn print_indent<W>(f: &mut W, indent: usize) -> Result<(), fmt::Error>
@@ -1115,3 +1142,80 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
 //     }
 //     Ok(())
 // }
+
+pub(crate) fn map_subsequence<In: Clone, Out: Clone, P: SharedPointerKind>(
+    prev_in: &Node<In, P>,
+    next_in: &Node<In, P>,
+    level: usize,
+    prev_out: &Node<Out, P>,
+    f: &mut impl FnMut(&Chunk<In>, bool) -> Option<Chunk<Out>>,
+) -> Node<Out, P> {
+    if prev_in.ptr_eq(next_in) {
+        prev_out.clone()
+    } else {
+        match &next_in.children {
+            Entry::Values(xs) => {
+                let result = Node::from_chunk(level, SharedPointer::new(f(&xs, false).unwrap()));
+                prev_in.process(&mut |chunk| {
+                    f(chunk, true);
+                });
+                return result;
+            }
+            Entry::Nodes(_, children) => {
+                let Entry::Nodes(_, prev_children) = &prev_in.children else {
+                    let result = Node::parent(
+                        level,
+                        Chunk::from_iter(&mut children.iter().map(|x| {
+                            map_subseq_unpaired(x, level - 1, &mut |chunk| f(chunk, false).unwrap())
+                        })),
+                    );
+                    prev_in.process(&mut |chunk| {
+                        f(chunk, true);
+                    });
+                    return result;
+                };
+                let Entry::Nodes(_, prev_out_children) = &prev_out.children else {
+                    panic!("previous out structure doesn't match previous in structure")
+                };
+                return Node::parent(
+                    level,
+                    Chunk::from_iter(
+                        prev_children
+                            .iter()
+                            .zip(children.iter())
+                            .zip(prev_out_children.iter())
+                            .map(|((prev_child_in, next_child_in), prev_child_out)| {
+                                map_subsequence(
+                                    prev_child_in,
+                                    next_child_in,
+                                    level - 1,
+                                    prev_child_out,
+                                    f,
+                                )
+                            }),
+                    ),
+                );
+            }
+            Entry::Empty => Node::new(),
+        }
+    }
+}
+
+fn map_subseq_unpaired<In, Out, P: SharedPointerKind>(
+    next_in: &Node<In, P>,
+    level: usize,
+    f: &mut impl FnMut(&Chunk<In>) -> Chunk<Out>,
+) -> Node<Out, P> {
+    match &next_in.children {
+        Entry::Values(xs) => Node::from_chunk(level, SharedPointer::new(f(&xs))),
+        Entry::Nodes(_, children) => Node::parent(
+            level,
+            Chunk::from_iter(
+                children
+                    .iter()
+                    .map(|x| map_subseq_unpaired(x, level - 1, f)),
+            ),
+        ),
+        Entry::Empty => Node::new(),
+    }
+}
