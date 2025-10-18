@@ -20,8 +20,11 @@ fn gen_range<R: RngCore>(rng: &mut R, min: usize, max: usize) -> usize {
 // additional passes to find the exact partition places. This allows us to split the focus into
 // three correctly sized parts for less than, equal to and greater than items. As a bonus this
 // doesn't need to reorder the equal items to the center of the vector.
-fn do_quicksort<A, F, R, P>(vector: FocusMut<'_, A, P>, cmp: &F, rng: &mut R)
-where
+fn do_quicksort<A, F, R, P, const CHUNK_SIZE: usize>(
+    vector: FocusMut<'_, A, P, CHUNK_SIZE>,
+    cmp: &F,
+    rng: &mut R,
+) where
     A: Clone,
     F: Fn(&A, &A) -> Ordering,
     R: RngCore,
@@ -174,8 +177,10 @@ where
     }
 }
 
-pub(crate) fn quicksort<A, F, P>(vector: FocusMut<'_, A, P>, cmp: &F)
-where
+pub(crate) fn quicksort<A, F, P, const CHUNK_SIZE: usize>(
+    vector: FocusMut<'_, A, P, CHUNK_SIZE>,
+    cmp: &F,
+) where
     A: Clone,
     F: Fn(&A, &A) -> Ordering,
     P: SharedPointerKind,

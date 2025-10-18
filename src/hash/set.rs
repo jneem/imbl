@@ -945,26 +945,28 @@ where
     }
 }
 
-impl<A, S, P1, P2> From<GenericVector<A, P2>> for GenericHashSet<A, S, P1>
+impl<A, S, P1, P2, const CHUNK_SIZE: usize> From<GenericVector<A, P2, CHUNK_SIZE>>
+    for GenericHashSet<A, S, P1>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default + Clone,
     P1: SharedPointerKind,
     P2: SharedPointerKind,
 {
-    fn from(vector: GenericVector<A, P2>) -> Self {
+    fn from(vector: GenericVector<A, P2, CHUNK_SIZE>) -> Self {
         vector.into_iter().collect()
     }
 }
 
-impl<A, S, P1, P2> From<&GenericVector<A, P2>> for GenericHashSet<A, S, P1>
+impl<A, S, P1, P2, const CHUNK_SIZE: usize> From<&GenericVector<A, P2, CHUNK_SIZE>>
+    for GenericHashSet<A, S, P1>
 where
     A: Hash + Eq + Clone,
     S: BuildHasher + Default + Clone,
     P1: SharedPointerKind,
     P2: SharedPointerKind,
 {
-    fn from(vector: &GenericVector<A, P2>) -> Self {
+    fn from(vector: &GenericVector<A, P2, CHUNK_SIZE>) -> Self {
         vector.iter().cloned().collect()
     }
 }

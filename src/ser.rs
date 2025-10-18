@@ -224,18 +224,20 @@ impl<A: Serialize + Hash + Eq, S: BuildHasher + Default, P: SharedPointerKind> S
 
 // Vector
 
-impl<'de, A: Clone + Deserialize<'de>, P: SharedPointerKind> Deserialize<'de>
-    for GenericVector<A, P>
+impl<'de, A: Clone + Deserialize<'de>, P: SharedPointerKind, const CHUNK_SIZE: usize>
+    Deserialize<'de> for GenericVector<A, P, CHUNK_SIZE>
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        des.deserialize_seq(SeqVisitor::<'de, GenericVector<A, P>, A>::new())
+        des.deserialize_seq(SeqVisitor::<'de, GenericVector<A, P, CHUNK_SIZE>, A>::new())
     }
 }
 
-impl<A: Serialize, P: SharedPointerKind> Serialize for GenericVector<A, P> {
+impl<A: Serialize, P: SharedPointerKind, const CHUNK_SIZE: usize> Serialize
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

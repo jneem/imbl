@@ -8,13 +8,14 @@ use ::rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
-impl<'a, A, P: SharedPointerKind> IntoParallelRefIterator<'a> for GenericVector<A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoParallelRefIterator<'a>
+    for GenericVector<A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + 'a,
 {
     type Item = &'a A;
-    type Iter = ParIter<'a, A, P>;
+    type Iter = ParIter<'a, A, P, CHUNK_SIZE>;
 
     fn par_iter(&'a self) -> Self::Iter {
         ParIter {
@@ -23,13 +24,14 @@ where
     }
 }
 
-impl<'a, A, P> IntoParallelRefMutIterator<'a> for GenericVector<A, P>
+impl<'a, A, P, const CHUNK_SIZE: usize> IntoParallelRefMutIterator<'a>
+    for GenericVector<A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + Sync + 'a,
 {
     type Item = &'a mut A;
-    type Iter = ParIterMut<'a, A, P>;
+    type Iter = ParIterMut<'a, A, P, CHUNK_SIZE>;
 
     fn par_iter_mut(&'a mut self) -> Self::Iter {
         ParIterMut {
@@ -41,14 +43,14 @@ where
 /// A parallel iterator for [`Vector`][Vector].
 ///
 /// [Vector]: ../type.Vector.html
-pub struct ParIter<'a, A, P: SharedPointerKind>
+pub struct ParIter<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize>
 where
     A: Clone + Send + Sync,
 {
-    focus: Focus<'a, A, P>,
+    focus: Focus<'a, A, P, CHUNK_SIZE>,
 }
 
-impl<'a, A, P> ParallelIterator for ParIter<'a, A, P>
+impl<'a, A, P, const CHUNK_SIZE: usize> ParallelIterator for ParIter<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + 'a,
@@ -63,7 +65,7 @@ where
     }
 }
 
-impl<'a, A, P> IndexedParallelIterator for ParIter<'a, A, P>
+impl<'a, A, P, const CHUNK_SIZE: usize> IndexedParallelIterator for ParIter<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + 'a,
@@ -90,15 +92,15 @@ where
 /// A mutable parallel iterator for [`Vector`][Vector].
 ///
 /// [Vector]: ../type.Vector.html
-pub struct ParIterMut<'a, A, P>
+pub struct ParIterMut<'a, A, P, const CHUNK_SIZE: usize>
 where
     A: Clone + Send + Sync,
     P: SharedPointerKind,
 {
-    focus: FocusMut<'a, A, P>,
+    focus: FocusMut<'a, A, P, CHUNK_SIZE>,
 }
 
-impl<'a, A, P> ParallelIterator for ParIterMut<'a, A, P>
+impl<'a, A, P, const CHUNK_SIZE: usize> ParallelIterator for ParIterMut<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + Sync,
@@ -113,7 +115,7 @@ where
     }
 }
 
-impl<'a, A, P> IndexedParallelIterator for ParIterMut<'a, A, P>
+impl<'a, A, P, const CHUNK_SIZE: usize> IndexedParallelIterator for ParIterMut<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + Sync,
@@ -137,21 +139,21 @@ where
     }
 }
 
-struct VectorProducer<'a, A, P>
+struct VectorProducer<'a, A, P, const CHUNK_SIZE: usize>
 where
     A: Clone + Send + Sync,
     P: SharedPointerKind,
 {
-    focus: Focus<'a, A, P>,
+    focus: Focus<'a, A, P, CHUNK_SIZE>,
 }
 
-impl<'a, A, P> Producer for VectorProducer<'a, A, P>
+impl<'a, A, P, const CHUNK_SIZE: usize> Producer for VectorProducer<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + 'a,
 {
     type Item = &'a A;
-    type IntoIter = Iter<'a, A, P>;
+    type IntoIter = Iter<'a, A, P, CHUNK_SIZE>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.focus.into_iter()
@@ -166,21 +168,21 @@ where
     }
 }
 
-struct VectorMutProducer<'a, A, P>
+struct VectorMutProducer<'a, A, P, const CHUNK_SIZE: usize>
 where
     A: Clone + Send + Sync,
     P: SharedPointerKind,
 {
-    focus: FocusMut<'a, A, P>,
+    focus: FocusMut<'a, A, P, CHUNK_SIZE>,
 }
 
-impl<'a, A, P> Producer for VectorMutProducer<'a, A, P>
+impl<'a, A, P, const CHUNK_SIZE: usize> Producer for VectorMutProducer<'a, A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + Sync,
 {
     type Item = &'a mut A;
-    type IntoIter = IterMut<'a, A, P>;
+    type IntoIter = IterMut<'a, A, P, CHUNK_SIZE>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.focus.into_iter()

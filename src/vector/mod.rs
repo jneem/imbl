@@ -57,7 +57,7 @@ use std::ops::{Add, Index, IndexMut, RangeBounds};
 use archery::{SharedPointer, SharedPointerKind};
 use imbl_sized_chunks::InlineArray;
 
-use crate::nodes::chunk::{Chunk, CHUNK_SIZE};
+use crate::nodes::chunk::Chunk;
 use crate::nodes::rrb::{Node, PopResult, PushResult, SplitResult};
 use crate::shared_ptr::DefaultSharedPtr;
 use crate::sort;
@@ -111,7 +111,7 @@ macro_rules! vector {
 ///
 /// [GenericVector]: ./struct.GenericVector.html
 /// [DefaultSharedPtr]: ../shared_ptr/type.DefaultSharedPtr.html
-pub type Vector<A> = GenericVector<A, DefaultSharedPtr>;
+pub type Vector<A> = GenericVector<A, DefaultSharedPtr, { crate::config::VECTOR_CHUNK_SIZE }>;
 
 /// A persistent vector.
 ///
@@ -149,28 +149,30 @@ pub type Vector<A> = GenericVector<A, DefaultSharedPtr>;
 /// [chunkedseq]: http://deepsea.inria.fr/pasl/chunkedseq.pdf
 /// [Vec]: https://doc.rust-lang.org/std/vec/struct.Vec.html
 /// [VecDeque]: https://doc.rust-lang.org/std/collections/struct.VecDeque.html
-pub struct GenericVector<A, P: SharedPointerKind> {
-    vector: VectorInner<A, P>,
+pub struct GenericVector<A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
+    vector: VectorInner<A, P, CHUNK_SIZE>,
 }
 
-enum VectorInner<A, P: SharedPointerKind> {
-    Inline(InlineArray<A, RRB<A, P>>),
-    Single(SharedPointer<Chunk<A>, P>),
-    Full(RRB<A, P>),
+enum VectorInner<A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
+    Inline(InlineArray<A, RRB<A, P, CHUNK_SIZE>>),
+    Single(SharedPointer<Chunk<A, CHUNK_SIZE>, P>),
+    Full(RRB<A, P, CHUNK_SIZE>),
 }
 
 #[doc(hidden)]
-pub struct RRB<A, P: SharedPointerKind> {
+pub struct RRB<A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
     length: usize,
     middle_level: usize,
-    outer_f: SharedPointer<Chunk<A>, P>,
-    inner_f: SharedPointer<Chunk<A>, P>,
-    middle: SharedPointer<Node<A, P>, P>,
-    inner_b: SharedPointer<Chunk<A>, P>,
-    outer_b: SharedPointer<Chunk<A>, P>,
+    outer_f: SharedPointer<Chunk<A, CHUNK_SIZE>, P>,
+    inner_f: SharedPointer<Chunk<A, CHUNK_SIZE>, P>,
+    middle: SharedPointer<Node<A, P, CHUNK_SIZE>, P>,
+    inner_b: SharedPointer<Chunk<A, CHUNK_SIZE>, P>,
+    outer_b: SharedPointer<Chunk<A, CHUNK_SIZE>, P>,
 }
 
-fn rrb_from_chunk<A, P: SharedPointerKind>(chunk: SharedPointer<Chunk<A>, P>) -> RRB<A, P> {
+fn rrb_from_chunk<A, P: SharedPointerKind, const CHUNK_SIZE: usize>(
+    chunk: SharedPointer<Chunk<A, CHUNK_SIZE>, P>,
+) -> RRB<A, P, CHUNK_SIZE> {
     RRB {
         length: chunk.len(),
         middle_level: 0,
@@ -182,7 +184,7 @@ fn rrb_from_chunk<A, P: SharedPointerKind>(chunk: SharedPointer<Chunk<A>, P>) ->
     }
 }
 
-impl<A, P: SharedPointerKind> Clone for RRB<A, P> {
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Clone for RRB<A, P, CHUNK_SIZE> {
     fn clone(&self) -> Self {
         RRB {
             length: self.length,
@@ -196,7 +198,7 @@ impl<A, P: SharedPointerKind> Clone for RRB<A, P> {
     }
 }
 
-impl<A, P: SharedPointerKind> GenericVector<A, P> {
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P, CHUNK_SIZE> {
     /// True if a vector is a full inline or single chunk, ie. must be promoted
     /// to grow further.
     fn needs_promotion(&self) -> bool {
@@ -304,7 +306,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// Test whether a vector is currently inlined.
     ///
     /// Vectors small enough that their contents could be stored entirely inside
-    /// the space of `std::mem::size_of::<GenericVector<A, P>>()` bytes are stored inline on
+    /// the space of `std::mem::size_of::<GenericVector<A, P, CHUNK_SIZE>>()` bytes are stored inline on
     /// the stack instead of allocating any chunks. This method returns `true` if
     /// this vector is currently inlined, or `false` if it currently has chunks allocated
     /// on the heap.
@@ -338,9 +340,9 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// Time: O(1)
     #[must_use]
     pub fn ptr_eq(&self, other: &Self) -> bool {
-        fn cmp_chunk<A, P: SharedPointerKind>(
-            left: &SharedPointer<Chunk<A>, P>,
-            right: &SharedPointer<Chunk<A>, P>,
+        fn cmp_chunk<A, P: SharedPointerKind, const CHUNK_SIZE: usize>(
+            left: &SharedPointer<Chunk<A, CHUNK_SIZE>, P>,
+            right: &SharedPointer<Chunk<A, CHUNK_SIZE>, P>,
         ) -> bool {
             (left.is_empty() && right.is_empty()) || SharedPointer::ptr_eq(left, right)
         }
@@ -368,7 +370,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// Time: O(1)
     #[inline]
     #[must_use]
-    pub fn iter(&self) -> Iter<'_, A, P> {
+    pub fn iter(&self) -> Iter<'_, A, P, CHUNK_SIZE> {
         Iter::new(self)
     }
 
@@ -383,7 +385,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// [Chunk]: ../chunk/struct.Chunk.html
     #[inline]
     #[must_use]
-    pub fn leaves(&self) -> Chunks<'_, A, P> {
+    pub fn leaves(&self) -> Chunks<'_, A, P, CHUNK_SIZE> {
         Chunks::new(self)
     }
 
@@ -394,7 +396,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// [Focus]: enum.Focus.html
     #[inline]
     #[must_use]
-    pub fn focus(&self) -> Focus<'_, A, P> {
+    pub fn focus(&self) -> Focus<'_, A, P, CHUNK_SIZE> {
         Focus::new_inner(&self.vector)
     }
 
@@ -663,7 +665,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     #[inline]
     #[must_use]
     pub fn unit(a: A) -> Self {
-        if InlineArray::<A, RRB<A, P>>::CAPACITY > 0 {
+        if InlineArray::<A, RRB<A, P, CHUNK_SIZE>>::CAPACITY > 0 {
             let mut array = InlineArray::new();
             array.push(a);
             Self {
@@ -704,7 +706,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P, CHUNK_SIZE> {
     /// Get a mutable reference to the value at index `index` in a
     /// vector.
     ///
@@ -799,7 +801,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
     /// [FocusMut]: enum.FocusMut.html
     #[inline]
     #[must_use]
-    pub fn focus_mut(&mut self) -> FocusMut<'_, A, P> {
+    pub fn focus_mut(&mut self) -> FocusMut<'_, A, P, CHUNK_SIZE> {
         FocusMut::new(self)
     }
 
@@ -808,7 +810,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
     /// Time: O(1)
     #[inline]
     #[must_use]
-    pub fn iter_mut(&mut self) -> IterMut<'_, A, P> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, A, P, CHUNK_SIZE> {
         IterMut::new(self)
     }
 
@@ -823,7 +825,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
     /// [Chunk]: ../chunk/struct.Chunk.html
     #[inline]
     #[must_use]
-    pub fn leaves_mut(&mut self) -> ChunksMut<'_, A, P> {
+    pub fn leaves_mut(&mut self) -> ChunksMut<'_, A, P, CHUNK_SIZE> {
         ChunksMut::new(self)
     }
 
@@ -1589,7 +1591,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
 
 // Implementation details
 
-impl<A, P: SharedPointerKind> RRB<A, P> {
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> RRB<A, P, CHUNK_SIZE> {
     fn new() -> Self {
         RRB {
             length: 0,
@@ -1612,7 +1614,7 @@ impl<A, P: SharedPointerKind> RRB<A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> RRB<A, P, CHUNK_SIZE> {
     fn prune(&mut self) {
         if self.middle.is_empty() {
             self.middle = SharedPointer::new(Node::new());
@@ -1702,7 +1704,7 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
         outer_b.push_back(value)
     }
 
-    fn push_middle(&mut self, side: Side, chunk: SharedPointer<Chunk<A>, P>) {
+    fn push_middle(&mut self, side: Side, chunk: SharedPointer<Chunk<A, CHUNK_SIZE>, P>) {
         if chunk.is_empty() {
             return;
         }
@@ -1726,7 +1728,7 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
         self.middle = new_middle;
     }
 
-    fn pop_middle(&mut self, side: Side) -> Option<SharedPointer<Chunk<A>, P>> {
+    fn pop_middle(&mut self, side: Side) -> Option<SharedPointer<Chunk<A, CHUNK_SIZE>, P>> {
         let chunk = {
             let middle = SharedPointer::make_mut(&mut self.middle);
             match middle.pop_chunk(self.middle_level, side) {
@@ -1752,13 +1754,15 @@ fn replace_shared_pointer<A: Default, P: SharedPointerKind>(
 
 // Core traits
 
-impl<A, P: SharedPointerKind> Default for GenericVector<A, P> {
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Default for GenericVector<A, P, CHUNK_SIZE> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> Clone for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Clone
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     /// Clone a vector.
     ///
     /// Time: O(1), or O(n) with a very small, bounded *n* for an inline vector.
@@ -1773,7 +1777,9 @@ impl<A: Clone, P: SharedPointerKind> Clone for GenericVector<A, P> {
     }
 }
 
-impl<A: Debug, P: SharedPointerKind> Debug for GenericVector<A, P> {
+impl<A: Debug, P: SharedPointerKind, const CHUNK_SIZE: usize> Debug
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         f.debug_list().entries(self.iter()).finish()
         // match self {
@@ -1787,27 +1793,35 @@ impl<A: Debug, P: SharedPointerKind> Debug for GenericVector<A, P> {
     }
 }
 
-impl<A: PartialEq, P: SharedPointerKind> PartialEq for GenericVector<A, P> {
+impl<A: PartialEq, P: SharedPointerKind, const CHUNK_SIZE: usize> PartialEq
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.iter().eq(other.iter())
     }
 }
 
-impl<A: Eq, P: SharedPointerKind> Eq for GenericVector<A, P> {}
+impl<A: Eq, P: SharedPointerKind, const CHUNK_SIZE: usize> Eq for GenericVector<A, P, CHUNK_SIZE> {}
 
-impl<A: PartialOrd, P: SharedPointerKind> PartialOrd for GenericVector<A, P> {
+impl<A: PartialOrd, P: SharedPointerKind, const CHUNK_SIZE: usize> PartialOrd
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.iter().partial_cmp(other.iter())
     }
 }
 
-impl<A: Ord, P: SharedPointerKind> Ord for GenericVector<A, P> {
+impl<A: Ord, P: SharedPointerKind, const CHUNK_SIZE: usize> Ord
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     fn cmp(&self, other: &Self) -> Ordering {
         self.iter().cmp(other.iter())
     }
 }
 
-impl<A: Hash, P: SharedPointerKind> Hash for GenericVector<A, P> {
+impl<A: Hash, P: SharedPointerKind, const CHUNK_SIZE: usize> Hash
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     fn hash<H: Hasher>(&self, state: &mut H) {
         for i in self {
             i.hash(state)
@@ -1815,7 +1829,9 @@ impl<A: Hash, P: SharedPointerKind> Hash for GenericVector<A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> Sum for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Sum
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     fn sum<I>(it: I) -> Self
     where
         I: Iterator<Item = Self>,
@@ -1824,8 +1840,10 @@ impl<A: Clone, P: SharedPointerKind> Sum for GenericVector<A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> Add for GenericVector<A, P> {
-    type Output = GenericVector<A, P>;
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Add
+    for GenericVector<A, P, CHUNK_SIZE>
+{
+    type Output = GenericVector<A, P, CHUNK_SIZE>;
 
     /// Concatenate two vectors.
     ///
@@ -1836,8 +1854,10 @@ impl<A: Clone, P: SharedPointerKind> Add for GenericVector<A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> Add for &GenericVector<A, P> {
-    type Output = GenericVector<A, P>;
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Add
+    for &GenericVector<A, P, CHUNK_SIZE>
+{
+    type Output = GenericVector<A, P, CHUNK_SIZE>;
 
     /// Concatenate two vectors.
     ///
@@ -1849,7 +1869,9 @@ impl<A: Clone, P: SharedPointerKind> Add for &GenericVector<A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> Extend<A> for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Extend<A>
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     /// Add values to the end of a vector by consuming an iterator.
     ///
     /// Time: O(n)
@@ -1863,7 +1885,9 @@ impl<A: Clone, P: SharedPointerKind> Extend<A> for GenericVector<A, P> {
     }
 }
 
-impl<A, P: SharedPointerKind> Index<usize> for GenericVector<A, P> {
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Index<usize>
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     type Output = A;
     /// Get a reference to the value at index `index` in the vector.
     ///
@@ -1880,7 +1904,9 @@ impl<A, P: SharedPointerKind> Index<usize> for GenericVector<A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> IndexMut<usize> for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IndexMut<usize>
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     /// Get a mutable reference to the value at index `index` in the
     /// vector.
     ///
@@ -1895,31 +1921,39 @@ impl<A: Clone, P: SharedPointerKind> IndexMut<usize> for GenericVector<A, P> {
 
 // Conversions
 
-impl<'a, A, P: SharedPointerKind> IntoIterator for &'a GenericVector<A, P> {
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoIterator
+    for &'a GenericVector<A, P, CHUNK_SIZE>
+{
     type Item = &'a A;
-    type IntoIter = Iter<'a, A, P>;
+    type IntoIter = Iter<'a, A, P, CHUNK_SIZE>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> IntoIterator for &'a mut GenericVector<A, P> {
+impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoIterator
+    for &'a mut GenericVector<A, P, CHUNK_SIZE>
+{
     type Item = &'a mut A;
-    type IntoIter = IterMut<'a, A, P>;
+    type IntoIter = IterMut<'a, A, P, CHUNK_SIZE>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> IntoIterator for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoIterator
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     type Item = A;
-    type IntoIter = ConsumingIter<A, P>;
+    type IntoIter = ConsumingIter<A, P, CHUNK_SIZE>;
     fn into_iter(self) -> Self::IntoIter {
         ConsumingIter::new(self)
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> FromIterator<A> for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> FromIterator<A>
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     /// Create a vector from an iterator.
     ///
     /// Time: O(n)
@@ -1935,19 +1969,21 @@ impl<A: Clone, P: SharedPointerKind> FromIterator<A> for GenericVector<A, P> {
     }
 }
 
-impl<A, OA, P1, P2> From<&GenericVector<&A, P2>> for GenericVector<OA, P1>
+impl<A, OA, P1, P2, const CHUNK_SIZE: usize> From<&GenericVector<&A, P2, CHUNK_SIZE>>
+    for GenericVector<OA, P1, CHUNK_SIZE>
 where
     A: ToOwned<Owned = OA>,
     OA: Borrow<A> + Clone,
     P1: SharedPointerKind,
     P2: SharedPointerKind,
 {
-    fn from(vec: &GenericVector<&A, P2>) -> Self {
+    fn from(vec: &GenericVector<&A, P2, CHUNK_SIZE>) -> Self {
         vec.iter().map(|a| (*a).to_owned()).collect()
     }
 }
 
-impl<A, const N: usize, P: SharedPointerKind> From<[A; N]> for GenericVector<A, P>
+impl<A, const N: usize, P: SharedPointerKind, const CHUNK_SIZE: usize> From<[A; N]>
+    for GenericVector<A, P, CHUNK_SIZE>
 where
     A: Clone,
 {
@@ -1956,13 +1992,17 @@ where
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> From<&[A]> for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> From<&[A]>
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     fn from(slice: &[A]) -> Self {
         slice.iter().cloned().collect()
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> From<Vec<A>> for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> From<Vec<A>>
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     /// Create a vector from a [`std::vec::Vec`][vec].
     ///
     /// Time: O(n)
@@ -1973,7 +2013,9 @@ impl<A: Clone, P: SharedPointerKind> From<Vec<A>> for GenericVector<A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> From<&Vec<A>> for GenericVector<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> From<&Vec<A>>
+    for GenericVector<A, P, CHUNK_SIZE>
+{
     /// Create a vector from a [`std::vec::Vec`][vec].
     ///
     /// Time: O(n)
@@ -1993,14 +2035,14 @@ impl<A: Clone, P: SharedPointerKind> From<&Vec<A>> for GenericVector<A, P> {
 /// [iter]: type.Vector.html#method.iter
 // TODO: we'd like to support Clone even if A is not Clone, but it isn't trivial because
 // the TreeFocus variant of Focus does need A to be Clone.
-pub struct Iter<'a, A, P: SharedPointerKind> {
-    focus: Focus<'a, A, P>,
+pub struct Iter<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
+    focus: Focus<'a, A, P, CHUNK_SIZE>,
     front_index: usize,
     back_index: usize,
 }
 
-impl<'a, A, P: SharedPointerKind> Iter<'a, A, P> {
-    fn new(seq: &'a GenericVector<A, P>) -> Self {
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> Iter<'a, A, P, CHUNK_SIZE> {
+    fn new(seq: &'a GenericVector<A, P, CHUNK_SIZE>) -> Self {
         Iter {
             focus: seq.focus(),
             front_index: 0,
@@ -2008,7 +2050,7 @@ impl<'a, A, P: SharedPointerKind> Iter<'a, A, P> {
         }
     }
 
-    fn from_focus(focus: Focus<'a, A, P>) -> Self {
+    fn from_focus(focus: Focus<'a, A, P, CHUNK_SIZE>) -> Self {
         Iter {
             front_index: 0,
             back_index: focus.len(),
@@ -2017,7 +2059,7 @@ impl<'a, A, P: SharedPointerKind> Iter<'a, A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> Clone for Iter<'_, A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Clone for Iter<'_, A, P, CHUNK_SIZE> {
     fn clone(&self) -> Self {
         Iter {
             focus: self.focus.clone(),
@@ -2027,13 +2069,17 @@ impl<A: Clone, P: SharedPointerKind> Clone for Iter<'_, A, P> {
     }
 }
 
-impl<A: Clone + Debug, P: SharedPointerKind> std::fmt::Debug for Iter<'_, A, P> {
+impl<A: Clone + Debug, P: SharedPointerKind, const CHUNK_SIZE: usize> std::fmt::Debug
+    for Iter<'_, A, P, CHUNK_SIZE>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list().entries(self.clone()).finish()
     }
 }
 
-impl<'a, A, P: SharedPointerKind + 'a> Iterator for Iter<'a, A, P> {
+impl<'a, A, P: SharedPointerKind + 'a, const CHUNK_SIZE: usize> Iterator
+    for Iter<'a, A, P, CHUNK_SIZE>
+{
     type Item = &'a A;
 
     /// Advance the iterator and return the next value.
@@ -2043,7 +2089,8 @@ impl<'a, A, P: SharedPointerKind + 'a> Iterator for Iter<'a, A, P> {
         if self.front_index >= self.back_index {
             return None;
         }
-        let focus: &'a mut Focus<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
+        let focus: &'a mut Focus<'a, A, P, CHUNK_SIZE> =
+            unsafe { &mut *(&mut self.focus as *mut _) };
         let value = focus.get(self.front_index);
         self.front_index += 1;
         value
@@ -2055,7 +2102,9 @@ impl<'a, A, P: SharedPointerKind + 'a> Iterator for Iter<'a, A, P> {
     }
 }
 
-impl<'a, A, P: SharedPointerKind + 'a> DoubleEndedIterator for Iter<'a, A, P> {
+impl<'a, A, P: SharedPointerKind + 'a, const CHUNK_SIZE: usize> DoubleEndedIterator
+    for Iter<'a, A, P, CHUNK_SIZE>
+{
     /// Advance the iterator and return the next value.
     ///
     /// Time: O(1)*
@@ -2064,28 +2113,35 @@ impl<'a, A, P: SharedPointerKind + 'a> DoubleEndedIterator for Iter<'a, A, P> {
             return None;
         }
         self.back_index -= 1;
-        let focus: &'a mut Focus<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
+        let focus: &'a mut Focus<'a, A, P, CHUNK_SIZE> =
+            unsafe { &mut *(&mut self.focus as *mut _) };
         focus.get(self.back_index)
     }
 }
 
-impl<'a, A, P: SharedPointerKind + 'a> ExactSizeIterator for Iter<'a, A, P> {}
+impl<'a, A, P: SharedPointerKind + 'a, const CHUNK_SIZE: usize> ExactSizeIterator
+    for Iter<'a, A, P, CHUNK_SIZE>
+{
+}
 
-impl<'a, A, P: SharedPointerKind + 'a> FusedIterator for Iter<'a, A, P> {}
+impl<'a, A, P: SharedPointerKind + 'a, const CHUNK_SIZE: usize> FusedIterator
+    for Iter<'a, A, P, CHUNK_SIZE>
+{
+}
 
 /// A mutable iterator over vectors with values of type `A`.
 ///
 /// To obtain one, use [`Vector::iter_mut()`][iter_mut].
 ///
 /// [iter_mut]: type.Vector.html#method.iter_mut
-pub struct IterMut<'a, A, P: SharedPointerKind> {
-    focus: FocusMut<'a, A, P>,
+pub struct IterMut<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
+    focus: FocusMut<'a, A, P, CHUNK_SIZE>,
     front_index: usize,
     back_index: usize,
 }
 
-impl<'a, A, P: SharedPointerKind> IterMut<'a, A, P> {
-    fn from_focus(focus: FocusMut<'a, A, P>) -> Self {
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> IterMut<'a, A, P, CHUNK_SIZE> {
+    fn from_focus(focus: FocusMut<'a, A, P, CHUNK_SIZE>) -> Self {
         IterMut {
             front_index: 0,
             back_index: focus.len(),
@@ -2094,8 +2150,8 @@ impl<'a, A, P: SharedPointerKind> IterMut<'a, A, P> {
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> IterMut<'a, A, P> {
-    fn new(seq: &'a mut GenericVector<A, P>) -> Self {
+impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IterMut<'a, A, P, CHUNK_SIZE> {
+    fn new(seq: &'a mut GenericVector<A, P, CHUNK_SIZE>) -> Self {
         let focus = seq.focus_mut();
         let len = focus.len();
         IterMut {
@@ -2106,7 +2162,8 @@ impl<'a, A: Clone, P: SharedPointerKind> IterMut<'a, A, P> {
     }
 }
 
-impl<'a, A, P: SharedPointerKind> Iterator for IterMut<'a, A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> Iterator
+    for IterMut<'a, A, P, CHUNK_SIZE>
 where
     A: 'a + Clone,
 {
@@ -2119,7 +2176,8 @@ where
         if self.front_index >= self.back_index {
             return None;
         }
-        let focus: &'a mut FocusMut<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
+        let focus: &'a mut FocusMut<'a, A, P, CHUNK_SIZE> =
+            unsafe { &mut *(&mut self.focus as *mut _) };
         let value = focus.get_mut(self.front_index);
         self.front_index += 1;
         value
@@ -2131,7 +2189,8 @@ where
     }
 }
 
-impl<'a, A, P: SharedPointerKind> DoubleEndedIterator for IterMut<'a, A, P>
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> DoubleEndedIterator
+    for IterMut<'a, A, P, CHUNK_SIZE>
 where
     A: 'a + Clone,
 {
@@ -2143,27 +2202,36 @@ where
             return None;
         }
         self.back_index -= 1;
-        let focus: &'a mut FocusMut<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
+        let focus: &'a mut FocusMut<'a, A, P, CHUNK_SIZE> =
+            unsafe { &mut *(&mut self.focus as *mut _) };
         focus.get_mut(self.back_index)
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> ExactSizeIterator for IterMut<'a, A, P> {}
-
-impl<'a, A: Clone, P: SharedPointerKind> FusedIterator for IterMut<'a, A, P> {}
-
-/// A consuming iterator over vectors with values of type `A`.
-pub struct ConsumingIter<A, P: SharedPointerKind> {
-    vector: GenericVector<A, P>,
+impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> ExactSizeIterator
+    for IterMut<'a, A, P, CHUNK_SIZE>
+{
 }
 
-impl<A, P: SharedPointerKind> ConsumingIter<A, P> {
-    fn new(vector: GenericVector<A, P>) -> Self {
+impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> FusedIterator
+    for IterMut<'a, A, P, CHUNK_SIZE>
+{
+}
+
+/// A consuming iterator over vectors with values of type `A`.
+pub struct ConsumingIter<A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
+    vector: GenericVector<A, P, CHUNK_SIZE>,
+}
+
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> ConsumingIter<A, P, CHUNK_SIZE> {
+    fn new(vector: GenericVector<A, P, CHUNK_SIZE>) -> Self {
         Self { vector }
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> Iterator for ConsumingIter<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Iterator
+    for ConsumingIter<A, P, CHUNK_SIZE>
+{
     type Item = A;
 
     /// Advance the iterator and return the next value.
@@ -2179,7 +2247,9 @@ impl<A: Clone, P: SharedPointerKind> Iterator for ConsumingIter<A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> DoubleEndedIterator for ConsumingIter<A, P> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> DoubleEndedIterator
+    for ConsumingIter<A, P, CHUNK_SIZE>
+{
     /// Remove and return an element from the back of the iterator.
     ///
     /// Time: O(1)*
@@ -2188,23 +2258,29 @@ impl<A: Clone, P: SharedPointerKind> DoubleEndedIterator for ConsumingIter<A, P>
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> ExactSizeIterator for ConsumingIter<A, P> {}
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> ExactSizeIterator
+    for ConsumingIter<A, P, CHUNK_SIZE>
+{
+}
 
-impl<A: Clone, P: SharedPointerKind> FusedIterator for ConsumingIter<A, P> {}
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> FusedIterator
+    for ConsumingIter<A, P, CHUNK_SIZE>
+{
+}
 
 /// An iterator over the leaf nodes of a vector.
 ///
 /// To obtain one, use [`Vector::chunks()`][chunks].
 ///
 /// [chunks]: type.Vector.html#method.chunks
-pub struct Chunks<'a, A, P: SharedPointerKind> {
-    focus: Focus<'a, A, P>,
+pub struct Chunks<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
+    focus: Focus<'a, A, P, CHUNK_SIZE>,
     front_index: usize,
     back_index: usize,
 }
 
-impl<'a, A, P: SharedPointerKind> Chunks<'a, A, P> {
-    fn new(seq: &'a GenericVector<A, P>) -> Self {
+impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> Chunks<'a, A, P, CHUNK_SIZE> {
+    fn new(seq: &'a GenericVector<A, P, CHUNK_SIZE>) -> Self {
         Chunks {
             focus: seq.focus(),
             front_index: 0,
@@ -2213,7 +2289,9 @@ impl<'a, A, P: SharedPointerKind> Chunks<'a, A, P> {
     }
 }
 
-impl<'a, A, P: SharedPointerKind + 'a> Iterator for Chunks<'a, A, P> {
+impl<'a, A, P: SharedPointerKind + 'a, const CHUNK_SIZE: usize> Iterator
+    for Chunks<'a, A, P, CHUNK_SIZE>
+{
     type Item = &'a [A];
 
     /// Advance the iterator and return the next value.
@@ -2223,14 +2301,17 @@ impl<'a, A, P: SharedPointerKind + 'a> Iterator for Chunks<'a, A, P> {
         if self.front_index >= self.back_index {
             return None;
         }
-        let focus: &'a mut Focus<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
+        let focus: &'a mut Focus<'a, A, P, CHUNK_SIZE> =
+            unsafe { &mut *(&mut self.focus as *mut _) };
         let (range, value) = focus.chunk_at(self.front_index);
         self.front_index = range.end;
         Some(value)
     }
 }
 
-impl<'a, A, P: SharedPointerKind + 'a> DoubleEndedIterator for Chunks<'a, A, P> {
+impl<'a, A, P: SharedPointerKind + 'a, const CHUNK_SIZE: usize> DoubleEndedIterator
+    for Chunks<'a, A, P, CHUNK_SIZE>
+{
     /// Remove and return an element from the back of the iterator.
     ///
     /// Time: O(1)*
@@ -2239,28 +2320,32 @@ impl<'a, A, P: SharedPointerKind + 'a> DoubleEndedIterator for Chunks<'a, A, P> 
             return None;
         }
         self.back_index -= 1;
-        let focus: &'a mut Focus<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
+        let focus: &'a mut Focus<'a, A, P, CHUNK_SIZE> =
+            unsafe { &mut *(&mut self.focus as *mut _) };
         let (range, value) = focus.chunk_at(self.back_index);
         self.back_index = range.start;
         Some(value)
     }
 }
 
-impl<'a, A, P: SharedPointerKind + 'a> FusedIterator for Chunks<'a, A, P> {}
+impl<'a, A, P: SharedPointerKind + 'a, const CHUNK_SIZE: usize> FusedIterator
+    for Chunks<'a, A, P, CHUNK_SIZE>
+{
+}
 
 /// A mutable iterator over the leaf nodes of a vector.
 ///
 /// To obtain one, use [`Vector::chunks_mut()`][chunks_mut].
 ///
 /// [chunks_mut]: type.Vector.html#method.chunks_mut
-pub struct ChunksMut<'a, A, P: SharedPointerKind> {
-    focus: FocusMut<'a, A, P>,
+pub struct ChunksMut<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
+    focus: FocusMut<'a, A, P, CHUNK_SIZE>,
     front_index: usize,
     back_index: usize,
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> ChunksMut<'a, A, P> {
-    fn new(seq: &'a mut GenericVector<A, P>) -> Self {
+impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> ChunksMut<'a, A, P, CHUNK_SIZE> {
+    fn new(seq: &'a mut GenericVector<A, P, CHUNK_SIZE>) -> Self {
         let len = seq.len();
         ChunksMut {
             focus: seq.focus_mut(),
@@ -2270,7 +2355,9 @@ impl<'a, A: Clone, P: SharedPointerKind> ChunksMut<'a, A, P> {
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> Iterator for ChunksMut<'a, A, P> {
+impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Iterator
+    for ChunksMut<'a, A, P, CHUNK_SIZE>
+{
     type Item = &'a mut [A];
 
     /// Advance the iterator and return the next value.
@@ -2280,14 +2367,17 @@ impl<'a, A: Clone, P: SharedPointerKind> Iterator for ChunksMut<'a, A, P> {
         if self.front_index >= self.back_index {
             return None;
         }
-        let focus: &'a mut FocusMut<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
+        let focus: &'a mut FocusMut<'a, A, P, CHUNK_SIZE> =
+            unsafe { &mut *(&mut self.focus as *mut _) };
         let (range, value) = focus.chunk_at(self.front_index);
         self.front_index = range.end;
         Some(value)
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> DoubleEndedIterator for ChunksMut<'a, A, P> {
+impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> DoubleEndedIterator
+    for ChunksMut<'a, A, P, CHUNK_SIZE>
+{
     /// Remove and return an element from the back of the iterator.
     ///
     /// Time: O(1)*
@@ -2296,14 +2386,18 @@ impl<'a, A: Clone, P: SharedPointerKind> DoubleEndedIterator for ChunksMut<'a, A
             return None;
         }
         self.back_index -= 1;
-        let focus: &'a mut FocusMut<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
+        let focus: &'a mut FocusMut<'a, A, P, CHUNK_SIZE> =
+            unsafe { &mut *(&mut self.focus as *mut _) };
         let (range, value) = focus.chunk_at(self.back_index);
         self.back_index = range.start;
         Some(value)
     }
 }
 
-impl<'a, A: Clone, P: SharedPointerKind> FusedIterator for ChunksMut<'a, A, P> {}
+impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> FusedIterator
+    for ChunksMut<'a, A, P, CHUNK_SIZE>
+{
+}
 
 // Proptest
 #[cfg(any(test, feature = "proptest"))]
@@ -2476,11 +2570,8 @@ mod test {
 
     #[test]
     fn issue_70() {
-        // This test assumes that chunks are of size 64.
-        if CHUNK_SIZE != 64 {
-            return;
-        }
-        let mut x = Vector::new();
+        // This tests assumes a chunk size of 64
+        let mut x = GenericVector::<i32, DefaultSharedPtr, 64>::new();
         for _ in 0..262 {
             x.push_back(0);
         }
@@ -2537,12 +2628,12 @@ mod test {
 
     #[test]
     fn issue_74_simple_size() {
-        use crate::nodes::rrb::NODE_SIZE;
-        let mut x = Vector::new();
+        const CHUNK_SIZE: usize = 64;
+        let mut x = GenericVector::<u32, DefaultSharedPtr, CHUNK_SIZE>::new();
         for _ in 0..(CHUNK_SIZE
             * (
                 1 // inner_f
-                + (2 * NODE_SIZE) // middle: two full Entry::Nodes (4096 elements each)
+                + (2 * CHUNK_SIZE) // middle: two full Entry::Nodes (4096 elements each)
                 + 1 // inner_b
                 + 1
                 // outer_b
@@ -2551,7 +2642,7 @@ mod test {
             x.push_back(0u32);
         }
         let middle_first_node_start = CHUNK_SIZE;
-        let middle_second_node_start = middle_first_node_start + NODE_SIZE * CHUNK_SIZE;
+        let middle_second_node_start = middle_first_node_start + CHUNK_SIZE * CHUNK_SIZE;
         // This reduces the size of the second node to 4095.
         x.remove(middle_second_node_start);
         // As outer_b is full, this will cause inner_b (length 64) to be pushed
@@ -2560,11 +2651,9 @@ mod test {
         x.push_back(0u32);
         match x.vector {
             VectorInner::Full(tree) => {
-                if CHUNK_SIZE == 64 {
-                    assert_eq!(3, tree.middle.number_of_children());
-                }
+                assert_eq!(3, tree.middle.number_of_children());
                 assert_eq!(
-                    2 * NODE_SIZE * CHUNK_SIZE + CHUNK_SIZE - 1,
+                    2 * CHUNK_SIZE * CHUNK_SIZE + CHUNK_SIZE - 1,
                     tree.middle.len()
                 );
             }
@@ -2853,7 +2942,7 @@ mod test {
         fn focus_mut_split(ref input in vector(i32::ANY, 0..10000)) {
             let mut vec = input.clone();
 
-            fn split_down(focus: FocusMut<'_, i32, DefaultSharedPtr>) {
+            fn split_down<const CHUNK_SIZE: usize>(focus: FocusMut<'_, i32, DefaultSharedPtr, CHUNK_SIZE>) {
                 let len = focus.len();
                 if len < 8 {
                     for p in focus {
@@ -2934,9 +3023,10 @@ pub struct PersistentMap<
     P: SharedPointerKind,
     F: FnMut(&In) -> Out,
     Ex: Fn(&In) -> Key,
+    const CHUNK_SIZE: usize,
 > {
-    previous_in: VectorInner<In, P>,
-    previous_out: VectorInner<Out, P>,
+    previous_in: VectorInner<In, P, CHUNK_SIZE>,
+    previous_out: VectorInner<Out, P, CHUNK_SIZE>,
     keylookup: std::collections::HashMap<Key, (Out, usize)>,
     f: F,
     ex: Ex,
@@ -2949,7 +3039,8 @@ impl<
         P: SharedPointerKind,
         F: FnMut(&In) -> Out,
         Ex: Fn(&In) -> Key,
-    > PersistentMap<In, Out, Key, P, F, Ex>
+        const CHUNK_SIZE: usize,
+    > PersistentMap<In, Out, Key, P, F, Ex, CHUNK_SIZE>
 {
     /// Initializes a new empty map state
     pub fn new(f: F, ex: Ex) -> Self {
@@ -2999,14 +3090,14 @@ impl<
     }
 
     fn map_chunk(
-        prev_in: &SharedPointer<Chunk<In>, P>,
-        next_in: &SharedPointer<Chunk<In>, P>,
-        prev_out: &SharedPointer<Chunk<Out>, P>,
+        prev_in: &SharedPointer<Chunk<In, CHUNK_SIZE>, P>,
+        next_in: &SharedPointer<Chunk<In, CHUNK_SIZE>, P>,
+        prev_out: &SharedPointer<Chunk<Out, CHUNK_SIZE>, P>,
         keylookup: &mut std::collections::HashMap<Key, (Out, usize)>,
         ex: &impl Fn(&In) -> Key,
         ma: &mut impl FnMut(&In) -> Out,
-    ) -> SharedPointer<Chunk<Out>, P> {
-        if SharedPointer::<imbl_sized_chunks::Chunk<In, CHUNK_SIZE>, P>::ptr_eq(prev_in, next_in) {
+    ) -> SharedPointer<Chunk<Out, CHUNK_SIZE>, P> {
+        if SharedPointer::<imbl_sized_chunks::Chunk<In, _>, P>::ptr_eq(prev_in, next_in) {
             prev_out.clone()
         } else {
             let mut chunk = Chunk::new();
@@ -3019,7 +3110,10 @@ impl<
     }
 
     /// Produces an output vector from the input vector using a map function and a key extractor.
-    pub fn map(&mut self, from: &GenericVector<In, P>) -> GenericVector<Out, P> {
+    pub fn map(
+        &mut self,
+        from: &GenericVector<In, P, CHUNK_SIZE>,
+    ) -> GenericVector<Out, P, CHUNK_SIZE> {
         match &from.vector {
             Inline(next_in) => {
                 let mut inline = InlineArray::new();
@@ -3109,7 +3203,10 @@ impl<
         }
     }
 
-    fn map_with_key_internal(&mut self, next_in: &RRB<In, P>) -> RRB<Out, P> {
+    fn map_with_key_internal(
+        &mut self,
+        next_in: &RRB<In, P, CHUNK_SIZE>,
+    ) -> RRB<Out, P, CHUNK_SIZE> {
         use crate::nodes::rrb::map_subsequence;
 
         match &mut self.previous_in {
@@ -3213,7 +3310,7 @@ impl<
 fn test_vector_map_basic() {
     let a = vector![1, 2, 3, 4];
 
-    let mut map = PersistentMap::<i32, i32, i32, _, _, _>::new(|x| *x * *x, |x| *x);
+    let mut map = PersistentMap::<i32, i32, i32, _, _, _, _>::new(|x| *x * *x, |x| *x);
 
     let b = map.map(&a);
 
@@ -3230,7 +3327,7 @@ fn test_vector_map_big() {
     let mut mutation_count = 0;
 
     let len = {
-        let mut map = PersistentMap::<i64, i64, usize, _, _, _>::new(
+        let mut map = PersistentMap::<i64, i64, usize, _, _, _, _>::new(
             |x| {
                 mutation_count += 1;
                 *x + 1
