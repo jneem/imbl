@@ -1225,3 +1225,121 @@ fn map_subseq_unpaired<In, Out, P: SharedPointerKind, const NODE_SIZE: usize>(
         Entry::Empty => Node::new(),
     }
 }
+
+// not bothering to cache subfolds within a chunk; could be done to speed it up, but adds complexity with not much performance benefit when the chunk size is reasonably small and the zip is reasonably cheap
+pub(crate) enum FoldSeqStore<T, P: SharedPointerKind, const NODE_SIZE: usize> {
+    Values(T, SharedPointer<Chunk<T, NODE_SIZE>, P>), // result of folding the chunk of leaves, the individual input leaves
+    Nodes(
+        T,
+        SharedPointer<Chunk<Node<T, P, NODE_SIZE>, NODE_SIZE>, P>,
+        SharedPointer<Chunk<FoldSeqStore<T, P, NODE_SIZE>, NODE_SIZE>, P>,
+    ), // result of folding the internal chunk, the original input chunk, and the stored folds of every subchunk of the input chunk
+    Empty,
+}
+
+impl<T: Clone, P: SharedPointerKind, const NODE_SIZE: usize> Clone
+    for FoldSeqStore<T, P, NODE_SIZE>
+{
+    fn clone(&self) -> Self {
+        match self {
+            Self::Values(arg0, arg1) => Self::Values(arg0.clone(), arg1.clone()),
+            Self::Nodes(arg0, arg1, arg2) => Self::Nodes(arg0.clone(), arg1.clone(), arg2.clone()),
+            Self::Empty => Self::Empty,
+        }
+    }
+}
+
+// Fold over a slice that implements a binary tree fold
+pub(crate) fn binary_fold<T: Clone>(slice: &[T], z: T, f: &mut impl FnMut(T, T) -> T) -> T {
+    if slice.is_empty() {
+        z
+    } else {
+        binary_fold_inner::<T>(slice, f)
+    }
+}
+
+fn binary_fold_inner<T: Clone>(slice: &[T], f: &mut impl FnMut(T, T) -> T) -> T {
+    // We just recursively split the slice in half until we have 1 or 2 elements
+    match slice.len() {
+        0 => unreachable!(),
+        1 => slice[0].clone(),
+        2 => f(slice[0].clone(), slice[1].clone()),
+        _ => {
+            let (l, r) = slice.split_at(slice.len() / 2);
+            let lv = binary_fold_inner::<T>(l, f);
+            let rv = binary_fold_inner::<T>(r, f);
+            f(lv, rv)
+        }
+    }
+}
+
+// TODO: We can probably remove z completely by allowing this to return Option<T> instead, but this must be carefully done.
+pub(crate) fn fold_subsequence<T: Clone, P: SharedPointerKind, const NODE_SIZE: usize>(
+    input: &Node<T, P, NODE_SIZE>,
+    prev_out: FoldSeqStore<T, P, NODE_SIZE>,
+    f: &mut impl FnMut(T, T) -> T,
+    z: &T,
+) -> (T, FoldSeqStore<T, P, NODE_SIZE>) {
+    match (&input.children, prev_out) {
+        (Entry::Values(xs), y) => {
+            if let FoldSeqStore::Values(total, ys) = y
+                && SharedPointer::ptr_eq(&xs, &ys)
+            {
+                (total.clone(), FoldSeqStore::Values(total, ys))
+            } else if xs.is_empty() {
+                (z.clone(), FoldSeqStore::Empty)
+            } else {
+                let result = binary_fold_inner::<T>(&xs, f);
+                (result.clone(), FoldSeqStore::Values(result, xs.clone()))
+            }
+        }
+        (Entry::Nodes(_, children), FoldSeqStore::Nodes(total, old_children, total_children)) => {
+            if SharedPointer::ptr_eq(&children, &old_children) {
+                (
+                    total.clone(),
+                    FoldSeqStore::Nodes(total, old_children, total_children),
+                )
+            } else if children.is_empty() {
+                (z.clone(), FoldSeqStore::Empty)
+            } else {
+                let mut outputs: Chunk<T, NODE_SIZE> = Chunk::new();
+                let mut nodes = Chunk::new();
+                for (input, prev_out) in children.iter().zip(total_children.iter()) {
+                    let (output, next_out) = fold_subsequence(input, prev_out.clone(), f, z);
+                    // Never push an "empty" result, or it will break the fold because we do not have a zero element, only a unit element z.
+                    if !matches!(next_out, FoldSeqStore::Empty) {
+                        outputs.push_back(output);
+                        nodes.push_back(next_out);
+                    }
+                }
+
+                let total = binary_fold(&outputs, z.clone(), f);
+
+                (
+                    total.clone(),
+                    FoldSeqStore::Nodes(total, children.clone(), SharedPointer::new(nodes)),
+                )
+            }
+        }
+        (Entry::Nodes(_, children), _) => {
+            let mut outputs: Chunk<T, NODE_SIZE> = Chunk::new();
+            let mut nodes = Chunk::new();
+            for input in children.iter() {
+                let (output, next_out) = fold_subsequence(input, FoldSeqStore::Empty, f, z);
+                // Never push an "empty" result, or it will break the fold because we do not have a zero element, only a unit element z.
+                if !matches!(next_out, FoldSeqStore::Empty) {
+                    outputs.push_back(output);
+                    nodes.push_back(next_out);
+                }
+            }
+
+            let total = binary_fold(&outputs, z.clone(), f);
+
+            (
+                total.clone(),
+                FoldSeqStore::Nodes(total, children.clone(), SharedPointer::new(nodes)),
+            )
+        }
+        (Entry::Empty, _) => (z.clone(), FoldSeqStore::Empty),
+    }
+}

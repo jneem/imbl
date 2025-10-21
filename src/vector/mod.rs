@@ -58,7 +58,9 @@ use archery::{SharedPointer, SharedPointerKind};
 use imbl_sized_chunks::InlineArray;
 
 use crate::nodes::chunk::Chunk;
-use crate::nodes::rrb::{Node, PopResult, PushResult, SplitResult};
+use crate::nodes::rrb::{
+    FoldSeqStore, Node, PopResult, PushResult, SplitResult, binary_fold, fold_subsequence,
+};
 use crate::shared_ptr::DefaultSharedPtr;
 use crate::sort;
 use crate::util::{Side, clone_ref, to_range};
@@ -3305,6 +3307,86 @@ impl<
     }
 }
 
+/// The function must be Associative, meaning `f(f(a, b), c) == f(a, f(b, c))`, but doesn't need to be Commutative.
+/// z will only be returned if the slice is empty. Ideally, z should be the identity element (0 for addition, 1 for multiplication).
+pub struct PersistentFold<T, F: FnMut(T, T) -> T, P: SharedPointerKind, const CHUNK_SIZE: usize> {
+    outer_f: FoldSeqStore<T, P, CHUNK_SIZE>,
+    inner_f: FoldSeqStore<T, P, CHUNK_SIZE>,
+    middle: FoldSeqStore<T, P, CHUNK_SIZE>,
+    inner_b: FoldSeqStore<T, P, CHUNK_SIZE>,
+    outer_b: FoldSeqStore<T, P, CHUNK_SIZE>,
+    f: F,
+    z: T,
+}
+
+impl<T: Clone, F: FnMut(T, T) -> T, P: SharedPointerKind, const CHUNK_SIZE: usize>
+    PersistentFold<T, F, P, CHUNK_SIZE>
+{
+    /// Initializes a new empty fold state
+    pub fn new(f: F, z: T) -> Self {
+        Self {
+            outer_f: FoldSeqStore::Empty,
+            inner_f: FoldSeqStore::Empty,
+            middle: FoldSeqStore::Empty,
+            inner_b: FoldSeqStore::Empty,
+            outer_b: FoldSeqStore::Empty,
+            f,
+            z,
+        }
+    }
+
+    /// Produces an output vector from the input vector using a map function and a key extractor.
+    pub fn fold(&mut self, from: &GenericVector<T, P, CHUNK_SIZE>) -> T {
+        match &from.vector {
+            Inline(chunk) => binary_fold(&chunk, self.z.clone(), &mut self.f),
+            Single(chunk) => {
+                if let FoldSeqStore::Values(v, prev) = &self.inner_f
+                    && SharedPointer::ptr_eq(prev, chunk)
+                {
+                    v.clone()
+                } else {
+                    let result = binary_fold(&chunk, self.z.clone(), &mut self.f);
+                    self.inner_f = FoldSeqStore::Values(result.clone(), chunk.clone());
+                    result
+                }
+            }
+            Full(rrb) => {
+                let mut outer = Chunk::<T, CHUNK_SIZE>::new();
+                for (old_node, chunk) in [
+                    (&mut self.outer_f, &rrb.outer_f),
+                    (&mut self.inner_f, &rrb.inner_f),
+                    (&mut self.inner_b, &rrb.inner_b),
+                    (&mut self.outer_b, &rrb.outer_b),
+                ] {
+                    if let &mut FoldSeqStore::Values(ref v, ref old_chunk) = old_node
+                        && SharedPointer::ptr_eq(chunk, old_chunk)
+                    {
+                        if chunk.len() > 0 {
+                            outer.push_back(v.clone());
+                        }
+                    } else {
+                        let result = binary_fold(&chunk, self.z.clone(), &mut self.f);
+                        *old_node = FoldSeqStore::Values(result.clone(), chunk.clone());
+                        if chunk.len() > 0 {
+                            outer.push_back(result);
+                        }
+                    }
+                }
+                let mut middle = FoldSeqStore::Empty;
+                std::mem::swap(&mut self.middle, &mut middle);
+                let (v, mut new_middle) =
+                    fold_subsequence(&rrb.middle, middle, &mut self.f, &self.z);
+                std::mem::swap(&mut self.middle, &mut new_middle);
+                if !matches!(self.middle, FoldSeqStore::Empty) {
+                    outer.push_back(v);
+                }
+
+                binary_fold(&outer, self.z.clone(), &mut self.f)
+            }
+        }
+    }
+}
+
 #[test]
 fn test_vector_map_basic() {
     let a = vector![1, 2, 3, 4];
@@ -3349,4 +3431,48 @@ fn test_vector_map_big() {
     };
 
     assert!(mutation_count < len * 2);
+}
+
+#[test]
+fn test_vector_fold_basic() {
+    let a = vector![1, 2, 3, 4];
+
+    let mut fold = PersistentFold::<i32, _, _, _>::new(|l, r| l + r, 0);
+
+    assert_eq!(fold.fold(&a), 1 + 2 + 3 + 4);
+    assert_eq!(fold.fold(&vector![]), 0);
+    assert_eq!(fold.fold(&vector![1]), 1);
+    assert_eq!(fold.fold(&vector![1, 2]), 3);
+}
+
+#[test]
+fn test_vector_fold_big() {
+    const COUNT: usize = 10000;
+    const BASE: i64 = (COUNT * (COUNT + 1) / 2) as i64;
+
+    let mut a = Vector::from_iter((1..=COUNT).map(|i| i as i64));
+    let mut mutation_count = 0;
+
+    let mut fold = PersistentFold::<i64, _, _, _>::new(
+        |l, r| {
+            mutation_count += 1;
+            l + r
+        },
+        0,
+    );
+
+    let mut b = fold.fold(&a);
+    assert_eq!(b, BASE);
+
+    for i in 0..COUNT {
+        a[i] += 1;
+        b = fold.fold(&a);
+        assert_eq!(b, BASE + i as i64 + 1);
+    }
+
+    // The maximum bound of calls to f() each time we call fold() should be log2(N/NODE_SIZE) * NODE_SIZE.
+    const MAX_MUTATION_COUNT: usize = COUNT
+        * ((COUNT / crate::config::VECTOR_CHUNK_SIZE).ilog2() as usize
+            * crate::config::VECTOR_CHUNK_SIZE);
+    assert!(mutation_count < MAX_MUTATION_COUNT);
 }
