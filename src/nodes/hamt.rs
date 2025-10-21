@@ -133,7 +133,7 @@ where
         let mut index = Self::mask(hash, shift) as usize;
         while let Some(entry) = self.data.get(index) {
             return match entry {
-                Entry::Value(ref value, value_hash) => {
+                Entry::Value(value, value_hash) => {
                     if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
                         Some(value)
                     } else if !self.linear_probing {
@@ -143,21 +143,21 @@ where
                         continue;
                     }
                 }
-                Entry::Node(ref child) => {
+                Entry::Node(child) => {
                     assert_eq!(
                         WIDTH, HASH_WIDTH,
                         "SmallNode should not contain Node entries"
                     );
                     child.get(hash, shift + HASH_SHIFT, key)
                 }
-                Entry::SmallNode(ref small) => {
+                Entry::SmallNode(small) => {
                     assert_eq!(
                         WIDTH, HASH_WIDTH,
                         "SmallNode should not contain SmallNode entries"
                     );
                     small.get(hash, shift + HASH_SHIFT, key)
                 }
-                Entry::Collision(ref coll) => coll.get(key),
+                Entry::Collision(coll) => coll.get(key),
             };
         }
         None
@@ -181,7 +181,7 @@ where
             #[allow(unsafe_code)]
             let this = unsafe { &mut *this };
             return match this.data.get_mut(index) {
-                Some(Entry::Value(ref mut value, value_hash)) => {
+                Some(Entry::Value(value, value_hash)) => {
                     if hash_may_eq::<A>(hash, *value_hash) && key == value.extract_key().borrow() {
                         Some(value)
                     } else if !this.linear_probing {
@@ -191,23 +191,21 @@ where
                         continue;
                     }
                 }
-                Some(Entry::Node(ref mut child_ref)) => {
+                Some(Entry::Node(child_ref)) => {
                     assert_eq!(
                         WIDTH, HASH_WIDTH,
                         "SmallNode should not contain Node entries"
                     );
                     SharedPointer::make_mut(child_ref).get_mut(hash, shift + HASH_SHIFT, key)
                 }
-                Some(Entry::SmallNode(ref mut small_ref)) => {
+                Some(Entry::SmallNode(small_ref)) => {
                     assert_eq!(
                         WIDTH, HASH_WIDTH,
                         "SmallNode should not contain SmallNode entries"
                     );
                     SharedPointer::make_mut(small_ref).get_mut(hash, shift + HASH_SHIFT, key)
                 }
-                Some(Entry::Collision(ref mut coll_ref)) => {
-                    SharedPointer::make_mut(coll_ref).get_mut(key)
-                }
+                Some(Entry::Collision(coll_ref)) => SharedPointer::make_mut(coll_ref).get_mut(key),
                 None => None,
             };
         }
@@ -247,7 +245,7 @@ impl<A: HashValue, P: SharedPointerKind> SmallNode<A, P> {
         let mut index = Self::mask(hash, shift) as usize;
         while let Some(entry) = self.data.get_mut(index) {
             match entry {
-                Entry::Value(ref mut existing, existing_hash) => {
+                Entry::Value(existing, existing_hash) => {
                     if hash_may_eq::<A>(hash, *existing_hash)
                         && existing.extract_key() == value.extract_key()
                     {
@@ -335,7 +333,7 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
             // Value is here
             match entry {
                 // Update value or create a subtree
-                Entry::Value(ref mut current, current_hash) => {
+                Entry::Value(current, current_hash) => {
                     if hash_may_eq::<A>(hash, *current_hash)
                         && current.extract_key() == value.extract_key()
                     {
@@ -346,11 +344,11 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
                         continue;
                     }
                 }
-                Entry::Node(ref mut child_ref) => {
+                Entry::Node(child_ref) => {
                     let child = SharedPointer::make_mut(child_ref);
                     return child.insert(hash, shift + HASH_SHIFT, value);
                 }
-                Entry::SmallNode(ref mut small_ref) => {
+                Entry::SmallNode(small_ref) => {
                     let small = SharedPointer::make_mut(small_ref);
                     match small.insert(hash, shift + HASH_SHIFT, value) {
                         Ok(result) => return result,
@@ -374,7 +372,7 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
                     }
                 }
                 // There's already a collision here.
-                Entry::Collision(ref mut collision) => {
+                Entry::Collision(collision) => {
                     let coll = SharedPointer::make_mut(collision);
                     return coll.insert(value);
                 }
@@ -439,7 +437,7 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
         let new_node;
         let removed;
         match self.data.get_mut(index).unwrap() {
-            Entry::Node(ref mut child_ref) => {
+            Entry::Node(child_ref) => {
                 let child = SharedPointer::make_mut(child_ref);
                 match child.remove(hash, shift + HASH_SHIFT, key) {
                     None => return None,
@@ -455,7 +453,7 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
                     }
                 }
             }
-            Entry::SmallNode(ref mut small_ref) => {
+            Entry::SmallNode(small_ref) => {
                 let small = SharedPointer::make_mut(small_ref);
                 match small.remove(hash, shift + HASH_SHIFT, key) {
                     None => return None,
@@ -473,7 +471,7 @@ impl<A: HashValue, P: SharedPointerKind> Node<A, P> {
                 new_node = None;
                 removed = self.data.remove(index).map(Entry::unwrap_value);
             }
-            Entry::Collision(ref mut coll_ref) => {
+            Entry::Collision(coll_ref) => {
                 let coll = SharedPointer::make_mut(coll_ref);
                 removed = coll.remove(key);
                 if coll.len() == 1 {

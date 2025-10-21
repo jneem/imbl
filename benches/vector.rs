@@ -1,7 +1,6 @@
-use criterion::{criterion_group, criterion_main, Bencher, Criterion};
-use imbl::shared_ptr::DefaultSharedPtr;
-use imbl::vector::Vector;
+use criterion::{Bencher, Criterion, criterion_group, criterion_main};
 use imbl::GenericVector;
+use imbl::shared_ptr::DefaultSharedPtr;
 use rand::seq::SliceRandom;
 use std::collections::VecDeque;
 use std::hint::black_box;

@@ -33,8 +33,8 @@ use std::ops::{Add, Index, IndexMut};
 use archery::{SharedPointer, SharedPointerKind};
 
 use crate::nodes::hamt::{
-    hash_key, Drain as NodeDrain, HashBits, HashValue, Iter as NodeIter, IterMut as NodeIterMut,
-    Node,
+    Drain as NodeDrain, HashBits, HashValue, Iter as NodeIter, IterMut as NodeIterMut, Node,
+    hash_key,
 };
 use crate::shared_ptr::DefaultSharedPtr;
 
@@ -725,9 +725,7 @@ where
         BK: Hash + Eq + ?Sized,
         K: Borrow<BK>,
     {
-        let Some(root) = self.root.as_mut() else {
-            return None;
-        };
+        let root = self.root.as_mut()?;
         match SharedPointer::make_mut(root).get_mut(hash_key(&self.hasher, key), 0, key) {
             None => None,
             Some((key, value)) => Some((key, value)),
@@ -1576,7 +1574,7 @@ where
         F: FnOnce(&mut V),
     {
         match &mut self {
-            Entry::Occupied(ref mut entry) => f(entry.get_mut()),
+            Entry::Occupied(entry) => f(entry.get_mut()),
             Entry::Vacant(_) => (),
         }
         self
