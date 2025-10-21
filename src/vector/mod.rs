@@ -61,7 +61,7 @@ use crate::nodes::chunk::Chunk;
 use crate::nodes::rrb::{Node, PopResult, PushResult, SplitResult};
 use crate::shared_ptr::DefaultSharedPtr;
 use crate::sort;
-use crate::util::{clone_ref, to_range, Side};
+use crate::util::{Side, clone_ref, to_range};
 
 use self::VectorInner::{Full, Inline, Single};
 
@@ -1013,7 +1013,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P
                     Inline(_) => unreachable!("inline vecs should have been promoted"),
                     // If both are single chunks and left has room for right: directly
                     // memcpy right into left
-                    Single(ref mut right) if total_length <= CHUNK_SIZE => {
+                    Single(right) if total_length <= CHUNK_SIZE => {
                         SharedPointer::make_mut(left).append(SharedPointer::make_mut(right));
                         return;
                     }
@@ -3033,14 +3033,14 @@ pub struct PersistentMap<
 }
 
 impl<
-        In: Clone,
-        Out: Clone,
-        Key: Eq + Hash,
-        P: SharedPointerKind,
-        F: FnMut(&In) -> Out,
-        Ex: Fn(&In) -> Key,
-        const CHUNK_SIZE: usize,
-    > PersistentMap<In, Out, Key, P, F, Ex, CHUNK_SIZE>
+    In: Clone,
+    Out: Clone,
+    Key: Eq + Hash,
+    P: SharedPointerKind,
+    F: FnMut(&In) -> Out,
+    Ex: Fn(&In) -> Key,
+    const CHUNK_SIZE: usize,
+> PersistentMap<In, Out, Key, P, F, Ex, CHUNK_SIZE>
 {
     /// Initializes a new empty map state
     pub fn new(f: F, ex: Ex) -> Self {
@@ -3166,9 +3166,9 @@ impl<
                             panic!("invalid internal state");
                         };
                         Self::map_chunk(
-                            &prev_in,
+                            prev_in,
                             next_in,
-                            &prev_out,
+                            prev_out,
                             keylookup,
                             &self.ex,
                             &mut self.f,
@@ -3192,10 +3192,9 @@ impl<
                     }
                 };
 
-                let out = GenericVector {
+                GenericVector {
                     vector: VectorInner::Single(inner),
-                };
-                out
+                }
             }
             Full(rrb) => GenericVector {
                 vector: VectorInner::Full(self.map_with_key_internal(rrb)),

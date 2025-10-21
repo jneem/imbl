@@ -41,10 +41,10 @@ where
 
 #[cfg(test)]
 macro_rules! assert_covariant {
-    ($name:ident<$($gen:tt),*> in $param:ident) => {
+    ($name:ident<$($g:tt),*> in $param:ident) => {
         #[allow(dead_code, unused_assignments, unused_variables)]
         const _: () = {
-            type Tmp<$param> = $name<$($gen),*>;
+            type Tmp<$param> = $name<$($g),*>;
             fn assign<'a, 'b: 'a>(src: Tmp<&'b i32>, mut dst: Tmp<&'a i32>) {
                 dst = src;
             }

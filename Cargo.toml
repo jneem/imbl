@@ -6,7 +6,7 @@ authors = [
     "Joe Neeman <joeneeman@gmail.com>",
     "Arthur Silva <arthurprs@gmail.com>",
 ]
-edition = "2018"
+edition = "2024"
 license = "MPL-2.0+"
 rust-version = "1.85"
 description = "Immutable collection datatypes"

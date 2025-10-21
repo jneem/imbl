@@ -37,11 +37,11 @@ where
         writeln!(out, "let mut vec = Vector::new();")?;
         for action in &self.0 {
             match action {
-                Action::PushFront(ref value) => {
+                Action::PushFront(value) => {
                     expected.insert(0, value.clone());
                     writeln!(out, "vec.push_front({:?});", value)?
                 }
-                Action::PushBack(ref value) => {
+                Action::PushBack(value) => {
                     expected.push(value.clone());
                     writeln!(out, "vec.push_back({:?});", value)?
                 }
@@ -55,12 +55,12 @@ where
                     expected.pop();
                     writeln!(out, "vec.pop_back();")?
                 }
-                Action::Insert(ref index, ref value) => {
+                Action::Insert(index, value) => {
                     let index = cap_index(expected.len(), *index);
                     expected.insert(index, value.clone());
                     writeln!(out, "vec.insert({:?}, {:?});", index, value)?
                 }
-                Action::Remove(ref index) => {
+                Action::Remove(index) => {
                     if !expected.is_empty() {
                         let index = cap_index(expected.len(), *index);
                         expected.remove(index);
@@ -69,7 +69,7 @@ where
                         continue;
                     }
                 }
-                Action::JoinLeft(ref vec) => {
+                Action::JoinLeft(vec) => {
                     let mut vec_new = vec.clone();
                     vec_new.append(&mut expected);
                     expected = vec_new;
@@ -82,7 +82,7 @@ where
                     writeln!(out, "vec_new.append(vec);")?;
                     writeln!(out, "vec = vec_new;")?
                 }
-                Action::JoinRight(ref vec) => {
+                Action::JoinRight(vec) => {
                     expected.append(&mut vec.clone());
                     writeln!(
                         out,
@@ -91,12 +91,12 @@ where
                         vec.len()
                     )?
                 }
-                Action::SplitLeft(ref index) => {
+                Action::SplitLeft(index) => {
                     let index = cap_index(expected.len(), *index);
                     expected.truncate(index);
                     writeln!(out, "vec.split_off({:?});", index)?
                 }
-                Action::SplitRight(ref index) => {
+                Action::SplitRight(index) => {
                     let index = cap_index(expected.len(), *index);
                     expected = expected.split_off(index);
                     writeln!(out, "vec = vec.split_off({:?});", index)?
@@ -111,11 +111,7 @@ where
 }
 
 fn cap_index(len: usize, index: usize) -> usize {
-    if len == 0 {
-        0
-    } else {
-        index % len
-    }
+    if len == 0 { 0 } else { index % len }
 }
 
 proptest! {

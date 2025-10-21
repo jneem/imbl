@@ -1548,7 +1548,7 @@ where
         F: FnOnce(&mut V),
     {
         match &mut self {
-            Entry::Occupied(ref mut entry) => f(entry.get_mut()),
+            Entry::Occupied(entry) => f(entry.get_mut()),
             Entry::Vacant(_) => (),
         }
         self
@@ -2305,12 +2305,12 @@ where
 }
 
 impl<
-        K: Ord + Hash + Eq + Clone,
-        V: Clone,
-        S: BuildHasher + Clone,
-        P1: SharedPointerKind,
-        P2: SharedPointerKind,
-    > From<GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
+    K: Ord + Hash + Eq + Clone,
+    V: Clone,
+    S: BuildHasher + Clone,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
+> From<GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
 {
     fn from(m: GenericHashMap<K, V, S, P2>) -> Self {
         m.into_iter().collect()
@@ -2318,13 +2318,13 @@ impl<
 }
 
 impl<
-        'a,
-        K: Ord + Hash + Eq + Clone,
-        V: Clone,
-        S: BuildHasher + Clone,
-        P1: SharedPointerKind,
-        P2: SharedPointerKind,
-    > From<&'a GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
+    'a,
+    K: Ord + Hash + Eq + Clone,
+    V: Clone,
+    S: BuildHasher + Clone,
+    P1: SharedPointerKind,
+    P2: SharedPointerKind,
+> From<&'a GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
 {
     fn from(m: &'a GenericHashMap<K, V, S, P2>) -> Self {
         m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
