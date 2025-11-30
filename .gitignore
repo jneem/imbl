@@ -1,7 +1,6 @@
 target/
 dist/
 **/*.rs.bk
-Cargo.lock
 /im-rc
 
 # Devenv
