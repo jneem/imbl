@@ -8,16 +8,16 @@
 /// value.
 ///
 /// The function is called with the current state as its argument, and should
-/// return an [`Option`][std::option::Option] of a tuple of the next value to
+/// return an [`Option`][core::option::Option] of a tuple of the next value to
 /// yield from the iterator and the updated state. If the function returns
-/// [`None`][std::option::Option::None], the iterator ends.
+/// [`None`][core::option::Option::None], the iterator ends.
 ///
 /// # Examples
 /// ```
 /// # #[macro_use] extern crate imbl;
 /// # use imbl::iter::unfold;
 /// # use imbl::vector::Vector;
-/// # use std::iter::FromIterator;
+/// # use core::iter::FromIterator;
 /// // Create an infinite stream of numbers, starting at 0.
 /// let mut it = unfold(0, |i| Some((i, i + 1)));
 ///
@@ -26,14 +26,14 @@
 /// assert_eq!(numbers, vector![0, 1, 2, 3, 4]);
 /// ```
 ///
-/// [std::option::Option]: https://doc.rust-lang.org/std/option/enum.Option.html
-/// [std::option::Option::None]: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
+/// [core::option::Option]: https://doc.rust-lang.org/core/option/enum.Option.html
+/// [core::option::Option::None]: https://doc.rust-lang.org/core/option/enum.Option.html#variant.None
 pub fn unfold<F, S, A>(value: S, f: F) -> impl Iterator<Item = A>
 where
     F: Fn(S) -> Option<(A, S)>,
 {
     let mut value = Some(value);
-    std::iter::from_fn(move || {
+    core::iter::from_fn(move || {
         f(value.take().unwrap()).map(|(next, state)| {
             value = Some(state);
             next

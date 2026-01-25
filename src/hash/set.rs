@@ -10,24 +10,26 @@
 //! suitably high *x* that it should be nearly O(1) for most sets.
 //! Because of this, it's a great choice for a generic set as long as
 //! you don't mind that values will need to implement
-//! [`Hash`][std::hash::Hash] and [`Eq`][std::cmp::Eq].
+//! [`Hash`][core::hash::Hash] and [`Eq`][core::cmp::Eq].
 //!
 //! Values will have a predictable order based on the hasher
 //! being used. Unless otherwise specified, this will be the standard
-//! [`RandomState`][std::collections::hash_map::RandomState] hasher.
+//! [`RandomState`][crate::RandomState] hasher.
 //!
 //! [1]: https://en.wikipedia.org/wiki/Hash_array_mapped_trie
-//! [std::cmp::Eq]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-//! [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-//! [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
+//! [core::cmp::Eq]: https://doc.rust-lang.org/core/cmp/trait.Eq.html
+//! [core::hash::Hash]: https://doc.rust-lang.org/core/hash/trait.Hash.html
+//! [crate::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 
-use std::borrow::Borrow;
-use std::collections::hash_map::RandomState;
-use std::collections::{self, BTreeSet};
-use std::fmt::{Debug, Error, Formatter};
-use std::hash::{BuildHasher, Hash};
-use std::iter::{FromIterator, FusedIterator, Sum};
-use std::ops::{Add, Deref, Mul};
+use crate::RandomState;
+use alloc::borrow::ToOwned;
+use alloc::collections::BTreeSet;
+use alloc::vec::Vec;
+use core::borrow::Borrow;
+use core::fmt::{Debug, Error, Formatter};
+use core::hash::{BuildHasher, Hash};
+use core::iter::{FromIterator, FusedIterator, Sum};
+use core::ops::{Add, Deref, Mul};
 
 use archery::{SharedPointer, SharedPointerKind};
 
@@ -71,10 +73,10 @@ macro_rules! hashset {
     }};
 }
 
-/// Type alias for [`GenericHashSet`] that uses [`std::hash::RandomState`] as the default hasher and [`DefaultSharedPtr`] as the pointer type.
+/// Type alias for [`GenericHashSet`] that uses [`crate::RandomState`] as the default hasher and [`DefaultSharedPtr`] as the pointer type.
 ///
 /// [GenericHashSet]: ./struct.GenericHashSet.html
-/// [`std::hash::RandomState`]: https://doc.rust-lang.org/stable/std/collections/hash_map/struct.RandomState.html
+/// [`crate::RandomState`]: https://doc.rust-lang.org/stable/std/collections/hash_map/struct.RandomState.html
 /// [DefaultSharedPtr]: ../shared_ptr/type.DefaultSharedPtr.html
 pub type HashSet<A> = GenericHashSet<A, RandomState, DefaultSharedPtr>;
 
@@ -86,16 +88,16 @@ pub type HashSet<A> = GenericHashSet<A, RandomState, DefaultSharedPtr>;
 /// suitably high *x* that it should be nearly O(1) for most sets.
 /// Because of this, it's a great choice for a generic set as long as
 /// you don't mind that values will need to implement
-/// [`Hash`][std::hash::Hash] and [`Eq`][std::cmp::Eq].
+/// [`Hash`][core::hash::Hash] and [`Eq`][core::cmp::Eq].
 ///
 /// Values will have a predictable order based on the hasher
 /// being used. Unless otherwise specified, this will be the standard
-/// [`RandomState`][std::collections::hash_map::RandomState] hasher.
+/// [`RandomState`][crate::RandomState] hasher.
 ///
 /// [1]: https://en.wikipedia.org/wiki/Hash_array_mapped_trie
-/// [std::cmp::Eq]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-/// [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-/// [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
+/// [core::cmp::Eq]: https://doc.rust-lang.org/core/cmp/trait.Eq.html
+/// [core::hash::Hash]: https://doc.rust-lang.org/core/hash/trait.Hash.html
+/// [crate::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 pub struct GenericHashSet<A, S, P: SharedPointerKind> {
     hasher: S,
     root: Option<SharedPointer<Node<Value<A>, P>, P>>,
@@ -142,7 +144,7 @@ where
     /// ```
     /// # #[macro_use] extern crate imbl;
     /// # use imbl::hashset::HashSet;
-    /// # use std::sync::Arc;
+    /// # use alloc::sync::Arc;
     /// let set = HashSet::unit(123);
     /// assert!(set.contains(&123));
     /// ```
@@ -232,7 +234,7 @@ impl<A, S, P: SharedPointerKind> GenericHashSet<A, S, P> {
 
     /// Get a reference to the set's [`BuildHasher`][BuildHasher].
     ///
-    /// [BuildHasher]: https://doc.rust-lang.org/std/hash/trait.BuildHasher.html
+    /// [BuildHasher]: https://doc.rust-lang.org/core/hash/trait.BuildHasher.html
     #[must_use]
     pub fn hasher(&self) -> &S {
         &self.hasher
@@ -302,7 +304,7 @@ where
         if self.len() != other.len() {
             return false;
         }
-        let mut seen = collections::HashSet::new();
+        let mut seen = hashbrown::HashSet::new();
         for value in self.iter() {
             if !other.contains(value) {
                 return false;
@@ -408,7 +410,7 @@ where
     /// ```
     /// # #[macro_use] extern crate imbl;
     /// # use imbl::hashset::HashSet;
-    /// # use std::sync::Arc;
+    /// # use alloc::sync::Arc;
     /// let set = hashset![123];
     /// assert_eq!(
     ///   set.update(456),
@@ -969,24 +971,48 @@ where
     }
 }
 
-impl<A, S, P> From<collections::HashSet<A>> for GenericHashSet<A, S, P>
+#[cfg(feature = "std")]
+impl<A, S, P> From<std::collections::HashSet<A>> for GenericHashSet<A, S, P>
 where
     A: Eq + Hash + Clone,
     S: BuildHasher + Default + Clone,
     P: SharedPointerKind,
 {
-    fn from(hash_set: collections::HashSet<A>) -> Self {
+    fn from(hash_set: std::collections::HashSet<A>) -> Self {
         hash_set.into_iter().collect()
     }
 }
 
-impl<A, S, P> From<&collections::HashSet<A>> for GenericHashSet<A, S, P>
+#[cfg(feature = "std")]
+impl<A, S, P> From<&std::collections::HashSet<A>> for GenericHashSet<A, S, P>
 where
     A: Eq + Hash + Clone,
     S: BuildHasher + Default + Clone,
     P: SharedPointerKind,
 {
-    fn from(hash_set: &collections::HashSet<A>) -> Self {
+    fn from(hash_set: &std::collections::HashSet<A>) -> Self {
+        hash_set.iter().cloned().collect()
+    }
+}
+
+impl<A, S, P> From<hashbrown::HashSet<A>> for GenericHashSet<A, S, P>
+where
+    A: Eq + Hash + Clone,
+    S: BuildHasher + Default + Clone,
+    P: SharedPointerKind,
+{
+    fn from(hash_set: hashbrown::HashSet<A>) -> Self {
+        hash_set.into_iter().collect()
+    }
+}
+
+impl<A, S, P> From<&hashbrown::HashSet<A>> for GenericHashSet<A, S, P>
+where
+    A: Eq + Hash + Clone,
+    S: BuildHasher + Default + Clone,
+    P: SharedPointerKind,
+{
+    fn from(hash_set: &hashbrown::HashSet<A>) -> Self {
         hash_set.iter().cloned().collect()
     }
 }
@@ -1044,8 +1070,8 @@ mod test {
     use crate::test::LolHasher;
     use ::proptest::num::i16;
     use ::proptest::proptest;
+    use core::hash::BuildHasherDefault;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
-    use std::hash::BuildHasherDefault;
 
     assert_impl_all!(HashSet<i32>: Send, Sync);
     assert_not_impl_any!(HashSet<*const i32>: Send, Sync);

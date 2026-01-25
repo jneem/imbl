@@ -9,22 +9,24 @@
 //! Most operations on this type of map are O(log n). A
 //! [`HashMap`][hashmap::HashMap] is usually a better choice for
 //! performance, but the `OrdMap` has the advantage of only requiring
-//! an [`Ord`][std::cmp::Ord] constraint on the key, and of being
+//! an [`Ord`][core::cmp::Ord] constraint on the key, and of being
 //! ordered, so that keys always come out from lowest to highest,
 //! where a [`HashMap`][hashmap::HashMap] has no guaranteed ordering.
 //!
 //! [1]: https://en.wikipedia.org/wiki/B%2B_tree
 //! [hashmap::HashMap]: ../hashmap/type.HashMap.html
-//! [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
+//! [core::cmp::Ord]: https://doc.rust-lang.org/core/cmp/trait.Ord.html
 
-use std::borrow::Borrow;
-use std::cmp::Ordering;
-use std::collections;
-use std::fmt::{Debug, Error, Formatter};
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::iter::{FromIterator, FusedIterator, Sum};
-use std::mem;
-use std::ops::{Add, Bound, Index, IndexMut, RangeBounds};
+use alloc::borrow::ToOwned;
+use alloc::collections;
+use alloc::vec::Vec;
+use core::borrow::Borrow;
+use core::cmp::Ordering;
+use core::fmt::{Debug, Error, Formatter};
+use core::hash::{BuildHasher, Hash, Hasher};
+use core::iter::{FromIterator, FusedIterator, Sum};
+use core::mem;
+use core::ops::{Add, Bound, Index, IndexMut, RangeBounds};
 
 use archery::{SharedPointer, SharedPointerKind};
 
@@ -56,7 +58,7 @@ use crate::shared_ptr::DefaultSharedPtr;
 macro_rules! ordmap {
     () => { $crate::ordmap::OrdMap::new() };
 
-    ( $( $key:expr => $value:expr ),* ) => {{
+    ( $( $key:expr_2021 => $value:expr_2021 ),* ) => {{
         let mut map = $crate::ordmap::OrdMap::new();
         $({
             map.insert($key, $value);
@@ -78,13 +80,13 @@ pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
 /// Most operations on this type of map are O(log n). A
 /// [`HashMap`][hashmap::HashMap] is usually a better choice for
 /// performance, but the `OrdMap` has the advantage of only requiring
-/// an [`Ord`][std::cmp::Ord] constraint on the key, and of being
+/// an [`Ord`][core::cmp::Ord] constraint on the key, and of being
 /// ordered, so that keys always come out from lowest to highest,
 /// where a [`HashMap`][hashmap::HashMap] has no guaranteed ordering.
 ///
 /// [1]: https://en.wikipedia.org/wiki/B%2B_tree
 /// [hashmap::HashMap]: ../hashmap/type.HashMap.html
-/// [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
+/// [core::cmp::Ord]: https://doc.rust-lang.org/core/cmp/trait.Ord.html
 pub struct GenericOrdMap<K, V, P: SharedPointerKind> {
     size: usize,
     root: Option<Node<K, V, P>>,
@@ -534,8 +536,8 @@ where
     #[allow(unreachable_pub)]
     pub fn check_sane(&self)
     where
-        K: std::fmt::Debug,
-        V: std::fmt::Debug,
+        K: core::fmt::Debug,
+        V: core::fmt::Debug,
     {
         let size = self
             .root
@@ -858,14 +860,14 @@ where
     /// the current value and overwriting it with the function's
     /// return value.
     ///
-    /// The function gets an [`Option<V>`][std::option::Option] and
+    /// The function gets an [`Option<V>`][core::option::Option] and
     /// returns the same, so that it can decide to delete a mapping
     /// instead of updating the value, and decide what to do if the
     /// key isn't in the map.
     ///
     /// Time: O(log n)
     ///
-    /// [std::option::Option]: https://doc.rust-lang.org/std/option/enum.Option.html
+    /// [core::option::Option]: https://doc.rust-lang.org/core/option/enum.Option.html
     #[must_use]
     pub fn alter<F>(&self, f: F, k: K) -> Self
     where
@@ -1548,7 +1550,7 @@ where
         F: FnOnce(&mut V),
     {
         match &mut self {
-            Entry::Occupied(ref mut entry) => f(entry.get_mut()),
+            Entry::Occupied(entry) => f(entry.get_mut()),
             Entry::Vacant(_) => (),
         }
         self
@@ -2247,18 +2249,22 @@ where
     }
 }
 
-impl<K: Ord, V, RK: Eq + Hash, RV, P> From<collections::HashMap<RK, RV>> for GenericOrdMap<K, V, P>
+#[cfg(feature = "std")]
+impl<K: Ord, V, RK: Eq + Hash, RV, P> From<std::collections::HashMap<RK, RV>>
+    for GenericOrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
     P: SharedPointerKind,
 {
-    fn from(m: collections::HashMap<RK, RV>) -> GenericOrdMap<K, V, P> {
+    fn from(m: std::collections::HashMap<RK, RV>) -> GenericOrdMap<K, V, P> {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K, V, OK, OV, RK, RV, P> From<&'a collections::HashMap<RK, RV>> for GenericOrdMap<K, V, P>
+#[cfg(feature = "std")]
+impl<'a, K, V, OK, OV, RK, RV, P> From<&'a std::collections::HashMap<RK, RV>>
+    for GenericOrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2268,7 +2274,35 @@ where
     RV: ToOwned<Owned = OV>,
     P: SharedPointerKind,
 {
-    fn from(m: &'a collections::HashMap<RK, RV>) -> GenericOrdMap<K, V, P> {
+    fn from(m: &'a std::collections::HashMap<RK, RV>) -> GenericOrdMap<K, V, P> {
+        m.iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect()
+    }
+}
+
+impl<K: Ord, V, RK: Eq + Hash, RV, P> From<hashbrown::HashMap<RK, RV>> for GenericOrdMap<K, V, P>
+where
+    K: Ord + Clone + From<RK>,
+    V: Clone + From<RV>,
+    P: SharedPointerKind,
+{
+    fn from(m: hashbrown::HashMap<RK, RV>) -> GenericOrdMap<K, V, P> {
+        m.into_iter().collect()
+    }
+}
+
+impl<'a, K, V, OK, OV, RK, RV, P> From<&'a hashbrown::HashMap<RK, RV>> for GenericOrdMap<K, V, P>
+where
+    K: Ord + Clone + From<OK>,
+    V: Clone + From<OV>,
+    OK: Borrow<RK>,
+    OV: Borrow<RV>,
+    RK: Hash + Eq + ToOwned<Owned = OK>,
+    RV: ToOwned<Owned = OV>,
+    P: SharedPointerKind,
+{
+    fn from(m: &'a hashbrown::HashMap<RK, RV>) -> GenericOrdMap<K, V, P> {
         m.iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
@@ -2346,7 +2380,7 @@ pub mod proptest {
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeMap;
+    use alloc::collections::BTreeMap;
 
     use super::*;
     use crate::proptest::*;
@@ -2603,13 +2637,13 @@ mod test {
     #[test]
     fn range_iter_big() {
         use crate::nodes::btree::NODE_SIZE;
-        use std::ops::Bound::Included;
+        use core::ops::Bound::Included;
         const N: usize = NODE_SIZE * NODE_SIZE * NODE_SIZE / 2; // enough for a sizeable 3 level tree
 
         let data = (1usize..N).filter(|i| i % 2 == 0).map(|i| (i, ()));
         let bmap = data
             .clone()
-            .collect::<std::collections::BTreeMap<usize, ()>>();
+            .collect::<alloc::collections::BTreeMap<usize, ()>>();
         let omap = data.collect::<OrdMap<usize, ()>>();
         assert_eq!(bmap.len(), omap.len());
 
@@ -2692,11 +2726,10 @@ mod test {
         }
 
         #[test]
-        fn order(ref input in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
+        fn order(ref input in collection::btree_map(i16::ANY, i16::ANY, 0..1000)) {
             let map: OrdMap<i16, i16> = OrdMap::from(input.clone());
             let keys = map.keys().cloned().collect::<Vec<_>>();
-            let mut expected_keys = input.keys().cloned().collect::<Vec<_>>();
-            expected_keys.sort();
+            let expected_keys = input.keys().cloned().collect::<Vec<_>>();
             assert_eq!(keys, expected_keys);
         }
 
@@ -2842,7 +2875,7 @@ mod test {
         }
 
         #[test]
-        fn remove_alien(ref orig in collection::hash_map(i16::ANY, i16::ANY, 0..1000)) {
+        fn remove_alien(ref orig in collection::btree_map(i16::ANY, i16::ANY, 0..1000)) {
             let mut map: OrdMap<i16, i16> = OrdMap::from(orig.clone());
             for key in orig.keys() {
                 let len = map.len();

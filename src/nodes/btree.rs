@@ -2,12 +2,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use std::borrow::Borrow;
-use std::collections::VecDeque;
-use std::iter::FromIterator;
-use std::mem;
-use std::num::NonZeroUsize;
-use std::ops::{Bound, RangeBounds};
+use alloc::collections::VecDeque;
+use alloc::vec::Vec;
+use core::borrow::Borrow;
+use core::iter::FromIterator;
+use core::mem;
+use core::num::NonZeroUsize;
+use core::ops::{Bound, RangeBounds};
 
 use archery::{SharedPointer, SharedPointerKind};
 use imbl_sized_chunks::Chunk;
@@ -28,7 +29,7 @@ pub(crate) enum Node<K, V, P: SharedPointerKind> {
     Leaf(SharedPointer<Leaf<K, V>, P>),
 }
 
-impl<K: Ord + std::fmt::Debug, V: std::fmt::Debug, P: SharedPointerKind> Branch<K, V, P> {
+impl<K: Ord + core::fmt::Debug, V: core::fmt::Debug, P: SharedPointerKind> Branch<K, V, P> {
     #[cfg(any(test, fuzzing))]
     pub(crate) fn check_sane(&self, is_root: bool) -> usize {
         assert!(self.keys.len() >= if is_root { 1 } else { MEDIAN - 1 });
@@ -55,7 +56,7 @@ impl<K: Ord + std::fmt::Debug, V: std::fmt::Debug, P: SharedPointerKind> Branch<
         }
     }
 }
-impl<K: Ord + std::fmt::Debug, V: std::fmt::Debug> Leaf<K, V> {
+impl<K: Ord + core::fmt::Debug, V: core::fmt::Debug> Leaf<K, V> {
     #[cfg(any(test, fuzzing))]
     pub(crate) fn check_sane(&self, is_root: bool) -> usize {
         assert!(self.keys.windows(2).all(|w| w[0].0 < w[1].0));
@@ -63,7 +64,7 @@ impl<K: Ord + std::fmt::Debug, V: std::fmt::Debug> Leaf<K, V> {
         self.keys.len()
     }
 }
-impl<K: Ord + std::fmt::Debug, V: std::fmt::Debug, P: SharedPointerKind> Node<K, V, P> {
+impl<K: Ord + core::fmt::Debug, V: core::fmt::Debug, P: SharedPointerKind> Node<K, V, P> {
     /// Check invariants
     #[cfg(any(test, fuzzing))]
     pub(crate) fn check_sane(&self, is_root: bool) -> usize {
@@ -936,7 +937,7 @@ impl<'a, K, V, P: SharedPointerKind> Iter<'a, K, V, P> {
             bwd: &Cursor<'_, K, V, P>,
         ) -> bool {
             for (&(fi, f), &(bi, b)) in fwd.stack.iter().zip(bwd.stack.iter()) {
-                if !std::ptr::eq(f, b) {
+                if !core::ptr::eq(f, b) {
                     return false;
                 }
                 if fi > bi {
@@ -944,7 +945,7 @@ impl<'a, K, V, P: SharedPointerKind> Iter<'a, K, V, P> {
                 }
             }
             if let (Some((fi, f)), Some((bi, b))) = (fwd.leaf, bwd.leaf) {
-                if !std::ptr::eq(f, b) {
+                if !core::ptr::eq(f, b) {
                     return false;
                 }
                 if fi > bi {
@@ -984,7 +985,7 @@ impl<'a, K, V, P: SharedPointerKind> Iter<'a, K, V, P> {
         // This is valid even if the cursors are empty due to not being initialized yet.
         // If they were empty because exhaustion we would not be in this function.
         if let (Some((fi, f)), Some((bi, b))) = (self.fwd.leaf, self.bwd.leaf) {
-            if std::ptr::eq(f, b) && fi >= bi {
+            if core::ptr::eq(f, b) && fi >= bi {
                 self.exhausted = true;
                 return fi == bi && other_side_yielded;
             }
@@ -1203,7 +1204,7 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
             debug_assert!(self.leaf.is_some());
             debug_assert!(other.leaf.is_some());
             if let (Some(this), Some(that)) = (self.leaf, other.leaf) {
-                if std::ptr::eq(this.1, that.1) {
+                if core::ptr::eq(this.1, that.1) {
                     self.leaf = None;
                     other.leaf = None;
                     skipped_any = true;
@@ -1212,7 +1213,7 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
                         .iter()
                         .rev()
                         .zip(other.stack.iter().rev())
-                        .take_while(|(this, that)| std::ptr::eq(this.1, that.1))
+                        .take_while(|(this, that)| core::ptr::eq(this.1, that.1))
                         .count();
                     if shared_levels != 0 {
                         self.stack.drain(self.stack.len() - shared_levels..);
@@ -1288,13 +1289,13 @@ mod slice_ext {
     #[allow(unsafe_code)]
     pub(super) fn binary_search_by<T, F>(slice: &[T], mut f: F) -> Result<usize, usize>
     where
-        F: FnMut(&T) -> std::cmp::Ordering,
+        F: FnMut(&T) -> core::cmp::Ordering,
     {
         // Optimization: defer to std-lib if we think we're comparing integers, in which case
         // the stdlib implementation optimizes better using a fully branchless approach.
         // This branch is fully resolved at compile-time and will not incur any space or runtime overhead.
         // There is a mild assumption that the std-lib implementation will remain optimized for primitive types.
-        if !std::mem::needs_drop::<T>() && std::mem::size_of::<T>() <= 16 {
+        if !core::mem::needs_drop::<T>() && core::mem::size_of::<T>() <= 16 {
             return slice.binary_search_by(f);
         }
 
@@ -1303,7 +1304,7 @@ mod slice_ext {
         // function returns `Equal`, which is best when the comparison function isn't trivial
         // (e.g. `memcmp` vs. integer comparison).
 
-        use std::cmp::Ordering::*;
+        use core::cmp::Ordering::*;
         let mut low = 0;
         let mut high = slice.len();
         // Compared to the stdlib this implementation perform early return when the comparison
@@ -1323,14 +1324,14 @@ mod slice_ext {
             if cmp == Equal {
                 // Safety: same as above
                 unsafe {
-                    std::hint::assert_unchecked(mid < slice.len());
+                    core::hint::assert_unchecked(mid < slice.len());
                 }
                 return Ok(mid);
             }
         }
         // Safety: see low assignment above
         unsafe {
-            std::hint::assert_unchecked(low <= slice.len());
+            core::hint::assert_unchecked(low <= slice.len());
         }
         Err(low)
     }

@@ -40,19 +40,21 @@
 //!
 //! [rrbpaper]: https://infoscience.epfl.ch/record/213452/files/rrbvector.pdf
 //! [chunkedseq]: http://deepsea.inria.fr/pasl/chunkedseq.pdf
-//! [Vec]: https://doc.rust-lang.org/std/vec/struct.Vec.html
-//! [VecDeque]: https://doc.rust-lang.org/std/collections/struct.VecDeque.html
+//! [Vec]: https://doc.rust-lang.org/alloc/vec/struct.Vec.html
+//! [VecDeque]: https://doc.rust-lang.org/alloc/collections/vec_deque/struct.VecDeque.html
 
 #![allow(unsafe_code)]
 
-use std::borrow::Borrow;
-use std::cmp::Ordering;
-use std::fmt::{Debug, Error, Formatter};
-use std::hash::{Hash, Hasher};
-use std::iter::Sum;
-use std::iter::{FromIterator, FusedIterator};
-use std::mem::{replace, swap};
-use std::ops::{Add, Index, IndexMut, RangeBounds};
+use alloc::borrow::ToOwned;
+use alloc::vec::Vec;
+use core::borrow::Borrow;
+use core::cmp::Ordering;
+use core::fmt::{Debug, Error, Formatter};
+use core::hash::{Hash, Hasher};
+use core::iter::Sum;
+use core::iter::{FromIterator, FusedIterator};
+use core::mem::{replace, swap};
+use core::ops::{Add, Index, IndexMut, RangeBounds};
 
 use archery::{SharedPointer, SharedPointerKind};
 use imbl_sized_chunks::InlineArray;
@@ -90,7 +92,7 @@ pub mod rayon;
 macro_rules! vector {
     () => { $crate::vector::Vector::new() };
 
-    ( $($x:expr),* ) => {{
+    ( $($x:expr_2021),* ) => {{
         let mut l = $crate::vector::Vector::new();
         $(
             l.push_back($x);
@@ -98,7 +100,7 @@ macro_rules! vector {
             l
     }};
 
-    ( $($x:expr ,)* ) => {{
+    ( $($x:expr_2021 ,)* ) => {{
         let mut l = $crate::vector::Vector::new();
         $(
             l.push_back($x);
@@ -147,8 +149,8 @@ pub type Vector<A> = GenericVector<A, DefaultSharedPtr>;
 ///
 /// [rrbpaper]: https://infoscience.epfl.ch/record/213452/files/rrbvector.pdf
 /// [chunkedseq]: http://deepsea.inria.fr/pasl/chunkedseq.pdf
-/// [Vec]: https://doc.rust-lang.org/std/vec/struct.Vec.html
-/// [VecDeque]: https://doc.rust-lang.org/std/collections/struct.VecDeque.html
+/// [Vec]: https://doc.rust-lang.org/alloc/vec/struct.Vec.html
+/// [VecDeque]: https://doc.rust-lang.org/alloc/collections/vec_deque/struct.VecDeque.html
 pub struct GenericVector<A, P: SharedPointerKind> {
     vector: VectorInner<A, P>,
 }
@@ -300,7 +302,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
     /// Test whether a vector is currently inlined.
     ///
     /// Vectors small enough that their contents could be stored entirely inside
-    /// the space of `std::mem::size_of::<GenericVector<A, P>>()` bytes are stored inline on
+    /// the space of `core::mem::size_of::<GenericVector<A, P>>()` bytes are stored inline on
     /// the stack instead of allocating any chunks. This method returns `true` if
     /// this vector is currently inlined, or `false` if it currently has chunks allocated
     /// on the heap.
@@ -341,7 +343,7 @@ impl<A, P: SharedPointerKind> GenericVector<A, P> {
             (left.is_empty() && right.is_empty()) || SharedPointer::ptr_eq(left, right)
         }
 
-        if std::ptr::eq(self, other) {
+        if core::ptr::eq(self, other) {
             return true;
         }
 
@@ -866,7 +868,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
             // Vector's implementation of IndexMut ensures that if `i` and `j` are different
             // indices then `&mut self[i]` and `&mut self[j]` are non-overlapping.
             unsafe {
-                std::ptr::swap(a, b);
+                core::ptr::swap(a, b);
             }
         }
     }
@@ -1007,7 +1009,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                     Inline(_) => unreachable!("inline vecs should have been promoted"),
                     // If both are single chunks and left has room for right: directly
                     // memcpy right into left
-                    Single(ref mut right) if total_length <= CHUNK_SIZE => {
+                    Single(right) if total_length <= CHUNK_SIZE => {
                         SharedPointer::make_mut(left).append(SharedPointer::make_mut(right));
                         return;
                     }
@@ -1182,7 +1184,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                         middle_level: tree.middle_level,
                         outer_f: SharedPointer::new(of2),
                         inner_f: replace_shared_pointer(&mut tree.inner_f),
-                        middle: std::mem::take(&mut tree.middle),
+                        middle: core::mem::take(&mut tree.middle),
                         inner_b: replace_shared_pointer(&mut tree.inner_b),
                         outer_b: replace_shared_pointer(&mut tree.outer_b),
                     };
@@ -1202,7 +1204,7 @@ impl<A: Clone, P: SharedPointerKind> GenericVector<A, P> {
                         middle_level: tree.middle_level,
                         outer_f: SharedPointer::new(if2),
                         inner_f: SharedPointer::default(),
-                        middle: std::mem::take(&mut tree.middle),
+                        middle: core::mem::take(&mut tree.middle),
                         inner_b: replace_shared_pointer(&mut tree.inner_b),
                         outer_b: replace_shared_pointer(&mut tree.outer_b),
                     };
@@ -1743,7 +1745,7 @@ impl<A: Clone, P: SharedPointerKind> RRB<A, P> {
 fn replace_shared_pointer<A: Default, P: SharedPointerKind>(
     dest: &mut SharedPointer<A, P>,
 ) -> SharedPointer<A, P> {
-    std::mem::take(dest)
+    core::mem::take(dest)
 }
 
 // Core traits
@@ -1959,22 +1961,22 @@ impl<A: Clone, P: SharedPointerKind> From<&[A]> for GenericVector<A, P> {
 }
 
 impl<A: Clone, P: SharedPointerKind> From<Vec<A>> for GenericVector<A, P> {
-    /// Create a vector from a [`std::vec::Vec`][vec].
+    /// Create a vector from a [`alloc::vec::Vec`][vec].
     ///
     /// Time: O(n)
     ///
-    /// [vec]: https://doc.rust-lang.org/std/vec/struct.Vec.html
+    /// [vec]: https://doc.rust-lang.org/alloc/vec/struct.Vec.html
     fn from(vec: Vec<A>) -> Self {
         vec.into_iter().collect()
     }
 }
 
 impl<A: Clone, P: SharedPointerKind> From<&Vec<A>> for GenericVector<A, P> {
-    /// Create a vector from a [`std::vec::Vec`][vec].
+    /// Create a vector from a [`alloc::vec::Vec`][vec].
     ///
     /// Time: O(n)
     ///
-    /// [vec]: https://doc.rust-lang.org/std/vec/struct.Vec.html
+    /// [vec]: https://doc.rust-lang.org/alloc/vec/struct.Vec.html
     fn from(vec: &Vec<A>) -> Self {
         vec.iter().cloned().collect()
     }
@@ -2633,13 +2635,13 @@ mod test {
 
     #[test]
     fn issue_131() {
-        let smol = std::iter::repeat_n(42, 64).collect::<Vector<_>>();
+        let smol = core::iter::repeat_n(42, 64).collect::<Vector<_>>();
         let mut smol2 = smol.clone();
         assert!(smol.ptr_eq(&smol2));
         smol2.set(63, 420);
         assert!(!smol.ptr_eq(&smol2));
 
-        let huge = std::iter::repeat_n(42, 65).collect::<Vector<_>>();
+        let huge = core::iter::repeat_n(42, 65).collect::<Vector<_>>();
         let mut huge2 = huge.clone();
         assert!(huge.ptr_eq(&huge2));
         huge2.set(63, 420);
@@ -2650,7 +2652,7 @@ mod test {
     fn ptr_eq() {
         const MAX: usize = if cfg!(miri) { 64 } else { 256 };
         for len in 32..MAX {
-            let input = std::iter::repeat_n(42, len).collect::<Vector<_>>();
+            let input = core::iter::repeat_n(42, len).collect::<Vector<_>>();
             let mut inp2 = input.clone();
             assert!(input.ptr_eq(&inp2));
             inp2.set(len - 1, 98);

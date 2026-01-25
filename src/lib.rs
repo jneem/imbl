@@ -62,7 +62,7 @@
 //! usage, indexing and operations that happen at the back of the
 //! list, but is terrible at insertion and removal, and gets worse the
 //! closer to the front of the list you get.
-//! [`VecDeque`](std::collections::VecDeque) adds a little bit of
+//! [`VecDeque`](alloc::collections::VecDeque) adds a little bit of
 //! complexity in order to make operations at the front as efficient
 //! as operations at the back, but is still bad at insertion and
 //! especially concatenation. [`Vector`] adds another
@@ -112,22 +112,22 @@
 //!
 //! On the other hand, if you want to store values for which cloning is
 //! expensive, or values that don't implement [`Clone`], you
-//! need to wrap them in [`Rc`][std::rc::Rc] or [`Arc`][std::sync::Arc]. Thus,
+//! need to wrap them in [`Rc`][alloc::rc::Rc] or [`Arc`][alloc::sync::Arc]. Thus,
 //! if you have a complex structure `BigBlobOfData` and you want to store a list
 //! of them as a `Vector<BigBlobOfData>`, you should instead use a
 //! `Vector<Rc<BigBlobOfData>>`, which is going to save you not only the time
 //! spent cloning the big blobs of data, but also the memory spent keeping
-//! multiple copies of it around, as [`Rc`][std::rc::Rc] keeps a single
+//! multiple copies of it around, as [`Rc`][alloc::rc::Rc] keeps a single
 //! reference counted copy around instead.
 //!
 //! If you're storing smaller values that aren't
 //! [`Copy`]able, you'll need to exercise judgement: if your
 //! values are going to be very cheap to clone, as would be the case for short
 //! [`String`] or small [`Vec`]s, you're probably better off storing them directly
-//! without wrapping them in an [`Rc`][std::rc::Rc], because, like the [`Rc`][std::rc::Rc],
+//! without wrapping them in an [`Rc`][alloc::rc::Rc], because, like the [`Rc`][alloc::rc::Rc],
 // they're just pointers to some data on the heap, and that data isn't expensive to clone -
 //! you might actually lose more performance from the extra redirection of
-//! wrapping them in an [`Rc`][std::rc::Rc] than you would from occasionally
+//! wrapping them in an [`Rc`][alloc::rc::Rc] than you would from occasionally
 //! cloning them.
 //!
 //! ### When does cloning happen?
@@ -232,7 +232,7 @@
 //!
 //! | Type | Algorithm | Key Constraints | Order | Insert | Remove | Lookup |
 //! | --- | --- | --- | --- | --- | --- | --- |
-//! | [`HashMap<K, V>`] | [HAMT][hamt] | [`Clone`] + [`Hash`][std::hash::Hash] + [`Eq`] | undefined | O(log n) | O(log n) | O(log n) |
+//! | [`HashMap<K, V>`] | [HAMT][hamt] | [`Clone`] + [`Hash`][core::hash::Hash] + [`Eq`] | undefined | O(log n) | O(log n) | O(log n) |
 //! | [`OrdMap<K, V>`] | [B+tree][b+tree] | [`Clone`] + [`Ord`] | sorted | O(log n) | O(log n) | O(log n) |
 //!
 //! ### Sets
@@ -243,7 +243,7 @@
 //!
 //! | Type | Algorithm | Constraints | Order | Insert | Remove | Lookup |
 //! | --- | --- | --- | --- | --- | --- | --- |
-//! | [`HashSet<A>`] | [HAMT][hamt] | [`Clone`] + [`Hash`][std::hash::Hash] + [`Eq`] | undefined | O(log n) | O(log n) | O(log n) |
+//! | [`HashSet<A>`] | [HAMT][hamt] | [`Clone`] + [`Hash`][core::hash::Hash] + [`Eq`] | undefined | O(log n) | O(log n) | O(log n) |
 //! | [`OrdSet<A>`] | [B+tree][b+tree] | [`Clone`] + [`Ord`] | sorted | O(log n) | O(log n) | O(log n) |
 //!
 //! ## In-place Mutation
@@ -254,9 +254,9 @@
 //! performance hit of making a copy of the data structure before
 //! modifying it (this is about an order of magnitude faster than
 //! immutable operations, almost as fast as
-//! [`std::collections`]'s mutable data structures).
+//! [`alloc::collections`]'s mutable data structures).
 //!
-//! Thanks to [`Rc`][std::rc::Rc]'s reference counting, we are able to
+//! Thanks to [`Rc`][alloc::rc::Rc]'s reference counting, we are able to
 //! determine whether a node in a data structure is being shared with
 //! other data structures, or whether it's safe to mutate it in place.
 //! When it's shared, we'll automatically make a copy of the node
@@ -277,12 +277,12 @@
 //! think about this kind of managed scope, it's all taken care of
 //! behind the scenes because of our low level access to the garbage
 //! collector (which, in our case, is just a simple
-//! [`Rc`](std::rc::Rc)).
+//! [`Rc`](alloc::rc::Rc)).
 //!
 //! ## Thread Safety
 //!
 //! The data structures in `imbl` are thread safe by default using
-//! [`Arc`](std::sync::Arc). However, `imbl` also supports `Rc` as the pointer
+//! [`Arc`](alloc::sync::Arc). However, `imbl` also supports `Rc` as the pointer
 //! type through the [`archery`] crate, just like `im-rc` in the original
 //! `im` crate. If you prioritise speed over thread safety, you can use
 //! [`GenericVector<T, shared_pointer::RcK>`](vector::GenericVector) that uses
@@ -308,7 +308,7 @@
 //! | [`serde`](https://crates.io/crates/serde) | [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) and [`Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) implementations for all `imbl` datatypes |
 //! | [`bincode`](https://crates.io/crates/bincode) | [`Encode`](https://docs.rs/bincode/latest/bincode/enc/trait.Encode.html) and [`Decode`](https://docs.rs/bincode/latest/bincode/de/trait.Decode.html) implementations for all `imbl` datatypes |
 //! | [`arbitrary`](https://crates.io/crates/arbitrary/) | [`arbitrary::Arbitrary`](https://docs.rs/arbitrary/latest/arbitrary/trait.Arbitrary.html) implementations for all `imbl` datatypes |
-//! | [`triomphe`](https://crates.io/crates/triomphe/) | Use [`triomphe::Arc`](https://docs.rs/triomphe/latest/triomphe/struct.Arc.html) for the default shared pointer. This is a drop-in replacement for [`std::sync::Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html) that is faster in some cases. |
+//! | [`triomphe`](https://crates.io/crates/triomphe/) | Use [`triomphe::Arc`](https://docs.rs/triomphe/latest/triomphe/struct.Arc.html) for the default shared pointer. This is a drop-in replacement for [`alloc::sync::Arc`](https://doc.rust-lang.org/alloc/sync/struct.Arc.html) that is faster in some cases. |
 //!
 //! [rrb-tree]: https://infoscience.epfl.ch/record/213452/files/rrbvector.pdf
 //! [hamt]: https://en.wikipedia.org/wiki/Hash_array_mapped_trie
@@ -319,6 +319,9 @@
 #![deny(nonstandard_style)]
 #![warn(unreachable_pub, missing_docs)]
 #![deny(unsafe_code)]
+#![cfg_attr(not(any(test, feature = "std")), no_std)]
+
+extern crate alloc;
 
 #[cfg(test)]
 #[macro_use]
@@ -341,6 +344,14 @@ pub use crate::ord::set as ordset;
 mod hash;
 pub use crate::hash::map as hashmap;
 pub use crate::hash::set as hashset;
+
+/// A `BuildHasher` that uses the RandomState from standard library for hashing.
+#[cfg(feature = "std")]
+pub type RandomState = std::collections::hash_map::RandomState;
+
+/// A `BuildHasher` that uses SipHasher13 for hashing.
+#[cfg(not(feature = "std"))]
+pub type RandomState = core::hash::BuildHasherDefault<siphasher::sip::SipHasher13>;
 
 #[macro_use]
 pub mod vector;
@@ -393,7 +404,7 @@ mod tests;
 ///
 /// ```
 /// # #[macro_use] extern crate imbl;
-/// # use std::sync::Arc;
+/// # use alloc::sync::Arc;
 /// # use imbl::Vector;
 /// # fn main() {
 /// let vec_inside_vec = vector![vector![1, 2, 3], vector![4, 5, 6]];
@@ -406,12 +417,12 @@ mod tests;
 ///
 #[macro_export]
 macro_rules! update_in {
-    ($target:expr, $path:expr => $($tail:tt) => *, $value:expr ) => {{
+    ($target:expr_2021, $path:expr_2021 => $($tail:tt) => *, $value:expr_2021 ) => {{
         let inner = $target.get($path).expect("update_in! macro: key not found in target");
         $target.update($path, update_in!(inner, $($tail) => *, $value))
     }};
 
-    ($target:expr, $path:expr, $value:expr) => {
+    ($target:expr_2021, $path:expr_2021, $value:expr_2021) => {
         $target.update($path, $value)
     };
 }
@@ -427,7 +438,7 @@ macro_rules! update_in {
 ///
 /// ```
 /// # #[macro_use] extern crate imbl;
-/// # use std::sync::Arc;
+/// # use alloc::sync::Arc;
 /// # use imbl::Vector;
 /// # fn main() {
 /// let vec_inside_vec: Vector<Vector<i64>> = vector![vector![1, 2, 3], vector![4, 5, 6]];
@@ -437,11 +448,11 @@ macro_rules! update_in {
 /// ```
 #[macro_export]
 macro_rules! get_in {
-    ($target:expr, $path:expr => $($tail:tt) => * ) => {{
+    ($target:expr_2021, $path:expr_2021 => $($tail:tt) => * ) => {{
         $target.get($path).and_then(|v| get_in!(v, $($tail) => *))
     }};
 
-    ($target:expr, $path:expr) => {
+    ($target:expr_2021, $path:expr_2021) => {
         $target.get($path)
     };
 }

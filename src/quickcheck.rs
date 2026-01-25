@@ -3,8 +3,8 @@ use crate::{
     GenericVector,
 };
 use ::quickcheck::{Arbitrary, Gen};
-use std::hash::{BuildHasher, Hash};
-use std::iter::FromIterator;
+use core::hash::{BuildHasher, Hash};
+use core::iter::FromIterator;
 
 impl<A: Arbitrary + Sync + Clone, P: SharedPointerKind + 'static> Arbitrary
     for GenericVector<A, P>

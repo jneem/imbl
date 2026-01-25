@@ -1,7 +1,7 @@
 #![allow(clippy::unit_arg)]
 
-use std::collections::BTreeSet;
-use std::fmt::{Debug, Error, Formatter, Write};
+use alloc::collections::BTreeSet;
+use core::fmt::{Debug, Error, Formatter, Write};
 
 use crate::OrdSet;
 
@@ -29,11 +29,11 @@ where
         writeln!(out, "let mut set = OrdSet::new();")?;
         for action in &self.0 {
             match action {
-                Action::Insert(ref value) => {
+                Action::Insert(value) => {
                     expected.insert(value.clone());
                     writeln!(out, "set.insert({:?});", value)?;
                 }
-                Action::Remove(ref value) => {
+                Action::Remove(value) => {
                     expected.remove(value);
                     writeln!(out, "set.remove({:?});", value)?;
                 }
