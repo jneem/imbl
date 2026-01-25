@@ -417,12 +417,12 @@ mod tests;
 ///
 #[macro_export]
 macro_rules! update_in {
-    ($target:expr_2021, $path:expr_2021 => $($tail:tt) => *, $value:expr_2021 ) => {{
+    ($target:expr, $path:expr => $($tail:tt) => *, $value:expr ) => {{
         let inner = $target.get($path).expect("update_in! macro: key not found in target");
         $target.update($path, update_in!(inner, $($tail) => *, $value))
     }};
 
-    ($target:expr_2021, $path:expr_2021, $value:expr_2021) => {
+    ($target:expr, $path:expr, $value:expr) => {
         $target.update($path, $value)
     };
 }
@@ -448,11 +448,11 @@ macro_rules! update_in {
 /// ```
 #[macro_export]
 macro_rules! get_in {
-    ($target:expr_2021, $path:expr_2021 => $($tail:tt) => * ) => {{
+    ($target:expr, $path:expr => $($tail:tt) => * ) => {{
         $target.get($path).and_then(|v| get_in!(v, $($tail) => *))
     }};
 
-    ($target:expr_2021, $path:expr_2021) => {
+    ($target:expr, $path:expr) => {
         $target.get($path)
     };
 }

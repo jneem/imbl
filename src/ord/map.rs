@@ -58,7 +58,7 @@ use crate::shared_ptr::DefaultSharedPtr;
 macro_rules! ordmap {
     () => { $crate::ordmap::OrdMap::new() };
 
-    ( $( $key:expr_2021 => $value:expr_2021 ),* ) => {{
+    ( $( $key:expr => $value:expr ),* ) => {{
         let mut map = $crate::ordmap::OrdMap::new();
         $({
             map.insert($key, $value);

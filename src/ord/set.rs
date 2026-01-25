@@ -51,7 +51,7 @@ use crate::GenericOrdMap;
 macro_rules! ordset {
     () => { $crate::ordset::OrdSet::new() };
 
-    ( $($x:expr_2021),* ) => {{
+    ( $($x:expr),* ) => {{
         let mut l = $crate::ordset::OrdSet::new();
         $(
             l.insert($x);

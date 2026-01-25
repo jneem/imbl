@@ -92,7 +92,7 @@ pub mod rayon;
 macro_rules! vector {
     () => { $crate::vector::Vector::new() };
 
-    ( $($x:expr_2021),* ) => {{
+    ( $($x:expr),* ) => {{
         let mut l = $crate::vector::Vector::new();
         $(
             l.push_back($x);
@@ -100,7 +100,7 @@ macro_rules! vector {
             l
     }};
 
-    ( $($x:expr_2021 ,)* ) => {{
+    ( $($x:expr ,)* ) => {{
         let mut l = $crate::vector::Vector::new();
         $(
             l.push_back($x);
