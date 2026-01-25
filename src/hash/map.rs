@@ -2190,6 +2190,32 @@ where
     }
 }
 
+#[cfg(feature = "std")]
+impl<K, V, S, P> From<std::collections::HashMap<K, V>> for GenericHashMap<K, V, S, P>
+where
+    K: Hash + Eq + Clone,
+    V: Clone,
+    S: BuildHasher + Default + Clone,
+    P: SharedPointerKind,
+{
+    fn from(m: std::collections::HashMap<K, V>) -> Self {
+        m.into_iter().collect()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a, K, V, S, P> From<&'a std::collections::HashMap<K, V>> for GenericHashMap<K, V, S, P>
+where
+    K: Hash + Eq + Clone,
+    V: Clone,
+    S: BuildHasher + Default + Clone,
+    P: SharedPointerKind,
+{
+    fn from(m: &'a std::collections::HashMap<K, V>) -> Self {
+        m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+    }
+}
+
 impl<K, V, S, P> From<collections::BTreeMap<K, V>> for GenericHashMap<K, V, S, P>
 where
     K: Hash + Eq + Clone,
