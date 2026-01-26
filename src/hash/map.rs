@@ -10,25 +10,26 @@
 //! suitably high *x* that it should be nearly O(1) for most maps.
 //! Because of this, it's a great choice for a generic map as long as
 //! you don't mind that keys will need to implement
-//! [`Hash`][std::hash::Hash] and [`Eq`][std::cmp::Eq].
+//! [`Hash`][core::hash::Hash] and [`Eq`][core::cmp::Eq].
 //!
 //! Map entries will have a predictable order based on the hasher
 //! being used. Unless otherwise specified, this will be the standard
-//! [`RandomState`][std::collections::hash_map::RandomState] hasher.
+//! [`RandomState`][crate::RandomState] hasher.
 //!
 //! [1]: https://en.wikipedia.org/wiki/Hash_array_mapped_trie
-//! [std::cmp::Eq]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-//! [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-//! [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
+//! [core::cmp::Eq]: https://doc.rust-lang.org/core/cmp/trait.Eq.html
+//! [core::hash::Hash]: https://doc.rust-lang.org/core/hash/trait.Hash.html
+//! [crate::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 
-use std::borrow::Borrow;
-use std::collections;
-use std::collections::hash_map::RandomState;
-use std::fmt::{Debug, Error, Formatter};
-use std::hash::{BuildHasher, Hash};
-use std::iter::{FromIterator, FusedIterator, Sum};
-use std::mem;
-use std::ops::{Add, Index, IndexMut};
+use alloc::borrow::ToOwned;
+use alloc::collections;
+use alloc::vec::Vec;
+use core::borrow::Borrow;
+use core::fmt::{Debug, Error, Formatter};
+use core::hash::{BuildHasher, Hash};
+use core::iter::{FromIterator, FusedIterator, Sum};
+use core::mem;
+use core::ops::{Add, Index, IndexMut};
 
 use archery::{SharedPointer, SharedPointerKind};
 
@@ -37,6 +38,7 @@ use crate::nodes::hamt::{
     Node,
 };
 use crate::shared_ptr::DefaultSharedPtr;
+use crate::RandomState;
 
 /// Construct a hash map from a sequence of key/value pairs.
 ///
@@ -77,10 +79,10 @@ macro_rules! hashmap {
     }};
 }
 
-/// Type alias for [`GenericHashMap`] that uses [`std::hash::RandomState`] as the default hasher and [`DefaultSharedPtr`] as the pointer type.
+/// Type alias for [`GenericHashMap`] that uses [`crate::RandomState`] as the default hasher and [`DefaultSharedPtr`] as the pointer type.
 ///
 /// [GenericHashMap]: ./struct.GenericHashMap.html
-/// [`std::hash::RandomState`]: https://doc.rust-lang.org/stable/std/collections/hash_map/struct.RandomState.html
+/// [`crate::RandomState`]: https://doc.rust-lang.org/stable/std/collections/hash_map/struct.RandomState.html
 /// [DefaultSharedPtr]: ../shared_ptr/type.DefaultSharedPtr.html
 pub type HashMap<K, V> = GenericHashMap<K, V, RandomState, DefaultSharedPtr>;
 
@@ -92,16 +94,16 @@ pub type HashMap<K, V> = GenericHashMap<K, V, RandomState, DefaultSharedPtr>;
 /// suitably high *x* that it should be nearly O(1) for most maps.
 /// Because of this, it's a great choice for a generic map as long as
 /// you don't mind that keys will need to implement
-/// [`Hash`][std::hash::Hash] and [`Eq`][std::cmp::Eq].
+/// [`Hash`][core::hash::Hash] and [`Eq`][core::cmp::Eq].
 ///
 /// Map entries will have a predictable order based on the hasher
 /// being used. Unless otherwise specified, this will be the standard
-/// [`RandomState`][std::collections::hash_map::RandomState] hasher.
+/// [`RandomState`][crate::RandomState] hasher.
 ///
 /// [1]: https://en.wikipedia.org/wiki/Hash_array_mapped_trie
-/// [std::cmp::Eq]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-/// [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
-/// [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
+/// [core::cmp::Eq]: https://doc.rust-lang.org/core/cmp/trait.Eq.html
+/// [core::hash::Hash]: https://doc.rust-lang.org/core/hash/trait.Hash.html
+/// [crate::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
 pub struct GenericHashMap<K, V, S, P: SharedPointerKind> {
     size: usize,
     root: Option<SharedPointer<Node<(K, V), P>, P>>,
@@ -233,7 +235,7 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
 
     /// Get a reference to the map's [`BuildHasher`][BuildHasher].
     ///
-    /// [BuildHasher]: https://doc.rust-lang.org/std/hash/trait.BuildHasher.html
+    /// [BuildHasher]: https://doc.rust-lang.org/core/hash/trait.BuildHasher.html
     #[must_use]
     pub fn hasher(&self) -> &S {
         &self.hasher
@@ -327,7 +329,7 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
     #[cfg(test)]
     pub fn print_structure_summary(&self) {
         use crate::nodes::hamt::Entry as NodeEntry;
-        use std::collections::VecDeque;
+        use alloc::collections::VecDeque;
 
         println!("HashMap Structure Summary:");
 
@@ -489,7 +491,7 @@ where
         if self.len() != other.len() {
             return false;
         }
-        let mut seen = collections::HashSet::new();
+        let mut seen = hashbrown::HashSet::new();
         for (key, value) in self.iter() {
             if Some(value) != other.get(key) {
                 return false;
@@ -751,9 +753,7 @@ where
         BK: Hash + Eq + ?Sized,
         K: Borrow<BK>,
     {
-        let Some(root) = self.root.as_mut() else {
-            return None;
-        };
+        let root = self.root.as_mut()?;
         match SharedPointer::make_mut(root).get_mut(hash_key(&self.hasher, key), 0, key) {
             None => None,
             Some((key, value)) => Some((key, value)),
@@ -972,14 +972,14 @@ where
     /// the current value and overwriting it with the function's
     /// return value.
     ///
-    /// The function gets an [`Option<V>`][std::option::Option] and
+    /// The function gets an [`Option<V>`][core::option::Option] and
     /// returns the same, so that it can decide to delete a mapping
     /// instead of updating the value, and decide what to do if the
     /// key isn't in the map.
     ///
     /// Time: O(log n)
     ///
-    /// [std::option::Option]: https://doc.rust-lang.org/std/option/enum.Option.html
+    /// [core::option::Option]: https://doc.rust-lang.org/core/option/enum.Option.html
     #[must_use]
     pub fn alter<F>(&self, f: F, k: K) -> Self
     where
@@ -1601,7 +1601,7 @@ where
         F: FnOnce(&mut V),
     {
         match &mut self {
-            Entry::Occupied(ref mut entry) => f(entry.get_mut()),
+            Entry::Occupied(entry) => f(entry.get_mut()),
             Entry::Vacant(_) => (),
         }
         self
@@ -2164,7 +2164,7 @@ where
     }
 }
 
-impl<K, V, S1, S2, P> From<collections::HashMap<K, V, S2>> for GenericHashMap<K, V, S1, P>
+impl<K, V, S1, S2, P> From<hashbrown::HashMap<K, V, S2>> for GenericHashMap<K, V, S1, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
@@ -2172,12 +2172,12 @@ where
     S2: BuildHasher,
     P: SharedPointerKind,
 {
-    fn from(m: collections::HashMap<K, V, S2>) -> Self {
+    fn from(m: hashbrown::HashMap<K, V, S2>) -> Self {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K, V, S1, S2, P> From<&'a collections::HashMap<K, V, S2>> for GenericHashMap<K, V, S1, P>
+impl<'a, K, V, S1, S2, P> From<&'a hashbrown::HashMap<K, V, S2>> for GenericHashMap<K, V, S1, P>
 where
     K: Hash + Eq + Clone,
     V: Clone,
@@ -2185,7 +2185,33 @@ where
     S2: BuildHasher,
     P: SharedPointerKind,
 {
-    fn from(m: &'a collections::HashMap<K, V, S2>) -> Self {
+    fn from(m: &'a hashbrown::HashMap<K, V, S2>) -> Self {
+        m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K, V, S, P> From<std::collections::HashMap<K, V>> for GenericHashMap<K, V, S, P>
+where
+    K: Hash + Eq + Clone,
+    V: Clone,
+    S: BuildHasher + Default + Clone,
+    P: SharedPointerKind,
+{
+    fn from(m: std::collections::HashMap<K, V>) -> Self {
+        m.into_iter().collect()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a, K, V, S, P> From<&'a std::collections::HashMap<K, V>> for GenericHashMap<K, V, S, P>
+where
+    K: Hash + Eq + Clone,
+    V: Clone,
+    S: BuildHasher + Default + Clone,
+    P: SharedPointerKind,
+{
+    fn from(m: &'a std::collections::HashMap<K, V>) -> Self {
         m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 }
@@ -2251,8 +2277,8 @@ mod test {
     use crate::test::LolHasher;
     #[rustfmt::skip]
     use ::proptest::{collection, num::{i16, usize}, proptest};
+    use core::hash::BuildHasherDefault;
     use static_assertions::{assert_impl_all, assert_not_impl_any};
-    use std::hash::BuildHasherDefault;
 
     assert_impl_all!(HashMap<i32, i32>: Send, Sync);
     assert_not_impl_any!(HashMap<i32, *const i32>: Send, Sync);
@@ -2289,8 +2315,8 @@ mod test {
     #[test]
     fn remove_failing() {
         let pairs = [(1469, 0), (-67, 0)];
-        let mut m: collections::HashMap<i16, i16, _> =
-            collections::HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
+        let mut m: hashbrown::HashMap<i16, i16, _> =
+            hashbrown::HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
         for (k, v) in &pairs {
             m.insert(*k, *v);
         }
@@ -2461,8 +2487,8 @@ mod test {
 
         #[test]
         fn without(ref pairs in collection::vec((i16::ANY, i16::ANY), 0..100)) {
-            let mut m: collections::HashMap<i16, i16, _> =
-                collections::HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
+            let mut m: hashbrown::HashMap<i16, i16, _> =
+                hashbrown::HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
             for (k, v) in pairs {
                 m.insert(*k, *v);
             }
@@ -2498,8 +2524,8 @@ mod test {
 
         #[test]
         fn remove(ref pairs in collection::vec((i16::ANY, i16::ANY), 0..100)) {
-            let mut m: collections::HashMap<i16, i16, _> =
-                collections::HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
+            let mut m: hashbrown::HashMap<i16, i16, _> =
+                hashbrown::HashMap::with_hasher(BuildHasherDefault::<LolHasher>::default());
             for (k, v) in pairs {
                 m.insert(*k, *v);
             }

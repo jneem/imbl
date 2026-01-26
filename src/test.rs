@@ -2,8 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use core::hash::{BuildHasher, Hasher};
 use metrohash::MetroHash64;
-use std::hash::{BuildHasher, Hasher};
 
 pub(crate) fn is_sorted<A, I>(l: I) -> bool
 where

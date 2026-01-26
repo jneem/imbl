@@ -4,7 +4,7 @@
 
 // Every codebase needs a `util` module.
 
-use std::ops::{Bound, Range, RangeBounds};
+use core::ops::{Bound, Range, RangeBounds};
 
 use archery::{SharedPointer, SharedPointerKind};
 

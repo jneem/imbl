@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 
 use crate::nodes::chunk::Chunk;
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 pub(crate) trait PoolDefault: Default {}
 pub(crate) trait PoolClone: Clone {}

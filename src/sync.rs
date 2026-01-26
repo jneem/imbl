@@ -7,7 +7,11 @@ pub(crate) use self::lock::Lock;
 // FIXME: This is intended to be replaced by something else when using the non-threadsafe, `Rc`
 // version of this crate. We have temporarily disabled that.
 mod lock {
-    use std::sync::{Arc, Mutex, MutexGuard};
+    use alloc::sync::Arc;
+    #[cfg(not(feature = "std"))]
+    use spin::{Mutex, MutexGuard};
+    #[cfg(feature = "std")]
+    use std::sync::{Mutex, MutexGuard};
 
     /// Thread safe lock: just wraps a `Mutex`.
     pub(crate) struct Lock<A> {
@@ -23,7 +27,14 @@ mod lock {
 
         #[inline]
         pub(crate) fn lock(&mut self) -> Option<MutexGuard<'_, A>> {
-            self.lock.lock().ok()
+            #[cfg(not(feature = "std"))]
+            {
+                Some(self.lock.lock())
+            }
+            #[cfg(feature = "std")]
+            {
+                self.lock.lock().ok()
+            }
         }
     }
 

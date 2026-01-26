@@ -4,9 +4,9 @@
 
 use crate::vector::FocusMut;
 use archery::SharedPointerKind;
+use core::cmp::Ordering;
+use core::mem;
 use rand_core::{RngCore, SeedableRng};
-use std::cmp::Ordering;
-use std::mem;
 
 fn gen_range<R: RngCore>(rng: &mut R, min: usize, max: usize) -> usize {
     let range = max - min;

@@ -1,8 +1,12 @@
 #![allow(clippy::unit_arg)]
 
+#[cfg(not(feature = "std"))]
+use hashbrown::HashSet as NatSet;
+#[cfg(feature = "std")]
 use std::collections::HashSet as NatSet;
-use std::fmt::{Debug, Error, Formatter, Write};
-use std::hash::Hash;
+
+use core::fmt::{Debug, Error, Formatter, Write};
+use core::hash::Hash;
 
 use crate::HashSet;
 
@@ -30,11 +34,11 @@ where
         writeln!(out, "let mut set = HashSet::new();")?;
         for action in &self.0 {
             match action {
-                Action::Insert(ref value) => {
+                Action::Insert(value) => {
                     expected.insert(value.clone());
                     writeln!(out, "set.insert({:?});", value)?;
                 }
-                Action::Remove(ref value) => {
+                Action::Remove(value) => {
                     expected.remove(value);
                     writeln!(out, "set.remove({:?});", value)?;
                 }

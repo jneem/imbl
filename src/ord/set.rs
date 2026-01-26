@@ -9,21 +9,24 @@
 //! Most operations on this type of set are O(log n). A
 //! [`GenericHashSet`] is usually a better choice for
 //! performance, but the `OrdSet` has the advantage of only requiring
-//! an [`Ord`][std::cmp::Ord] constraint on its values, and of being
+//! an [`Ord`][core::cmp::Ord] constraint on its values, and of being
 //! ordered, so values always come out from lowest to highest, where a
 //! [`GenericHashSet`] has no guaranteed ordering.
 //!
 //! [1]: https://en.wikipedia.org/wiki/B%2B_tree
 
-use std::borrow::Borrow;
-use std::cmp::Ordering;
-use std::collections;
-use std::fmt::{Debug, Error, Formatter};
-use std::hash::{BuildHasher, Hash, Hasher};
-use std::iter::{FromIterator, FusedIterator, Sum};
-use std::ops::{Add, Mul, RangeBounds};
+use alloc::borrow::ToOwned;
+use alloc::collections;
+use alloc::vec::Vec;
+use core::borrow::Borrow;
+use core::cmp::Ordering;
+use core::fmt::{Debug, Error, Formatter};
+use core::hash::{BuildHasher, Hash, Hasher};
+use core::iter::{FromIterator, FusedIterator, Sum};
+use core::ops::{Add, Mul, RangeBounds};
 
 use archery::SharedPointerKind;
+use hashbrown::HashSet;
 
 use super::map;
 use crate::hashset::GenericHashSet;
@@ -70,7 +73,7 @@ pub type OrdSet<A> = GenericOrdSet<A, DefaultSharedPtr>;
 /// Most operations on this type of set are O(log n). A
 /// [`GenericHashSet`] is usually a better choice for
 /// performance, but the `OrdSet` has the advantage of only requiring
-/// an [`Ord`][std::cmp::Ord] constraint on its values, and of being
+/// an [`Ord`][core::cmp::Ord] constraint on its values, and of being
 /// ordered, so values always come out from lowest to highest, where a
 /// [`GenericHashSet`] has no guaranteed ordering.
 ///
@@ -279,7 +282,7 @@ where
     /// ```
     /// # #[macro_use] extern crate imbl;
     /// # use std::borrow::Borrow;
-    /// # use std::cmp::Ordering;
+    /// # use core::cmp::Ordering;
     /// # use imbl::ordset::OrdSet;
     /// # #[derive(Clone)]
     /// // Implements Eq and ord by delegating to id
@@ -390,7 +393,7 @@ where
     #[allow(unreachable_pub)]
     pub fn check_sane(&self)
     where
-        A: std::fmt::Debug,
+        A: core::fmt::Debug,
     {
         self.map.check_sane();
     }
@@ -1100,18 +1103,14 @@ impl<A: Ord + Clone, P: SharedPointerKind> From<&Vec<A>> for GenericOrdSet<A, P>
     }
 }
 
-impl<A: Eq + Hash + Ord + Clone, P: SharedPointerKind> From<collections::HashSet<A>>
-    for GenericOrdSet<A, P>
-{
-    fn from(hash_set: collections::HashSet<A>) -> Self {
+impl<A: Eq + Hash + Ord + Clone, P: SharedPointerKind> From<HashSet<A>> for GenericOrdSet<A, P> {
+    fn from(hash_set: HashSet<A>) -> Self {
         hash_set.into_iter().collect()
     }
 }
 
-impl<A: Eq + Hash + Ord + Clone, P: SharedPointerKind> From<&collections::HashSet<A>>
-    for GenericOrdSet<A, P>
-{
-    fn from(hash_set: &collections::HashSet<A>) -> Self {
+impl<A: Eq + Hash + Ord + Clone, P: SharedPointerKind> From<&HashSet<A>> for GenericOrdSet<A, P> {
+    fn from(hash_set: &HashSet<A>) -> Self {
         hash_set.iter().cloned().collect()
     }
 }
