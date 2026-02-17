@@ -49,6 +49,7 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Error, Formatter};
 use std::hash::{Hash, Hasher};
+use std::io::Chain;
 use std::iter::Sum;
 use std::iter::{FromIterator, FusedIterator};
 use std::mem::{replace, swap};
@@ -3118,13 +3119,16 @@ impl<
     ) -> GenericVector<Out, P, CHUNK_SIZE> {
         match &from.vector {
             Inline(next_in) => {
-                let mut inline = InlineArray::new();
+                let mut next = GenericVector {
+                    vector: VectorInner::Inline(InlineArray::new()),
+                };
+
                 Self::map_next_in(
                     &mut self.keylookup,
                     next_in.iter(),
                     &self.ex,
                     &mut self.f,
-                    |item| inline.push(item.clone()),
+                    |item| next.push_back(item.clone()),
                 );
                 Self::clear_prev_in(
                     &mut self.keylookup,
@@ -3132,70 +3136,70 @@ impl<
                     &self.ex,
                 );
                 self.previous_in = VectorInner::Inline(next_in.clone());
-                GenericVector {
-                    vector: VectorInner::Inline(inline),
-                }
+                next
             }
             Single(next_in) => {
                 match &mut self.previous_out {
                     Inline(chunk) => self.previous_out = Single(SharedPointer::new(chunk.into())),
                     Single(_) => (),
                     Full(_) => {
-                        let mut chunk = Chunk::new();
+                        let mut next = GenericVector {
+                            vector: VectorInner::Single(SharedPointer::new(Chunk::new())),
+                        };
                         Self::map_next_in(
                             &mut self.keylookup,
                             next_in.iter(),
                             &self.ex,
                             &mut self.f,
-                            |v| chunk.push_back(v.clone()),
+                            |v| next.push_back(v.clone()),
                         );
                         Self::clear_prev_in(
                             &mut self.keylookup,
                             Iter::from_focus(focus::Focus::new_inner(&self.previous_in)),
                             &self.ex,
                         );
-                        return GenericVector {
-                            vector: VectorInner::Single(SharedPointer::new(chunk)),
-                        };
+                        return next;
                     }
                 }
 
-                let inner = match &self.previous_in {
+                match &self.previous_in {
                     Single(prev_in) => {
                         let (VectorInner::Single(prev_out), keylookup) =
                             (&self.previous_out, &mut self.keylookup)
                         else {
                             panic!("invalid internal state");
                         };
-                        Self::map_chunk(
+                        let inner = Self::map_chunk(
                             prev_in,
                             next_in,
                             prev_out,
                             keylookup,
                             &self.ex,
                             &mut self.f,
-                        )
+                        );
+
+                        GenericVector {
+                            vector: VectorInner::Single(inner),
+                        }
                     }
                     Inline(_) | Full(_) => {
-                        let mut chunk = Chunk::new();
+                        let mut next = GenericVector {
+                            vector: VectorInner::Single(SharedPointer::new(Chunk::new())),
+                        };
                         Self::map_next_in(
                             &mut self.keylookup,
                             next_in.iter(),
                             &self.ex,
                             &mut self.f,
-                            |item| chunk.push_back(item.clone()),
+                            |item| next.push_back(item.clone()),
                         );
                         Self::clear_prev_in(
                             &mut self.keylookup,
                             Iter::from_focus(focus::Focus::new_inner(&self.previous_in)),
                             &self.ex,
                         );
-                        SharedPointer::new(chunk)
+                        next
                     }
-                };
-
-                GenericVector {
-                    vector: VectorInner::Single(inner),
                 }
             }
             Full(rrb) => GenericVector {
@@ -3308,7 +3312,6 @@ impl<
 }
 
 /// The function must be Associative, meaning `f(f(a, b), c) == f(a, f(b, c))`, but doesn't need to be Commutative.
-/// z will only be returned if the slice is empty. Ideally, z should be the identity element (0 for addition, 1 for multiplication).
 pub struct PersistentFold<T, F: FnMut(T, T) -> T, P: SharedPointerKind, const CHUNK_SIZE: usize> {
     outer_f: FoldSeqStore<T, P, CHUNK_SIZE>,
     inner_f: FoldSeqStore<T, P, CHUNK_SIZE>,
@@ -3316,14 +3319,13 @@ pub struct PersistentFold<T, F: FnMut(T, T) -> T, P: SharedPointerKind, const CH
     inner_b: FoldSeqStore<T, P, CHUNK_SIZE>,
     outer_b: FoldSeqStore<T, P, CHUNK_SIZE>,
     f: F,
-    z: T,
 }
 
 impl<T: Clone, F: FnMut(T, T) -> T, P: SharedPointerKind, const CHUNK_SIZE: usize>
     PersistentFold<T, F, P, CHUNK_SIZE>
 {
     /// Initializes a new empty fold state
-    pub fn new(f: F, z: T) -> Self {
+    pub fn new(f: F) -> Self {
         Self {
             outer_f: FoldSeqStore::Empty,
             inner_f: FoldSeqStore::Empty,
@@ -3331,23 +3333,31 @@ impl<T: Clone, F: FnMut(T, T) -> T, P: SharedPointerKind, const CHUNK_SIZE: usiz
             inner_b: FoldSeqStore::Empty,
             outer_b: FoldSeqStore::Empty,
             f,
-            z,
         }
     }
 
-    /// Produces an output vector from the input vector using a map function and a key extractor.
-    pub fn fold(&mut self, from: &GenericVector<T, P, CHUNK_SIZE>) -> T {
+    /// Produces an output value from the input vector using a fold operation
+    pub fn fold(&mut self, from: &GenericVector<T, P, CHUNK_SIZE>) -> Option<T> {
         match &from.vector {
-            Inline(chunk) => binary_fold(&chunk, self.z.clone(), &mut self.f),
+            Inline(chunk) => {
+                if chunk.is_empty() {
+                    None
+                } else {
+                    Some(binary_fold(&chunk, &mut self.f))
+                }
+            }
             Single(chunk) => {
                 if let FoldSeqStore::Values(v, prev) = &self.inner_f
                     && SharedPointer::ptr_eq(prev, chunk)
                 {
-                    v.clone()
+                    Some(v.clone())
+                } else if chunk.is_empty() {
+                    self.inner_f = FoldSeqStore::Empty;
+                    None
                 } else {
-                    let result = binary_fold(&chunk, self.z.clone(), &mut self.f);
+                    let result = binary_fold(&chunk, &mut self.f);
                     self.inner_f = FoldSeqStore::Values(result.clone(), chunk.clone());
-                    result
+                    Some(result)
                 }
             }
             Full(rrb) => {
@@ -3361,27 +3371,30 @@ impl<T: Clone, F: FnMut(T, T) -> T, P: SharedPointerKind, const CHUNK_SIZE: usiz
                     if let &mut FoldSeqStore::Values(ref v, ref old_chunk) = old_node
                         && SharedPointer::ptr_eq(chunk, old_chunk)
                     {
-                        if chunk.len() > 0 {
+                        if !chunk.is_empty() {
                             outer.push_back(v.clone());
                         }
+                    } else if chunk.is_empty() {
+                        *old_node = FoldSeqStore::Empty;
                     } else {
-                        let result = binary_fold(&chunk, self.z.clone(), &mut self.f);
+                        let result = binary_fold(&chunk, &mut self.f);
                         *old_node = FoldSeqStore::Values(result.clone(), chunk.clone());
-                        if chunk.len() > 0 {
-                            outer.push_back(result);
-                        }
+                        outer.push_back(result);
                     }
                 }
                 let mut middle = FoldSeqStore::Empty;
                 std::mem::swap(&mut self.middle, &mut middle);
-                let (v, mut new_middle) =
-                    fold_subsequence(&rrb.middle, middle, &mut self.f, &self.z);
+                let mut new_middle = fold_subsequence(&rrb.middle, middle, &mut self.f);
                 std::mem::swap(&mut self.middle, &mut new_middle);
-                if !matches!(self.middle, FoldSeqStore::Empty) {
+                if let Some(v) = self.middle.get() {
                     outer.push_back(v);
                 }
 
-                binary_fold(&outer, self.z.clone(), &mut self.f)
+                if outer.is_empty() {
+                    None
+                } else {
+                    Some(binary_fold(&outer, &mut self.f))
+                }
             }
         }
     }
@@ -3399,6 +3412,42 @@ fn test_vector_map_basic() {
     assert_eq!(b[1], 4);
     assert_eq!(b[2], 9);
     assert_eq!(b[3], 16);
+}
+
+#[test]
+fn test_vector_map_ref() {
+    use std::rc::Rc;
+    {
+        let a = vector![Rc::new(1), Rc::new(2), Rc::new(3), Rc::new(4)];
+
+        let mut map = PersistentMap::<Rc<i32>, i32, i32, _, _, _, _>::new(
+            |x| *x.as_ref() * *x.as_ref(),
+            |x| *x.as_ref(),
+        );
+
+        let b = map.map(&a);
+
+        assert_eq!(b[0], 1);
+        assert_eq!(b[1], 4);
+        assert_eq!(b[2], 9);
+        assert_eq!(b[3], 16);
+    }
+
+    {
+        let a = vector![Rc::new(1), Rc::new(2), Rc::new(3), Rc::new(4)];
+
+        let mut map = PersistentMap::<Rc<i32>, i32, Rc<i32>, _, _, _, _>::new(
+            |x| *x.as_ref() * *x.as_ref(),
+            |x| x.clone(),
+        );
+
+        let b = map.map(&a);
+
+        assert_eq!(b[0], 1);
+        assert_eq!(b[1], 4);
+        assert_eq!(b[2], 9);
+        assert_eq!(b[3], 16);
+    }
 }
 
 #[test]
@@ -3437,12 +3486,12 @@ fn test_vector_map_big() {
 fn test_vector_fold_basic() {
     let a = vector![1, 2, 3, 4];
 
-    let mut fold = PersistentFold::<i32, _, _, _>::new(|l, r| l + r, 0);
+    let mut fold = PersistentFold::<i32, _, _, _>::new(|l, r| l + r);
 
-    assert_eq!(fold.fold(&a), 1 + 2 + 3 + 4);
-    assert_eq!(fold.fold(&vector![]), 0);
-    assert_eq!(fold.fold(&vector![1]), 1);
-    assert_eq!(fold.fold(&vector![1, 2]), 3);
+    assert_eq!(fold.fold(&a), Some(1 + 2 + 3 + 4));
+    assert_eq!(fold.fold(&vector![]), None);
+    assert_eq!(fold.fold(&vector![1]), Some(1));
+    assert_eq!(fold.fold(&vector![1, 2]), Some(3));
 }
 
 #[test]
@@ -3453,21 +3502,18 @@ fn test_vector_fold_big() {
     let mut a = Vector::from_iter((1..=COUNT).map(|i| i as i64));
     let mut mutation_count = 0;
 
-    let mut fold = PersistentFold::<i64, _, _, _>::new(
-        |l, r| {
-            mutation_count += 1;
-            l + r
-        },
-        0,
-    );
+    let mut fold = PersistentFold::<i64, _, _, _>::new(|l, r| {
+        mutation_count += 1;
+        l + r
+    });
 
     let mut b = fold.fold(&a);
-    assert_eq!(b, BASE);
+    assert_eq!(b, Some(BASE));
 
     for i in 0..COUNT {
         a[i] += 1;
         b = fold.fold(&a);
-        assert_eq!(b, BASE + i as i64 + 1);
+        assert_eq!(b, Some(BASE + i as i64 + 1));
     }
 
     // The maximum bound of calls to f() each time we call fold() should be log2(N/NODE_SIZE) * NODE_SIZE.
