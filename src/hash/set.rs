@@ -31,10 +31,10 @@ use std::ops::{Add, Deref, Mul};
 
 use archery::{SharedPointer, SharedPointerKind};
 
-use crate::nodes::hamt::{hash_key, Drain as NodeDrain, HashValue, Iter as NodeIter, Node};
+use crate::GenericVector;
+use crate::nodes::hamt::{Drain as NodeDrain, HashValue, Iter as NodeIter, Node, hash_key};
 use crate::ordset::GenericOrdSet;
 use crate::shared_ptr::DefaultSharedPtr;
-use crate::GenericVector;
 
 /// Construct a set from a sequence of values.
 ///
@@ -96,7 +96,7 @@ pub type HashSet<A> = GenericHashSet<A, RandomState, DefaultSharedPtr>;
 /// [std::cmp::Eq]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
 /// [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
 /// [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
-pub struct GenericHashSet<A, S, P: SharedPointerKind> {
+pub struct GenericHashSet<A, S = RandomState, P: SharedPointerKind = DefaultSharedPtr> {
     hasher: S,
     root: Option<SharedPointer<Node<Value<A>, P>, P>>,
     size: usize,

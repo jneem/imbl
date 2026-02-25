@@ -102,7 +102,7 @@ pub type HashMap<K, V> = GenericHashMap<K, V, RandomState, DefaultSharedPtr>;
 /// [std::cmp::Eq]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
 /// [std::hash::Hash]: https://doc.rust-lang.org/std/hash/trait.Hash.html
 /// [std::collections::hash_map::RandomState]: https://doc.rust-lang.org/std/collections/hash_map/struct.RandomState.html
-pub struct GenericHashMap<K, V, S, P: SharedPointerKind> {
+pub struct GenericHashMap<K, V, S = RandomState, P: SharedPointerKind = DefaultSharedPtr> {
     size: usize,
     root: Option<SharedPointer<Node<(K, V), P>, P>>,
     hasher: S,

@@ -49,7 +49,6 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Error, Formatter};
 use std::hash::{Hash, Hasher};
-use std::io::Chain;
 use std::iter::Sum;
 use std::iter::{FromIterator, FusedIterator};
 use std::mem::{replace, swap};
