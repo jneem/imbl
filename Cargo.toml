@@ -6,7 +6,7 @@ authors = [
     "Joe Neeman <joeneeman@gmail.com>",
     "Arthur Silva <arthurprs@gmail.com>",
 ]
-edition = "2018"
+edition = "2024"
 license = "MPL-2.0+"
 rust-version = "1.85"
 description = "Immutable collection datatypes"
@@ -50,7 +50,10 @@ proptest = { version = "1.0", optional = true }
 serde_core = { version = "1.0.224", optional = true }
 rayon = { version = "1", optional = true }
 arbitrary = { version = "1.0", optional = true }
-bincode = {version = "2.0.1", optional = true, default-features=false, features = ["alloc", "std"]}
+bincode = { version = "2.0.1", optional = true, default-features = false, features = [
+    "alloc",
+    "std",
+] }
 wide = "0.7"
 equivalent = "1.0.2"
 
