@@ -27,6 +27,7 @@ use std::mem;
 use std::ops::{Add, Bound, Index, IndexMut, RangeBounds};
 
 use archery::{SharedPointer, SharedPointerKind};
+use equivalent::Comparable;
 
 use crate::hashmap::GenericHashMap;
 use crate::nodes::btree::{
@@ -256,17 +257,16 @@ where
     #[must_use]
     pub fn iter(&self) -> Iter<'_, K, V, P> {
         Iter {
-            it: NodeIter::new(self.root.as_ref(), self.size, ..),
+            it: NodeIter::new::<_, K>(self.root.as_ref(), self.size, ..),
         }
     }
 
     /// Create an iterator over a range of key/value pairs.
     #[must_use]
-    pub fn range<R, BK>(&self, range: R) -> RangedIter<'_, K, V, P>
+    pub fn range<R, Q>(&self, range: R) -> RangedIter<'_, K, V, P>
     where
-        R: RangeBounds<BK>,
-        K: Borrow<BK>,
-        BK: Ord + ?Sized,
+        R: RangeBounds<Q>,
+        Q: Comparable<K> + ?Sized,
     {
         RangedIter {
             it: NodeIter::new(self.root.as_ref(), self.size, range),
@@ -327,10 +327,9 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get<BK>(&self, key: &BK) -> Option<&V>
+    pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         self.root
             .as_ref()
@@ -353,10 +352,9 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_key_value<BK>(&self, key: &BK) -> Option<(&K, &V)>
+    pub fn get_key_value<Q>(&self, key: &Q) -> Option<(&K, &V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         self.root
             .as_ref()
@@ -380,12 +378,11 @@ where
     /// assert_eq!(Some((&3, &3)), map.get_prev(&4));
     /// ```
     #[must_use]
-    pub fn get_prev<BK>(&self, key: &BK) -> Option<(&K, &V)>
+    pub fn get_prev<Q>(&self, key: &Q) -> Option<(&K, &V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
-        self.range((Bound::Unbounded, Bound::Included(key)))
+        self.range::<_, Q>((Bound::Unbounded, Bound::Included(key)))
             .next_back()
     }
 
@@ -406,12 +403,12 @@ where
     /// assert_eq!(Some((&5, &5)), map.get_next(&4));
     /// ```
     #[must_use]
-    pub fn get_next<BK>(&self, key: &BK) -> Option<(&K, &V)>
+    pub fn get_next<Q>(&self, key: &Q) -> Option<(&K, &V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
-        self.range((Bound::Included(key), Bound::Unbounded)).next()
+        self.range::<_, Q>((Bound::Included(key), Bound::Unbounded))
+            .next()
     }
 
     /// Test for the presence of a key in a map.
@@ -432,10 +429,9 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn contains_key<BK>(&self, k: &BK) -> bool
+    pub fn contains_key<Q>(&self, k: &Q) -> bool
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         self.get(k).is_some()
     }
@@ -571,10 +567,9 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_mut<BK>(&mut self, key: &BK) -> Option<&mut V>
+    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         let root = self.root.as_mut()?;
         root.lookup_mut(key).map(|(_, v)| v)
@@ -596,10 +591,9 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_key_value_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub fn get_key_value_mut<Q>(&mut self, key: &Q) -> Option<(&K, &mut V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         self.root.as_mut()?.lookup_mut(key)
     }
@@ -624,10 +618,9 @@ where
     /// assert_eq!(ordmap![1 => 1, 3 => 4, 5 => 5], map);
     /// ```
     #[must_use]
-    pub fn get_prev_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub fn get_prev_mut<Q>(&mut self, key: &Q) -> Option<(&K, &mut V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         let prev = self.get_prev(key)?.0.clone();
         let root = self.root.as_mut()?;
@@ -654,10 +647,9 @@ where
     /// assert_eq!(ordmap![1 => 1, 3 => 3, 5 => 4], map);
     /// ```
     #[must_use]
-    pub fn get_next_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub fn get_next_mut<Q>(&mut self, key: &Q) -> Option<(&K, &mut V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         let next = self.get_next(key)?.0.clone();
         let root = self.root.as_mut()?;
@@ -735,10 +727,9 @@ where
     ///
     /// [remove]: #method.remove
     #[inline]
-    pub fn remove<BK>(&mut self, k: &BK) -> Option<V>
+    pub fn remove<Q>(&mut self, k: &Q) -> Option<V>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         self.remove_with_key(k).map(|(_, v)| v)
     }
@@ -747,10 +738,9 @@ where
     /// the removed key and value.
     ///
     /// Time: O(log n)
-    pub fn remove_with_key<BK>(&mut self, k: &BK) -> Option<(K, V)>
+    pub fn remove_with_key<Q>(&mut self, k: &Q) -> Option<(K, V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         let root = self.root.as_mut()?;
         let mut removed = None;
@@ -884,10 +874,9 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn without<BK>(&self, k: &BK) -> Self
+    pub fn without<Q>(&self, k: &Q) -> Self
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         self.extract(k)
             .map(|(_, m)| m)
@@ -899,10 +888,9 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn extract<BK>(&self, k: &BK) -> Option<(V, Self)>
+    pub fn extract<Q>(&self, k: &Q) -> Option<(V, Self)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         self.extract_with_key(k).map(|(_, v, m)| (v, m))
     }
@@ -912,10 +900,9 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn extract_with_key<BK>(&self, k: &BK) -> Option<(K, V, Self)>
+    pub fn extract_with_key<Q>(&self, k: &Q) -> Option<(K, V, Self)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         let mut out = self.clone();
         let result = out.remove_with_key(k);
@@ -1373,10 +1360,9 @@ where
     ///
     /// The `split` mapping is discarded.
     #[must_use]
-    pub fn split<BK>(&self, split: &BK) -> (Self, Self)
+    pub fn split<Q>(&self, split: &Q) -> (Self, Self)
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         let (l, _, r) = self.split_lookup(split);
         (l, r)
@@ -1388,15 +1374,14 @@ where
     ///
     /// Returns both the two maps and the value of `split`.
     #[must_use]
-    pub fn split_lookup<BK>(&self, split: &BK) -> (Self, Option<V>, Self)
+    pub fn split_lookup<Q>(&self, split: &Q) -> (Self, Option<V>, Self)
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         // TODO this is atrociously slow, got to be a better way
         self.iter().fold(
             (GenericOrdMap::new(), None, GenericOrdMap::new()),
-            |(l, m, r), (k, v)| match k.borrow().cmp(split) {
+            |(l, m, r), (k, v)| match split.compare(k).reverse() {
                 Ordering::Less => (l.update(k.clone(), v.clone()), m, r),
                 Ordering::Equal => (l, Some(v.clone()), r),
                 Ordering::Greater => (l, m, r.update(k.clone(), v.clone())),
@@ -1781,14 +1766,14 @@ where
     }
 }
 
-impl<BK, K, V, P: SharedPointerKind> Index<&BK> for GenericOrdMap<K, V, P>
+impl<Q, K, V, P: SharedPointerKind> Index<&Q> for GenericOrdMap<K, V, P>
 where
-    BK: Ord + ?Sized,
-    K: Ord + Borrow<BK>,
+    Q: Comparable<K> + ?Sized,
+    K: Ord,
 {
     type Output = V;
 
-    fn index(&self, key: &BK) -> &Self::Output {
+    fn index(&self, key: &Q) -> &Self::Output {
         match self.get(key) {
             None => panic!("OrdMap::index: invalid key"),
             Some(value) => value,
@@ -1796,14 +1781,14 @@ where
     }
 }
 
-impl<BK, K, V, P> IndexMut<&BK> for GenericOrdMap<K, V, P>
+impl<Q, K, V, P> IndexMut<&Q> for GenericOrdMap<K, V, P>
 where
-    BK: Ord + ?Sized,
-    K: Ord + Clone + Borrow<BK>,
+    Q: Comparable<K> + ?Sized,
+    K: Ord + Clone,
     V: Clone,
     P: SharedPointerKind,
 {
-    fn index_mut(&mut self, key: &BK) -> &mut Self::Output {
+    fn index_mut(&mut self, key: &Q) -> &mut Self::Output {
         match self.get_mut(key) {
             None => panic!("OrdMap::index: invalid key"),
             Some(value) => value,
@@ -2190,7 +2175,7 @@ impl<K, V, OK, OV, P1, P2> From<&GenericOrdMap<&K, &V, P2>> for GenericOrdMap<OK
 where
     K: Ord + ToOwned<Owned = OK> + ?Sized,
     V: ToOwned<Owned = OV> + ?Sized,
-    OK: Ord + Clone + Borrow<K>,
+    OK: Ord + Clone,
     OV: Clone + Borrow<V>,
     P1: SharedPointerKind,
     P2: SharedPointerKind,
@@ -2206,7 +2191,6 @@ impl<'a, K, V, RK, RV, OK, OV, P> From<&'a [(RK, RV)]> for GenericOrdMap<K, V, P
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
-    OK: Borrow<RK>,
     OV: Borrow<RV>,
     RK: ToOwned<Owned = OK>,
     RV: ToOwned<Owned = OV>,
@@ -2230,11 +2214,10 @@ where
     }
 }
 
-impl<'a, K: Ord, V, RK, RV, OK, OV, P> From<&'a Vec<(RK, RV)>> for GenericOrdMap<K, V, P>
+impl<'a, K, V, RK, RV, OK, OV, P> From<&'a Vec<(RK, RV)>> for GenericOrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
-    OK: Borrow<RK>,
     OV: Borrow<RV>,
     RK: ToOwned<Owned = OK>,
     RV: ToOwned<Owned = OV>,
@@ -2247,11 +2230,12 @@ where
     }
 }
 
-impl<K: Ord, V, RK: Eq + Hash, RV, P> From<collections::HashMap<RK, RV>> for GenericOrdMap<K, V, P>
+impl<K, V, RK, RV, P> From<collections::HashMap<RK, RV>> for GenericOrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
     P: SharedPointerKind,
+    RK: Eq + Hash,
 {
     fn from(m: collections::HashMap<RK, RV>) -> GenericOrdMap<K, V, P> {
         m.into_iter().collect()
@@ -2262,7 +2246,6 @@ impl<'a, K, V, OK, OV, RK, RV, P> From<&'a collections::HashMap<RK, RV>> for Gen
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
-    OK: Borrow<RK>,
     OV: Borrow<RV>,
     RK: Hash + Eq + ToOwned<Owned = OK>,
     RV: ToOwned<Owned = OV>,
@@ -2275,7 +2258,7 @@ where
     }
 }
 
-impl<K: Ord, V, RK, RV, P> From<collections::BTreeMap<RK, RV>> for GenericOrdMap<K, V, P>
+impl<K, V, RK, RV, P> From<collections::BTreeMap<RK, RV>> for GenericOrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
@@ -2286,14 +2269,12 @@ where
     }
 }
 
-impl<'a, K: Ord, V, RK, RV, OK, OV, P> From<&'a collections::BTreeMap<RK, RV>>
-    for GenericOrdMap<K, V, P>
+impl<'a, K, V, RK, RV, OK, OV, P> From<&'a collections::BTreeMap<RK, RV>> for GenericOrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
-    OK: Borrow<RK>,
     OV: Borrow<RV>,
-    RK: Ord + ToOwned<Owned = OK>,
+    RK: Comparable<OK> + ToOwned<Owned = OK>,
     RV: ToOwned<Owned = OV>,
     P: SharedPointerKind,
 {
@@ -2304,27 +2285,26 @@ where
     }
 }
 
-impl<
+impl<K, V, S, P1, P2> From<GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
+where
     K: Ord + Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher + Clone,
     P1: SharedPointerKind,
     P2: SharedPointerKind,
-> From<GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
 {
     fn from(m: GenericHashMap<K, V, S, P2>) -> Self {
         m.into_iter().collect()
     }
 }
 
-impl<
-    'a,
+impl<'a, K, V, S, P1, P2> From<&'a GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
+where
     K: Ord + Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher + Clone,
     P1: SharedPointerKind,
     P2: SharedPointerKind,
-> From<&'a GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
 {
     fn from(m: &'a GenericHashMap<K, V, S, P2>) -> Self {
         m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
@@ -2569,33 +2549,37 @@ mod test {
     #[test]
     fn ranged_iter() {
         let map: OrdMap<i32, i32> = ordmap![1=>2, 2=>3, 3=>4, 4=>5, 5=>6, 7=>8];
-        let range: Vec<(i32, i32)> = map.range(..).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range::<_, i32>(..).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (7, 8)], range);
-        let range: Vec<(i32, i32)> = map.range(..).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map
+            .range::<_, i32>(..)
+            .rev()
+            .map(|(k, v)| (*k, *v))
+            .collect();
         assert_eq!(vec![(7, 8), (5, 6), (4, 5), (3, 4), (2, 3), (1, 2)], range);
-        let range: Vec<(i32, i32)> = map.range(&2..&5).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(2..5).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(2, 3), (3, 4), (4, 5)], range);
-        let range: Vec<(i32, i32)> = map.range(&2..&5).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(2..5).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(4, 5), (3, 4), (2, 3)], range);
-        let range: Vec<(i32, i32)> = map.range(&3..).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(3..).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(3, 4), (4, 5), (5, 6), (7, 8)], range);
-        let range: Vec<(i32, i32)> = map.range(&3..).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(3..).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(7, 8), (5, 6), (4, 5), (3, 4)], range);
         let range: Vec<(i32, i32)> = map.range(..4).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4)], range);
-        let range: Vec<(i32, i32)> = map.range(..&4).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(..4).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(3, 4), (2, 3), (1, 2)], range);
-        let range: Vec<(i32, i32)> = map.range(..=&3).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(..=3).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4)], range);
-        let range: Vec<(i32, i32)> = map.range(..=&3).rev().map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(..=3).rev().map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(3, 4), (2, 3), (1, 2)], range);
-        let range: Vec<(i32, i32)> = map.range(..&6).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(..6).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], range);
-        let range: Vec<(i32, i32)> = map.range(..=&6).map(|(k, v)| (*k, *v)).collect();
+        let range: Vec<(i32, i32)> = map.range(..=6).map(|(k, v)| (*k, *v)).collect();
         assert_eq!(vec![(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], range);
 
-        assert_eq!(map.range(&2..&5).size_hint(), (0, Some(6)));
-        let mut iter = map.range(&2..&5);
+        assert_eq!(map.range(2..5).size_hint(), (0, Some(6)));
+        let mut iter = map.range(2..5);
         iter.next();
         assert_eq!(iter.size_hint(), (0, Some(5)));
     }

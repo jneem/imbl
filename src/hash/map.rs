@@ -31,6 +31,7 @@ use std::mem;
 use std::ops::{Add, Index, IndexMut};
 
 use archery::{SharedPointer, SharedPointerKind};
+use equivalent::Equivalent;
 
 use crate::nodes::hamt::{
     Drain as NodeDrain, HashBits, HashValue, Iter as NodeIter, IterMut as NodeIterMut, Node,
@@ -338,8 +339,10 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
             collision_count: usize,
             collision_entry_sum: usize,
             child_node_count: usize,
-            small_node_count: usize,
-            small_node_entry_sum: usize,
+            small_simd_node_count: usize,
+            large_simd_node_count: usize,
+            small_simd_entry_sum: usize,
+            large_simd_entry_sum: usize,
             total_entries: usize,
         }
 
@@ -351,6 +354,7 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
 
         let mut level_stats: Vec<LevelStats> = Vec::new();
         let mut queue: VecDeque<(usize, SharedPointer<Node<(K, V), P>, P>)> = VecDeque::new();
+        let mut max_depth = 0;
 
         // Start with root node at level 0
         if let Some(ref root) = self.root {
@@ -371,18 +375,28 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
             node.analyze_structure(|entry| {
                 stats.total_entries += 1;
                 match entry {
-                    NodeEntry::Value(_, _) => stats.value_count += 1,
+                    NodeEntry::Value(_, _) => {
+                        stats.value_count += 1;
+                        max_depth = max_depth.max(level);
+                    }
                     NodeEntry::Collision(_coll) => {
                         stats.collision_count += 1;
                         // stats.collision_entry_sum += coll.len();
+                        max_depth = max_depth.max(level);
                     }
-                    NodeEntry::Node(child_node) => {
+                    NodeEntry::HamtNode(child_node) => {
                         stats.child_node_count += 1;
                         queue.push_back((level + 1, child_node.clone()));
                     }
-                    NodeEntry::SmallNode(small_node) => {
-                        stats.small_node_count += 1;
-                        stats.small_node_entry_sum += small_node.len();
+                    NodeEntry::SmallSimdNode(small_node) => {
+                        stats.small_simd_node_count += 1;
+                        stats.small_simd_entry_sum += small_node.len();
+                        max_depth = max_depth.max(level + 1);
+                    }
+                    NodeEntry::LargeSimdNode(large_node) => {
+                        stats.large_simd_node_count += 1;
+                        stats.large_simd_entry_sum += large_node.len();
+                        max_depth = max_depth.max(level + 1);
                     }
                 }
             })
@@ -398,7 +412,7 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
             2_usize.pow(crate::config::HASH_LEVEL_SIZE as u32)
         );
         println!("  Total entries: {}", self.size);
-        println!("  Tree depth: {} levels", level_stats.len());
+        println!("  Tree depth: {} levels", max_depth + 1);
         println!();
 
         for (level, stats) in level_stats.iter().enumerate() {
@@ -426,19 +440,32 @@ impl<K, V, S, P: SharedPointerKind> GenericHashMap<K, V, S, P> {
                     (stats.collision_count as f64 / stats.total_entries as f64) * 100.0
                 );
                 println!(
-                    "      Child nodes: {} ({:.1}%)",
+                    "      Child HAMT nodes: {} ({:.1}%)",
                     stats.child_node_count,
                     (stats.child_node_count as f64 / stats.total_entries as f64) * 100.0
                 );
-                println!(
-                    "      Small nodes: {} ({:.1}%)",
-                    stats.small_node_count,
-                    (stats.small_node_count as f64 / stats.total_entries as f64) * 100.0
-                );
-                if stats.small_node_count > 0 {
+                if stats.small_simd_node_count > 0 {
                     println!(
-                        "        → Avg entries per small node: {:.1}",
-                        stats.small_node_entry_sum as f64 / stats.small_node_count as f64
+                        "      Small SIMD leaf nodes: {} ({:.1}%) [total values: {}]",
+                        stats.small_simd_node_count,
+                        (stats.small_simd_node_count as f64 / stats.total_entries as f64) * 100.0,
+                        stats.small_simd_entry_sum
+                    );
+                    println!(
+                        "        → Avg values per small SIMD node: {:.1}",
+                        stats.small_simd_entry_sum as f64 / stats.small_simd_node_count as f64
+                    );
+                }
+                if stats.large_simd_node_count > 0 {
+                    println!(
+                        "      Large SIMD leaf nodes: {} ({:.1}%) [total values: {}]",
+                        stats.large_simd_node_count,
+                        (stats.large_simd_node_count as f64 / stats.total_entries as f64) * 100.0,
+                        stats.large_simd_entry_sum
+                    );
+                    println!(
+                        "        → Avg values per large SIMD node: {:.1}",
+                        stats.large_simd_entry_sum as f64 / stats.large_simd_node_count as f64
                     );
                 }
             }
@@ -494,10 +521,9 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get<BK>(&self, key: &BK) -> Option<&V>
+    pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
-        BK: Hash + Eq + ?Sized,
-        K: Borrow<BK>,
+        Q: Hash + Equivalent<K> + ?Sized,
     {
         if let Some(root) = &self.root {
             root.get(hash_key(&self.hasher, key), 0, key)
@@ -523,10 +549,9 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_key_value<BK>(&self, key: &BK) -> Option<(&K, &V)>
+    pub fn get_key_value<Q>(&self, key: &Q) -> Option<(&K, &V)>
     where
-        BK: Hash + Eq + ?Sized,
-        K: Borrow<BK>,
+        Q: Hash + Equivalent<K> + ?Sized,
     {
         if let Some(root) = &self.root {
             root.get(hash_key(&self.hasher, key), 0, key)
@@ -555,10 +580,9 @@ where
     /// ```
     #[inline]
     #[must_use]
-    pub fn contains_key<BK>(&self, k: &BK) -> bool
+    pub fn contains_key<Q>(&self, k: &Q) -> bool
     where
-        BK: Hash + Eq + ?Sized,
-        K: Borrow<BK>,
+        Q: Hash + Equivalent<K> + ?Sized,
     {
         self.get(k).is_some()
     }
@@ -696,10 +720,9 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_mut<BK>(&mut self, key: &BK) -> Option<&mut V>
+    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
     where
-        BK: Hash + Eq + ?Sized,
-        K: Borrow<BK>,
+        Q: Hash + Equivalent<K> + ?Sized,
     {
         self.get_key_value_mut(key).map(|(_, v)| v)
     }
@@ -720,10 +743,9 @@ where
     /// );
     /// ```
     #[must_use]
-    pub fn get_key_value_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub fn get_key_value_mut<Q>(&mut self, key: &Q) -> Option<(&K, &mut V)>
     where
-        BK: Hash + Eq + ?Sized,
-        K: Borrow<BK>,
+        Q: Hash + Equivalent<K> + ?Sized,
     {
         let root = self.root.as_mut()?;
         match SharedPointer::make_mut(root).get_mut(hash_key(&self.hasher, key), 0, key) {
@@ -783,10 +805,9 @@ where
     /// assert_eq!(None, map.remove(&789));
     /// assert!(map.is_empty());
     /// ```
-    pub fn remove<BK>(&mut self, k: &BK) -> Option<V>
+    pub fn remove<Q>(&mut self, k: &Q) -> Option<V>
     where
-        BK: Hash + Eq + ?Sized,
-        K: Borrow<BK>,
+        Q: Hash + Equivalent<K> + ?Sized,
     {
         self.remove_with_key(k).map(|(_, v)| v)
     }
@@ -807,10 +828,9 @@ where
     /// assert_eq!(None, map.remove_with_key(&789));
     /// assert!(map.is_empty());
     /// ```
-    pub fn remove_with_key<BK>(&mut self, k: &BK) -> Option<(K, V)>
+    pub fn remove_with_key<Q>(&mut self, k: &Q) -> Option<(K, V)>
     where
-        BK: Hash + Eq + ?Sized,
-        K: Borrow<BK>,
+        Q: Hash + Equivalent<K> + ?Sized,
     {
         let Some(root) = &mut self.root else {
             return None;
@@ -973,10 +993,9 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn without<BK>(&self, k: &BK) -> Self
+    pub fn without<Q>(&self, k: &Q) -> Self
     where
-        BK: Hash + Eq + ?Sized,
-        K: Borrow<BK>,
+        Q: Hash + Equivalent<K> + ?Sized,
     {
         match self.extract_with_key(k) {
             None => self.clone(),
@@ -1024,10 +1043,9 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn extract<BK>(&self, k: &BK) -> Option<(V, Self)>
+    pub fn extract<Q>(&self, k: &Q) -> Option<(V, Self)>
     where
-        BK: Hash + Eq + ?Sized,
-        K: Borrow<BK>,
+        Q: Hash + Equivalent<K> + ?Sized,
     {
         self.extract_with_key(k).map(|(_, v, m)| (v, m))
     }
@@ -1037,10 +1055,9 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn extract_with_key<BK>(&self, k: &BK) -> Option<(K, V, Self)>
+    pub fn extract_with_key<Q>(&self, k: &Q) -> Option<(K, V, Self)>
     where
-        BK: Hash + Eq + ?Sized,
-        K: Borrow<BK>,
+        Q: Hash + Equivalent<K> + ?Sized,
     {
         let mut out = self.clone();
         out.remove_with_key(k).map(|(k, v)| (k, v, out))
@@ -1568,7 +1585,6 @@ where
 
     /// Call the provided function to modify the value if the value
     /// exists.
-    #[must_use]
     pub fn and_modify<F>(mut self, f: F) -> Self
     where
         F: FnOnce(&mut V),
@@ -1825,16 +1841,16 @@ where
     }
 }
 
-impl<BK, K, V, S, P> Index<&BK> for GenericHashMap<K, V, S, P>
+impl<Q, K, V, S, P> Index<&Q> for GenericHashMap<K, V, S, P>
 where
-    BK: Hash + Eq + ?Sized,
-    K: Hash + Eq + Borrow<BK>,
+    Q: Hash + Equivalent<K> + ?Sized,
+    K: Hash + Eq,
     S: BuildHasher + Clone,
     P: SharedPointerKind,
 {
     type Output = V;
 
-    fn index(&self, key: &BK) -> &Self::Output {
+    fn index(&self, key: &Q) -> &Self::Output {
         match self.get(key) {
             None => panic!("HashMap::index: invalid key"),
             Some(value) => value,
@@ -1842,15 +1858,15 @@ where
     }
 }
 
-impl<BK, K, V, S, P> IndexMut<&BK> for GenericHashMap<K, V, S, P>
+impl<Q, K, V, S, P> IndexMut<&Q> for GenericHashMap<K, V, S, P>
 where
-    BK: Hash + Eq + ?Sized,
-    K: Hash + Eq + Clone + Borrow<BK>,
+    Q: Hash + Equivalent<K> + ?Sized,
+    K: Hash + Eq + Clone,
     V: Clone,
     S: BuildHasher + Clone,
     P: SharedPointerKind,
 {
-    fn index_mut(&mut self, key: &BK) -> &mut Self::Output {
+    fn index_mut(&mut self, key: &Q) -> &mut Self::Output {
         match self.get_mut(key) {
             None => panic!("HashMap::index_mut: invalid key"),
             Some(value) => value,
@@ -2085,9 +2101,9 @@ impl<K, V, S, P: SharedPointerKind> AsRef<GenericHashMap<K, V, S, P>>
 impl<K, V, OK, OV, SA, SB, P1, P2> From<&GenericHashMap<&K, &V, SA, P1>>
     for GenericHashMap<OK, OV, SB, P2>
 where
-    K: Hash + Eq + ToOwned<Owned = OK> + ?Sized,
+    K: Hash + Equivalent<OK> + ToOwned<Owned = OK> + ?Sized,
     V: ToOwned<Owned = OV> + ?Sized,
-    OK: Hash + Eq + Clone + Borrow<K>,
+    OK: Hash + Eq + Clone,
     OV: Borrow<V> + Clone,
     SA: BuildHasher + Clone,
     SB: BuildHasher + Default + Clone,

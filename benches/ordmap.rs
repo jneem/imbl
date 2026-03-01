@@ -1,4 +1,5 @@
 use criterion::{criterion_group, criterion_main, Bencher, Criterion};
+use equivalent::Comparable;
 use imbl::ordmap::OrdMap;
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
@@ -85,8 +86,7 @@ where
 
     fn get<Q>(&self, k: &Q) -> Option<&V>
     where
-        K: Borrow<Q>,
-        Q: Ord + ?Sized,
+        Q: Comparable<K> + ?Sized,
     {
         self.get(k)
     }
@@ -96,7 +96,7 @@ where
     }
 
     fn range<'a>(&'a self, range: std::ops::RangeFrom<&'a K>) -> Self::RangeIter<'a> {
-        self.range(range)
+        self.range::<_, K>(range)
     }
 
     fn is_empty(&self) -> bool {
@@ -146,6 +146,7 @@ where
     }
 
     fn remove(&mut self, k: &K) -> Option<V> {
+        #[expect(clippy::if_same_then_else)]
         if self.remove_mut(k) {
             None // rpds doesn't return the removed value
         } else {
@@ -585,6 +586,7 @@ where
             });
         }
 
+        #[expect(clippy::single_element_loop)]
         for size in &[1000] {
             group.bench_function(format!("remove_min_{}", size), |b| {
                 bench_remove_min::<M, K, V>(b, *size)

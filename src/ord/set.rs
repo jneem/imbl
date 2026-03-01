@@ -24,6 +24,7 @@ use std::iter::{FromIterator, FusedIterator, Sum};
 use std::ops::{Add, Mul, RangeBounds};
 
 use archery::SharedPointerKind;
+use equivalent::Comparable;
 
 use super::map;
 use crate::hashset::GenericHashSet;
@@ -215,11 +216,10 @@ where
 
     /// Create an iterator over a range inside the set.
     #[must_use]
-    pub fn range<R, BA>(&self, range: R) -> RangedIter<'_, A, P>
+    pub fn range<R, Q>(&self, range: R) -> RangedIter<'_, A, P>
     where
-        R: RangeBounds<BA>,
-        A: Borrow<BA>,
-        BA: Ord + ?Sized,
+        R: RangeBounds<Q>,
+        Q: Comparable<A> + ?Sized,
     {
         RangedIter {
             it: self.map.range(range),
@@ -259,12 +259,11 @@ where
     /// ```
     #[inline]
     #[must_use]
-    pub fn contains<BA>(&self, a: &BA) -> bool
+    pub fn contains<Q>(&self, value: &Q) -> bool
     where
-        BA: Ord + ?Sized,
-        A: Borrow<BA>,
+        Q: Comparable<A> + ?Sized,
     {
-        self.map.contains_key(a)
+        self.map.contains_key(value)
     }
 
     /// Returns a reference to the element in the set, if any, that is equal to the value.
@@ -300,12 +299,11 @@ where
     /// assert_eq!(set.get(&0).unwrap().data, "Hello");
     ///
     /// ```
-    pub fn get<BK>(&self, k: &BK) -> Option<&A>
+    pub fn get<Q>(&self, value: &Q) -> Option<&A>
     where
-        BK: Ord + ?Sized,
-        A: Borrow<BK>,
+        Q: Comparable<A> + ?Sized,
     {
-        self.map.get_key_value(k).map(|(k, _)| k)
+        self.map.get_key_value(value).map(|(k, _)| k)
     }
 
     /// Get the closest smaller value in a set to a given value.
@@ -324,12 +322,11 @@ where
     /// assert_eq!(Some(&5), set.get_prev(&6));
     /// ```
     #[must_use]
-    pub fn get_prev<BK>(&self, k: &BK) -> Option<&A>
+    pub fn get_prev<Q>(&self, value: &Q) -> Option<&A>
     where
-        BK: Ord + ?Sized,
-        A: Borrow<BK>,
+        Q: Comparable<A> + ?Sized,
     {
-        self.map.get_prev(k).map(|(k, _)| k)
+        self.map.get_prev(value).map(|(k, _)| k)
     }
 
     /// Get the closest larger value in a set to a given value.
@@ -348,12 +345,11 @@ where
     /// assert_eq!(Some(&5), set.get_next(&4));
     /// ```
     #[must_use]
-    pub fn get_next<BK>(&self, k: &BK) -> Option<&A>
+    pub fn get_next<Q>(&self, value: &Q) -> Option<&A>
     where
-        BK: Ord + ?Sized,
-        A: Borrow<BK>,
+        Q: Comparable<A> + ?Sized,
     {
-        self.map.get_next(k).map(|(k, _)| k)
+        self.map.get_next(value).map(|(k, _)| k)
     }
 
     /// Test whether a set is a subset of another set, meaning that
@@ -427,12 +423,11 @@ where
     ///
     /// Time: O(log n)
     #[inline]
-    pub fn remove<BA>(&mut self, a: &BA) -> Option<A>
+    pub fn remove<Q>(&mut self, value: &Q) -> Option<A>
     where
-        BA: Ord + ?Sized,
-        A: Borrow<BA>,
+        Q: Comparable<A> + ?Sized,
     {
-        self.map.remove_with_key(a).map(|(k, _)| k)
+        self.map.remove_with_key(value).map(|(k, _)| k)
     }
 
     /// Remove the smallest value from a set.
@@ -481,13 +476,12 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn without<BA>(&self, a: &BA) -> Self
+    pub fn without<Q>(&self, value: &Q) -> Self
     where
-        BA: Ord + ?Sized,
-        A: Borrow<BA>,
+        Q: Comparable<A> + ?Sized,
     {
         let mut out = self.clone();
-        out.remove(a);
+        out.remove(value);
         out
     }
 
@@ -661,10 +655,9 @@ where
     ///
     /// Time: O(n)
     #[must_use]
-    pub fn split<BA>(self, split: &BA) -> (Self, Self)
+    pub fn split<Q>(self, split: &Q) -> (Self, Self)
     where
-        BA: Ord + ?Sized,
-        A: Borrow<BA>,
+        Q: Comparable<A> + ?Sized,
     {
         let (left, _, right) = self.split_member(split);
         (left, right)
@@ -680,16 +673,15 @@ where
     ///
     /// Time: O(n)
     #[must_use]
-    pub fn split_member<BA>(self, split: &BA) -> (Self, bool, Self)
+    pub fn split_member<Q>(self, split: &Q) -> (Self, bool, Self)
     where
-        BA: Ord + ?Sized,
-        A: Borrow<BA>,
+        Q: Comparable<A> + ?Sized,
     {
         let mut left = Self::default();
         let mut right = Self::default();
         let mut present = false;
         for value in self {
-            match value.borrow().cmp(split) {
+            match split.compare(&value).reverse() {
                 Ordering::Less => {
                     left.insert(value);
                 }
@@ -1069,7 +1061,7 @@ where
 impl<A, OA, P1, P2> From<&GenericOrdSet<&A, P2>> for GenericOrdSet<OA, P1>
 where
     A: ToOwned<Owned = OA> + Ord + ?Sized,
-    OA: Borrow<A> + Ord + Clone,
+    OA: Ord + Clone,
     P1: SharedPointerKind,
     P2: SharedPointerKind,
 {
@@ -1167,9 +1159,9 @@ mod test {
     #[test]
     fn ranged_iter() {
         let set = ordset![1, 2, 3, 4, 5];
-        let range: Vec<i32> = set.range(..).cloned().collect();
+        let range: Vec<i32> = set.range::<_, i32>(..).cloned().collect();
         assert_eq!(vec![1, 2, 3, 4, 5], range);
-        let range: Vec<i32> = set.range(..).rev().cloned().collect();
+        let range: Vec<i32> = set.range::<_, i32>(..).rev().cloned().collect();
         assert_eq!(vec![5, 4, 3, 2, 1], range);
         let range: Vec<i32> = set.range(2..5).cloned().collect();
         assert_eq!(vec![2, 3, 4], range);
@@ -1201,12 +1193,12 @@ mod test {
             let range = 0..max;
             let expected: Vec<i32> = range.clone().collect();
             let set: OrdSet<i32> = OrdSet::from_iter(range.clone());
-            let result: Vec<i32> = set.range(..).cloned().collect();
+            let result: Vec<i32> = set.range::<_, i32>(..).cloned().collect();
             assert_eq!(expected, result);
 
             let expected: Vec<i32> = range.clone().rev().collect();
             let set: OrdSet<i32> = OrdSet::from_iter(range);
-            let result: Vec<i32> = set.range(..).rev().cloned().collect();
+            let result: Vec<i32> = set.range::<_, i32>(..).rev().cloned().collect();
             assert_eq!(expected, result);
         }
     }

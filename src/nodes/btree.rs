@@ -2,7 +2,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use std::borrow::Borrow;
 use std::collections::VecDeque;
 use std::iter::FromIterator;
 use std::mem;
@@ -10,6 +9,7 @@ use std::num::NonZeroUsize;
 use std::ops::{Bound, RangeBounds};
 
 use archery::{SharedPointer, SharedPointerKind};
+use equivalent::Comparable;
 use imbl_sized_chunks::Chunk;
 
 pub(crate) use crate::config::ORD_CHUNK_SIZE as NODE_SIZE;
@@ -263,10 +263,9 @@ pub(crate) struct Leaf<K, V> {
 impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Node<K, V, P> {
     /// Removes a key from the node or its children.
     /// Returns `true` if the node is underflowed and should be rebalanced.
-    pub(crate) fn remove<BK>(&mut self, key: &BK, removed: &mut Option<(K, V)>) -> bool
+    pub(crate) fn remove<Q>(&mut self, key: &Q, removed: &mut Option<(K, V)>) -> bool
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         match self {
             Node::Branch(branch) => SharedPointer::make_mut(branch).remove(key, removed),
@@ -276,12 +275,11 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Node<K, V, P> {
 }
 
 impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
-    pub(crate) fn remove<BK>(&mut self, key: &BK, removed: &mut Option<(K, V)>) -> bool
+    pub(crate) fn remove<Q>(&mut self, key: &Q, removed: &mut Option<(K, V)>) -> bool
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
-        let i = slice_ext::binary_search_by(&self.keys, |k| k.borrow().cmp(key))
+        let i = slice_ext::binary_search_by(&self.keys, |k| key.compare(k).reverse())
             .map(|x| x + 1)
             .unwrap_or_else(|x| x);
         let rebalance = match &mut self.children {
@@ -303,12 +301,11 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
 }
 
 impl<K: Ord + Clone, V: Clone> Leaf<K, V> {
-    pub(crate) fn remove<BK>(&mut self, key: &BK, removed: &mut Option<(K, V)>) -> bool
+    pub(crate) fn remove<Q>(&mut self, key: &Q, removed: &mut Option<(K, V)>) -> bool
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
-        if let Ok(i) = slice_ext::binary_search_by(&self.keys, |(k, _)| k.borrow().cmp(key)) {
+        if let Ok(i) = slice_ext::binary_search_by(&self.keys, |(k, _)| key.compare(k).reverse()) {
             *removed = Some(self.keys.remove(i));
         }
         // Underflow if the leaf is < 1/3 full. This relaxed underflow (vs. 1/2 full) is
@@ -612,12 +609,11 @@ impl<K: Ord + Clone, V: Clone> Leaf<K, V> {
 }
 
 impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
-    pub(crate) fn lookup_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub(crate) fn lookup_mut<Q>(&mut self, key: &Q) -> Option<(&K, &mut V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
-        let i = slice_ext::binary_search_by(&self.keys, |k| k.borrow().cmp(key))
+        let i = slice_ext::binary_search_by(&self.keys, |k| key.compare(k).reverse())
             .map(|x| x + 1)
             .unwrap_or_else(|x| x);
         match &mut self.children {
@@ -630,22 +626,20 @@ impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Branch<K, V, P> {
 }
 
 impl<K: Ord + Clone, V: Clone> Leaf<K, V> {
-    pub(crate) fn lookup_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub(crate) fn lookup_mut<Q>(&mut self, key: &Q) -> Option<(&K, &mut V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         let keys = &mut self.keys;
-        let i = slice_ext::binary_search_by(keys, |(k, _)| k.borrow().cmp(key)).ok()?;
+        let i = slice_ext::binary_search_by(keys, |(k, _)| key.compare(k).reverse()).ok()?;
         keys.get_mut(i).map(|(k, v)| (&*k, v))
     }
 }
 
 impl<K: Ord + Clone, V: Clone, P: SharedPointerKind> Node<K, V, P> {
-    pub(crate) fn lookup_mut<BK>(&mut self, key: &BK) -> Option<(&K, &mut V)>
+    pub(crate) fn lookup_mut<Q>(&mut self, key: &Q) -> Option<(&K, &mut V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         match self {
             Node::Branch(branch) => SharedPointer::make_mut(branch).lookup_mut(key),
@@ -689,14 +683,13 @@ impl<K: Ord, V, P: SharedPointerKind> Branch<K, V, P> {
             }
         }
     }
-    pub(crate) fn lookup<BK>(&self, key: &BK) -> Option<&(K, V)>
+    pub(crate) fn lookup<Q>(&self, key: &Q) -> Option<&(K, V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         let mut node = self;
         loop {
-            let i = slice_ext::binary_search_by(&node.keys, |k| k.borrow().cmp(key))
+            let i = slice_ext::binary_search_by(&node.keys, |k| key.compare(k).reverse())
                 .map(|x| x + 1)
                 .unwrap_or_else(|x| x);
             match &node.children {
@@ -714,13 +707,12 @@ impl<K: Ord, V> Leaf<K, V> {
     fn max(&self) -> Option<&(K, V)> {
         self.keys.last()
     }
-    fn lookup<BK>(&self, key: &BK) -> Option<&(K, V)>
+    fn lookup<Q>(&self, key: &Q) -> Option<&(K, V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         let keys = &self.keys;
-        let i = slice_ext::binary_search_by(keys, |(k, _)| k.borrow().cmp(key)).ok()?;
+        let i = slice_ext::binary_search_by(keys, |(k, _)| key.compare(k).reverse()).ok()?;
         keys.get(i)
     }
 }
@@ -740,10 +732,9 @@ impl<K: Ord, V, P: SharedPointerKind> Node<K, V, P> {
         }
     }
 
-    pub(crate) fn lookup<BK>(&self, key: &BK) -> Option<&(K, V)>
+    pub(crate) fn lookup<Q>(&self, key: &Q) -> Option<&(K, V)>
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         match self {
             Node::Branch(branch) => branch.lookup(key),
@@ -896,11 +887,10 @@ pub(crate) struct Iter<'a, K, V, P: SharedPointerKind> {
 }
 
 impl<'a, K, V, P: SharedPointerKind> Iter<'a, K, V, P> {
-    pub(crate) fn new<R, BK>(root: Option<&'a Node<K, V, P>>, len: usize, range: R) -> Self
+    pub(crate) fn new<R, Q>(root: Option<&'a Node<K, V, P>>, len: usize, range: R) -> Self
     where
-        R: RangeBounds<BK>,
-        K: Borrow<BK>,
-        BK: Ord + ?Sized,
+        R: RangeBounds<Q>,
+        Q: Comparable<K> + ?Sized,
     {
         let mut fwd = Cursor::empty();
         let mut bwd = Cursor::empty();
@@ -1163,14 +1153,14 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
         }
     }
 
-    fn seek_to_key<BK>(&mut self, key: &BK, for_prev: bool) -> bool
+    fn seek_to_key<Q>(&mut self, key: &Q, for_prev: bool) -> bool
     where
-        BK: Ord + ?Sized,
-        K: Borrow<BK>,
+        Q: Comparable<K> + ?Sized,
     {
         loop {
             if let Some((i, leaf)) = &mut self.leaf {
-                let search = slice_ext::binary_search_by(&leaf.keys, |(k, _)| k.borrow().cmp(key));
+                let search =
+                    slice_ext::binary_search_by(&leaf.keys, |(k, _)| key.compare(k).reverse());
                 *i = search.unwrap_or_else(|x| x);
                 if for_prev {
                     if search.is_err() {
@@ -1184,7 +1174,7 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
             let Some((i, branch)) = self.stack.last_mut() else {
                 return false;
             };
-            *i = slice_ext::binary_search_by(&branch.keys, |k| k.borrow().cmp(key))
+            *i = slice_ext::binary_search_by(&branch.keys, |k| key.compare(k).reverse())
                 .map(|x| x + 1)
                 .unwrap_or_else(|x| x);
             let (i, branch) = (*i, *branch);

@@ -30,6 +30,7 @@ use std::iter::{FromIterator, FusedIterator, Sum};
 use std::ops::{Add, Deref, Mul};
 
 use archery::{SharedPointer, SharedPointerKind};
+use equivalent::Equivalent;
 
 use crate::GenericVector;
 use crate::nodes::hamt::{Drain as NodeDrain, HashValue, Iter as NodeIter, Node, hash_key};
@@ -321,13 +322,12 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn contains<BA>(&self, a: &BA) -> bool
+    pub fn contains<Q>(&self, value: &Q) -> bool
     where
-        BA: Hash + Eq + ?Sized,
-        A: Borrow<BA>,
+        Q: Hash + Equivalent<A> + ?Sized,
     {
         if let Some(root) = &self.root {
-            root.get(hash_key(&self.hasher, a), 0, a).is_some()
+            root.get(hash_key(&self.hasher, value), 0, value).is_some()
         } else {
             false
         }
@@ -385,13 +385,12 @@ where
     /// Remove a value from a set if it exists.
     ///
     /// Time: O(log n)
-    pub fn remove<BA>(&mut self, a: &BA) -> Option<A>
+    pub fn remove<Q>(&mut self, value: &Q) -> Option<A>
     where
-        BA: Hash + Eq + ?Sized,
-        A: Borrow<BA>,
+        Q: Hash + Equivalent<A> + ?Sized,
     {
         let root = SharedPointer::make_mut(self.root.get_or_insert_with(Default::default));
-        let result = root.remove(hash_key(&self.hasher, a), 0, a);
+        let result = root.remove(hash_key(&self.hasher, value), 0, value);
         if result.is_some() {
             self.size -= 1;
         }
@@ -427,13 +426,12 @@ where
     ///
     /// Time: O(log n)
     #[must_use]
-    pub fn without<BA>(&self, a: &BA) -> Self
+    pub fn without<Q>(&self, value: &Q) -> Self
     where
-        BA: Hash + Eq + ?Sized,
-        A: Borrow<BA>,
+        Q: Hash + Equivalent<A> + ?Sized,
     {
         let mut out = self.clone();
-        out.remove(a);
+        out.remove(value);
         out
     }
 
@@ -466,7 +464,7 @@ where
         let old_root = root.clone();
         let root = SharedPointer::make_mut(root);
         for (value, hash) in NodeIter::new(Some(&old_root), self.size) {
-            if !f(value) && root.remove(hash, 0, value).is_some() {
+            if !f(value) && root.remove(hash, 0, &**value).is_some() {
                 self.size -= 1;
             }
         }
@@ -889,8 +887,8 @@ where
 
 impl<A, OA, SA, SB, P1, P2> From<&GenericHashSet<&A, SA, P1>> for GenericHashSet<OA, SB, P2>
 where
-    A: ToOwned<Owned = OA> + Hash + Eq + ?Sized,
-    OA: Borrow<A> + Hash + Eq + Clone,
+    A: ToOwned<Owned = OA> + Hash + Equivalent<A> + ?Sized,
+    OA: Hash + Eq + Clone,
     SA: BuildHasher,
     SB: BuildHasher + Default + Clone,
     P1: SharedPointerKind,
