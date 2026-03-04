@@ -29,11 +29,11 @@ where
         writeln!(out, "let mut set = OrdSet::new();")?;
         for action in &self.0 {
             match action {
-                Action::Insert(ref value) => {
+                Action::Insert(value) => {
                     expected.insert(value.clone());
                     writeln!(out, "set.insert({:?});", value)?;
                 }
-                Action::Remove(ref value) => {
+                Action::Remove(value) => {
                     expected.remove(value);
                     writeln!(out, "set.remove({:?});", value)?;
                 }

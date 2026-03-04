@@ -52,7 +52,7 @@ fn group_find_empty(control: &SimdGroup) -> Option<usize> {
 
 #[inline]
 fn group_find(control: &SimdGroup, value: u8) -> GroupBitmap {
-    let mask = control.cmp_eq(SimdGroup::splat(value)).move_mask();
+    let mask = control.simd_eq(SimdGroup::splat(value)).to_bitmask();
     GroupBitmap::from_value(mask as _)
 }
 
@@ -213,7 +213,7 @@ where
 
         while let Some(offset) = bitmap.first_index() {
             let index = group * GROUP_WIDTH + offset;
-            let (ref value, value_hash) = self.data.get(index).unwrap();
+            let (value, value_hash) = self.data.get(index).unwrap();
             if hash_may_eq::<A>(hash, *value_hash) && key.equivalent(value.extract_key()) {
                 return Some(value);
             }
@@ -236,7 +236,7 @@ where
             let index = group * GROUP_WIDTH + offset;
             #[allow(unsafe_code)]
             let this = unsafe { &mut *this };
-            let (ref mut value, value_hash) = this.data.get_mut(index).unwrap();
+            let (value, value_hash) = this.data.get_mut(index).unwrap();
             if hash_may_eq::<A>(hash, *value_hash) && key.equivalent(value.extract_key()) {
                 return Some(value);
             }
@@ -254,7 +254,7 @@ where
 
         while let Some(offset) = bitmap.first_index() {
             let index = group * GROUP_WIDTH + offset;
-            let (ref value, value_hash) = self.data.get(index).unwrap();
+            let (value, value_hash) = self.data.get(index).unwrap();
             if hash_may_eq::<A>(hash, *value_hash) && key.equivalent(value.extract_key()) {
                 let mut ctrl_array = self.control[group].to_array();
                 ctrl_array[offset] = 0;
@@ -414,12 +414,12 @@ impl<A: HashValue, P: SharedPointerKind> HamtNode<A, P> {
             // This is less relevant in other code paths that may include
             // atomics, memory allocation (e.g. insert, remove) etc..
             match entry {
-                Entry::HamtNode(ref child) => {
+                Entry::HamtNode(child) => {
                     node = child;
                     shift += HASH_SHIFT;
                     continue;
                 }
-                Entry::Value(ref value, value_hash) => {
+                Entry::Value(value, value_hash) => {
                     return if hash_may_eq::<A>(hash, *value_hash)
                         && key.equivalent(value.extract_key())
                     {
@@ -443,9 +443,9 @@ impl<A: HashValue, P: SharedPointerKind> HamtNode<A, P> {
         Q: Equivalent<A::Key> + ?Sized,
     {
         match entry {
-            Entry::SmallSimdNode(ref small) => small.get(hash, key),
-            Entry::LargeSimdNode(ref large) => large.get(hash, key),
-            Entry::Collision(ref coll) => coll.get(key),
+            Entry::SmallSimdNode(small) => small.get(hash, key),
+            Entry::LargeSimdNode(large) => large.get(hash, key),
+            Entry::Collision(coll) => coll.get(key),
             _ => unreachable!(),
         }
     }
@@ -457,25 +457,23 @@ impl<A: HashValue, P: SharedPointerKind> HamtNode<A, P> {
     {
         let index = Self::mask(hash, shift) as usize;
         match self.data.get_mut(index) {
-            Some(Entry::HamtNode(ref mut child_ref)) => {
+            Some(Entry::HamtNode(child_ref)) => {
                 SharedPointer::make_mut(child_ref).get_mut(hash, shift + HASH_SHIFT, key)
             }
-            Some(Entry::SmallSimdNode(ref mut small_ref)) => {
+            Some(Entry::SmallSimdNode(small_ref)) => {
                 SharedPointer::make_mut(small_ref).get_mut(hash, key)
             }
-            Some(Entry::LargeSimdNode(ref mut large_ref)) => {
+            Some(Entry::LargeSimdNode(large_ref)) => {
                 SharedPointer::make_mut(large_ref).get_mut(hash, key)
             }
-            Some(Entry::Value(ref mut value, value_hash)) => {
+            Some(Entry::Value(value, value_hash)) => {
                 if hash_may_eq::<A>(hash, *value_hash) && key.equivalent(value.extract_key()) {
                     Some(value)
                 } else {
                     None
                 }
             }
-            Some(Entry::Collision(ref mut coll_ref)) => {
-                SharedPointer::make_mut(coll_ref).get_mut(key)
-            }
+            Some(Entry::Collision(coll_ref)) => SharedPointer::make_mut(coll_ref).get_mut(key),
             None => None,
         }
     }
@@ -741,6 +739,7 @@ impl<A, P: SharedPointerKind> Node<A, P> {
 /// An allocation-free stack for iterators.
 type InlineStack<T> = InlineArray<T, (usize, [T; ITER_STACK_CAPACITY])>;
 
+#[allow(clippy::enum_variant_names)]
 enum IterItem<'a, A, P: SharedPointerKind> {
     SmallSimdNode(ChunkIter<'a, (A, HashBits), SMALL_NODE_WIDTH>),
     LargeSimdNode(ChunkIter<'a, (A, HashBits), HASH_WIDTH>),
@@ -861,7 +860,7 @@ impl<'a, A, P: SharedPointerKind> ExactSizeIterator for Iter<'a, A, P> where A: 
 impl<'a, A, P: SharedPointerKind> FusedIterator for Iter<'a, A, P> where A: 'a {}
 
 // Mut ref iterator
-
+#[allow(clippy::enum_variant_names)]
 enum IterMutItem<'a, A, P: SharedPointerKind> {
     SmallSimdNode(ChunkIterMut<'a, (A, HashBits), SMALL_NODE_WIDTH>),
     LargeSimdNode(ChunkIterMut<'a, (A, HashBits), HASH_WIDTH>),

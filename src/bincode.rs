@@ -10,15 +10,15 @@ use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 
-use crate::hashmap::GenericHashMap;
-use crate::hashset::GenericHashSet;
-use crate::ordmap::GenericOrdMap;
-use crate::ordset::GenericOrdSet;
-use crate::vector::GenericVector;
+use crate::hashmap::HashMap;
+use crate::hashset::HashSet;
+use crate::ordmap::OrdMap;
+use crate::ordset::OrdSet;
+use crate::vector::Vector;
 
 // Set
 
-impl<C, A: Decode<C> + Ord + Clone, P: SharedPointerKind> Decode<C> for GenericOrdSet<A, P> {
+impl<C, A: Decode<C> + Ord + Clone, P: SharedPointerKind> Decode<C> for OrdSet<A, P> {
     fn decode<D: Decoder<Context = C>>(decoder: &mut D) -> Result<Self, DecodeError> {
         let mut output = Self::new();
         let length: usize = Decode::decode(decoder)?;
@@ -31,7 +31,7 @@ impl<C, A: Decode<C> + Ord + Clone, P: SharedPointerKind> Decode<C> for GenericO
     }
 }
 
-impl<A: Ord + Encode, P: SharedPointerKind> Encode for GenericOrdSet<A, P> {
+impl<A: Ord + Encode, P: SharedPointerKind> Encode for OrdSet<A, P> {
     fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
         Encode::encode(&self.len(), encoder)?;
         for item in self.iter() {
@@ -44,7 +44,7 @@ impl<A: Ord + Encode, P: SharedPointerKind> Encode for GenericOrdSet<A, P> {
 // Map
 
 impl<C, K: Decode<C> + Ord + Clone, V: Decode<C> + Clone, P: SharedPointerKind> Decode<C>
-    for GenericOrdMap<K, V, P>
+    for OrdMap<K, V, P>
 {
     fn decode<D: Decoder<Context = C>>(decoder: &mut D) -> Result<Self, DecodeError> {
         let len: usize = Decode::decode(decoder)?;
@@ -58,9 +58,7 @@ impl<C, K: Decode<C> + Ord + Clone, V: Decode<C> + Clone, P: SharedPointerKind> 
     }
 }
 
-impl<K: Encode + Ord + Clone, V: Encode + Clone, P: SharedPointerKind> Encode
-    for GenericOrdMap<K, V, P>
-{
+impl<K: Encode + Ord + Clone, V: Encode + Clone, P: SharedPointerKind> Encode for OrdMap<K, V, P> {
     fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
         Encode::encode(&self.len(), encoder)?;
         for (k, v) in self.iter() {
@@ -72,7 +70,7 @@ impl<K: Encode + Ord + Clone, V: Encode + Clone, P: SharedPointerKind> Encode
 
 // HashMap
 
-impl<C, K, V, S, P: SharedPointerKind> Decode<C> for GenericHashMap<K, V, S, P>
+impl<C, K, V, S, P: SharedPointerKind> Decode<C> for HashMap<K, V, S, P>
 where
     K: Decode<C> + Hash + Eq + Clone,
     V: Decode<C> + Clone,
@@ -91,7 +89,7 @@ where
     }
 }
 
-impl<K, V, S, P> Encode for GenericHashMap<K, V, S, P>
+impl<K, V, S, P> Encode for HashMap<K, V, S, P>
 where
     K: Encode + Hash + Eq,
     V: Encode,
@@ -109,7 +107,7 @@ where
 
 // HashSet
 
-impl<C, A, S, P> Decode<C> for GenericHashSet<A, S, P>
+impl<C, A, S, P> Decode<C> for HashSet<A, S, P>
 where
     A: Decode<C> + Hash + Eq + Clone,
     S: BuildHasher + Default + Clone,
@@ -128,7 +126,7 @@ where
 }
 
 impl<A: Encode + Hash + Eq, S: BuildHasher + Default, P: SharedPointerKind> Encode
-    for GenericHashSet<A, S, P>
+    for HashSet<A, S, P>
 {
     fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
         Encode::encode(&self.len(), encoder)?;
@@ -141,7 +139,7 @@ impl<A: Encode + Hash + Eq, S: BuildHasher + Default, P: SharedPointerKind> Enco
 
 // Vector
 
-impl<C, A: Clone + Decode<C>, P: SharedPointerKind> Decode<C> for GenericVector<A, P> {
+impl<C, A: Clone + Decode<C>, P: SharedPointerKind> Decode<C> for Vector<A, P> {
     fn decode<D: Decoder<Context = C>>(decoder: &mut D) -> Result<Self, DecodeError> {
         let mut output = Self::new();
         let length: usize = Decode::decode(decoder)?;
@@ -153,7 +151,7 @@ impl<C, A: Clone + Decode<C>, P: SharedPointerKind> Decode<C> for GenericVector<
     }
 }
 
-impl<A: Encode, P: SharedPointerKind> Encode for GenericVector<A, P> {
+impl<A: Encode, P: SharedPointerKind> Encode for Vector<A, P> {
     fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
         Encode::encode(&self.len(), encoder)?;
         for item in self.iter() {
@@ -168,8 +166,8 @@ impl<A: Encode, P: SharedPointerKind> Encode for GenericVector<A, P> {
 #[cfg(test)]
 mod test {
     use crate::{
-        proptest::{hash_map, hash_set, ord_map, ord_set, vector},
         HashMap, HashSet, OrdMap, OrdSet, Vector,
+        proptest::{hash_map, hash_set, ord_map, ord_set, vector},
     };
     use bincode::{decode_from_slice, encode_to_vec};
     use proptest::num::i32;

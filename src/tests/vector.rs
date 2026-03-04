@@ -3,7 +3,7 @@
 use std::fmt::{Debug, Error, Formatter, Write};
 use std::iter::FromIterator;
 
-use crate::{GenericVector, Vector};
+use crate::Vector;
 
 use proptest::proptest;
 use proptest_derive::Arbitrary;
@@ -37,11 +37,11 @@ where
         writeln!(out, "let mut vec = Vector::new();")?;
         for action in &self.0 {
             match action {
-                Action::PushFront(ref value) => {
+                Action::PushFront(value) => {
                     expected.insert(0, value.clone());
                     writeln!(out, "vec.push_front({:?});", value)?
                 }
-                Action::PushBack(ref value) => {
+                Action::PushBack(value) => {
                     expected.push(value.clone());
                     writeln!(out, "vec.push_back({:?});", value)?
                 }
@@ -55,12 +55,12 @@ where
                     expected.pop();
                     writeln!(out, "vec.pop_back();")?
                 }
-                Action::Insert(ref index, ref value) => {
+                Action::Insert(index, value) => {
                     let index = cap_index(expected.len(), *index);
                     expected.insert(index, value.clone());
                     writeln!(out, "vec.insert({:?}, {:?});", index, value)?
                 }
-                Action::Remove(ref index) => {
+                Action::Remove(index) => {
                     if !expected.is_empty() {
                         let index = cap_index(expected.len(), *index);
                         expected.remove(index);
@@ -69,7 +69,7 @@ where
                         continue;
                     }
                 }
-                Action::JoinLeft(ref vec) => {
+                Action::JoinLeft(vec) => {
                     let mut vec_new = vec.clone();
                     vec_new.append(&mut expected);
                     expected = vec_new;
@@ -82,7 +82,7 @@ where
                     writeln!(out, "vec_new.append(vec);")?;
                     writeln!(out, "vec = vec_new;")?
                 }
-                Action::JoinRight(ref vec) => {
+                Action::JoinRight(vec) => {
                     expected.append(&mut vec.clone());
                     writeln!(
                         out,
@@ -91,12 +91,12 @@ where
                         vec.len()
                     )?
                 }
-                Action::SplitLeft(ref index) => {
+                Action::SplitLeft(index) => {
                     let index = cap_index(expected.len(), *index);
                     expected.truncate(index);
                     writeln!(out, "vec.split_off({:?});", index)?
                 }
-                Action::SplitRight(ref index) => {
+                Action::SplitRight(index) => {
                     let index = cap_index(expected.len(), *index);
                     expected = expected.split_off(index);
                     writeln!(out, "vec = vec.split_off({:?});", index)?
@@ -111,11 +111,7 @@ where
 }
 
 fn cap_index(len: usize, index: usize) -> usize {
-    if len == 0 {
-        0
-    } else {
-        index % len
-    }
+    if len == 0 { 0 } else { index % len }
 }
 
 proptest! {
@@ -174,7 +170,7 @@ proptest! {
                     assert_eq!(len - 1, vec.len());
                 }
                 Action::JoinLeft(mut new_nat) => {
-                    let mut new_vec = GenericVector::from_iter(new_nat.iter().cloned());
+                    let mut new_vec = Vector::from_iter(new_nat.iter().cloned());
                     let add_len = new_nat.len();
                     let len = vec.len();
                     new_vec.append(vec);
@@ -184,7 +180,7 @@ proptest! {
                     assert_eq!(len + add_len, vec.len());
                 }
                 Action::JoinRight(mut new_nat) => {
-                    let new_vec = GenericVector::from_iter(new_nat.iter().cloned());
+                    let new_vec = Vector::from_iter(new_nat.iter().cloned());
                     let add_len = new_nat.len();
                     let len = vec.len();
                     vec.append(new_vec);
@@ -198,7 +194,7 @@ proptest! {
                     let nat_right = nat.split_off(index);
                     assert_eq!(index, vec.len());
                     assert_eq!(len - index, vec_right.len());
-                    assert_eq!(GenericVector::from_iter(nat_right.iter().cloned()), vec_right);
+                    assert_eq!(Vector::from_iter(nat_right.iter().cloned()), vec_right);
                 }
                 Action::SplitRight(index) => {
                     let index = cap_index(vec.len(), index);
@@ -207,7 +203,7 @@ proptest! {
                     let nat_right = nat.split_off(index);
                     assert_eq!(index, vec.len());
                     assert_eq!(len - index, vec_right.len());
-                    assert_eq!(GenericVector::from_iter(nat.iter().cloned()), vec);
+                    assert_eq!(Vector::from_iter(nat.iter().cloned()), vec);
                     vec = vec_right;
                     nat = nat_right;
                 }
@@ -229,5 +225,5 @@ fn test_inserts() {
     let mut rv: Vec<usize> = Vec::new();
     rv.extend((0..N).skip(1).step_by(2));
     rv.extend((0..N).step_by(2).rev());
-    assert_eq!(GenericVector::from_iter(rv.iter().cloned()), v);
+    assert_eq!(Vector::from_iter(rv.iter().cloned()), v);
 }

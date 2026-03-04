@@ -2,26 +2,25 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use std::iter::FromIterator;
 use std::mem::replace;
 use std::ops::Range;
 
 use archery::{SharedPointer, SharedPointerKind};
 
-use crate::nodes::chunk::{Chunk, CHUNK_SIZE};
-use crate::util::clone_ref;
+use crate::nodes::chunk::Chunk;
 use crate::util::Side::{self, Left, Right};
+use crate::util::clone_ref;
 
 use self::Entry::*;
 
-pub(crate) const NODE_SIZE: usize = CHUNK_SIZE;
-
 #[derive(Debug)]
-enum Size<P: SharedPointerKind> {
+enum Size<P: SharedPointerKind, const NODE_SIZE: usize> {
     Size(usize),
-    Table(SharedPointer<Chunk<usize>, P>),
+    Table(SharedPointer<Chunk<usize, NODE_SIZE>, P>),
 }
 
-impl<P: SharedPointerKind> Clone for Size<P> {
+impl<P: SharedPointerKind, const NODE_SIZE: usize> Clone for Size<P, NODE_SIZE> {
     fn clone(&self) -> Self {
         match *self {
             Size::Size(size) => Size::Size(size),
@@ -30,7 +29,7 @@ impl<P: SharedPointerKind> Clone for Size<P> {
     }
 }
 
-impl<P: SharedPointerKind> Size<P> {
+impl<P: SharedPointerKind, const NODE_SIZE: usize> Size<P, NODE_SIZE> {
     fn size(&self) -> usize {
         match self {
             Size::Size(s) => *s,
@@ -70,7 +69,7 @@ impl<P: SharedPointerKind> Size<P> {
         if let Size::Size(size) = self {
             *self = Size::table_from_size(level, *size);
         };
-        if let Size::Table(ref mut size_ref) = self {
+        if let Size::Table(size_ref) = self {
             let size_table = SharedPointer::make_mut(size_ref);
             debug_assert!(size_table.len() < NODE_SIZE);
             match side {
@@ -93,14 +92,14 @@ impl<P: SharedPointerKind> Size<P> {
 
     fn pop(&mut self, side: Side, level: usize, value: usize) {
         let size = match self {
-            Size::Size(ref mut size) => match side {
+            Size::Size(size) => match side {
                 Left => *size,
                 Right => {
                     *size -= value;
                     return;
                 }
             },
-            Size::Table(ref mut size_ref) => {
+            Size::Table(size_ref) => {
                 let size_table = SharedPointer::make_mut(size_ref);
                 match side {
                     Left => {
@@ -125,8 +124,8 @@ impl<P: SharedPointerKind> Size<P> {
 
     fn update(&mut self, index: usize, level: usize, value: isize) {
         let size = match self {
-            Size::Size(ref size) => *size,
-            Size::Table(ref mut size_ref) => {
+            &mut Size::Size(ref size) => *size,
+            Size::Table(size_ref) => {
                 let size_table = SharedPointer::make_mut(size_ref);
                 for entry in size_table.iter_mut().skip(index) {
                     *entry = (*entry as isize + value) as usize;
@@ -156,13 +155,16 @@ pub(crate) enum SplitResult {
 }
 
 // Invariants: Nodes only at level > 0, Values/Empty only at level = 0
-enum Entry<A, P: SharedPointerKind> {
-    Nodes(Size<P>, SharedPointer<Chunk<Node<A, P>>, P>),
-    Values(SharedPointer<Chunk<A>, P>),
+enum Entry<A, P: SharedPointerKind, const NODE_SIZE: usize> {
+    Nodes(
+        Size<P, NODE_SIZE>,
+        SharedPointer<Chunk<Node<A, P, NODE_SIZE>, NODE_SIZE>, P>,
+    ),
+    Values(SharedPointer<Chunk<A, NODE_SIZE>, P>),
     Empty,
 }
 
-impl<A: Clone, P: SharedPointerKind> Clone for Entry<A, P> {
+impl<A: Clone, P: SharedPointerKind, const NODE_SIZE: usize> Clone for Entry<A, P, NODE_SIZE> {
     fn clone(&self) -> Self {
         match *self {
             Nodes(ref size, ref nodes) => Nodes(size.clone(), nodes.clone()),
@@ -172,33 +174,33 @@ impl<A: Clone, P: SharedPointerKind> Clone for Entry<A, P> {
     }
 }
 
-impl<A, P: SharedPointerKind> Entry<A, P> {
+impl<A, P: SharedPointerKind, const NODE_SIZE: usize> Entry<A, P, NODE_SIZE> {
     fn len(&self) -> usize {
         match self {
-            Nodes(_, ref nodes) => nodes.len(),
-            Values(ref values) => values.len(),
+            Nodes(_, nodes) => nodes.len(),
+            Values(values) => values.len(),
             Empty => 0,
         }
     }
 
     fn is_full(&self) -> bool {
         match self {
-            Nodes(_, ref nodes) => nodes.is_full(),
-            Values(ref values) => values.is_full(),
+            Nodes(_, nodes) => nodes.is_full(),
+            Values(values) => values.is_full(),
             Empty => false,
         }
     }
 
-    fn unwrap_values(&self) -> &Chunk<A> {
+    fn unwrap_values(&self) -> &Chunk<A, NODE_SIZE> {
         match self {
-            Values(ref values) => values,
+            Values(values) => values,
             _ => panic!("rrb::Entry::unwrap_values: expected values, found nodes"),
         }
     }
 
-    fn unwrap_nodes(&self) -> &Chunk<Node<A, P>> {
+    fn unwrap_nodes(&self) -> &Chunk<Node<A, P, NODE_SIZE>, NODE_SIZE> {
         match self {
-            Nodes(_, ref nodes) => nodes,
+            Nodes(_, nodes) => nodes,
             _ => panic!("rrb::Entry::unwrap_nodes: expected nodes, found values"),
         }
     }
@@ -208,29 +210,29 @@ impl<A, P: SharedPointerKind> Entry<A, P> {
     }
 }
 
-impl<A: Clone, P: SharedPointerKind> Entry<A, P> {
-    fn unwrap_values_mut(&mut self) -> &mut Chunk<A> {
+impl<A: Clone, P: SharedPointerKind, const NODE_SIZE: usize> Entry<A, P, NODE_SIZE> {
+    fn unwrap_values_mut(&mut self) -> &mut Chunk<A, NODE_SIZE> {
         match self {
-            Values(ref mut values) => SharedPointer::make_mut(values),
+            Values(values) => SharedPointer::make_mut(values),
             _ => panic!("rrb::Entry::unwrap_values_mut: expected values, found nodes"),
         }
     }
 
-    fn unwrap_nodes_mut(&mut self) -> &mut Chunk<Node<A, P>> {
+    fn unwrap_nodes_mut(&mut self) -> &mut Chunk<Node<A, P, NODE_SIZE>, NODE_SIZE> {
         match self {
-            Nodes(_, ref mut nodes) => SharedPointer::make_mut(nodes),
+            Nodes(_, nodes) => SharedPointer::make_mut(nodes),
             _ => panic!("rrb::Entry::unwrap_nodes_mut: expected nodes, found values"),
         }
     }
 
-    fn values(self) -> Chunk<A> {
+    fn values(self) -> Chunk<A, NODE_SIZE> {
         match self {
             Values(values) => clone_ref(values),
             _ => panic!("rrb::Entry::values: expected values, found nodes"),
         }
     }
 
-    fn nodes(self) -> Chunk<Node<A, P>> {
+    fn nodes(self) -> Chunk<Node<A, P, NODE_SIZE>, NODE_SIZE> {
         match self {
             Nodes(_, nodes) => clone_ref(nodes),
             _ => panic!("rrb::Entry::nodes: expected nodes, found values"),
@@ -240,11 +242,11 @@ impl<A: Clone, P: SharedPointerKind> Entry<A, P> {
 
 // Node
 
-pub(crate) struct Node<A, P: SharedPointerKind> {
-    children: Entry<A, P>,
+pub(crate) struct Node<A, P: SharedPointerKind, const NODE_SIZE: usize> {
+    children: Entry<A, P, NODE_SIZE>,
 }
 
-impl<A: Clone, P: SharedPointerKind> Clone for Node<A, P> {
+impl<A: Clone, P: SharedPointerKind, const NODE_SIZE: usize> Clone for Node<A, P, NODE_SIZE> {
     fn clone(&self) -> Self {
         Node {
             children: self.children.clone(),
@@ -252,18 +254,18 @@ impl<A: Clone, P: SharedPointerKind> Clone for Node<A, P> {
     }
 }
 
-impl<A, P: SharedPointerKind> Default for Node<A, P> {
+impl<A, P: SharedPointerKind, const NODE_SIZE: usize> Default for Node<A, P, NODE_SIZE> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<A, P: SharedPointerKind> Node<A, P> {
+impl<A, P: SharedPointerKind, const NODE_SIZE: usize> Node<A, P, NODE_SIZE> {
     pub(crate) fn new() -> Self {
         Node { children: Empty }
     }
 
-    pub(crate) fn parent(level: usize, children: Chunk<Self>) -> Self {
+    pub(crate) fn parent(level: usize, children: Chunk<Self, NODE_SIZE>) -> Self {
         let mut size = Size::Size(0);
         let mut dense = true;
 
@@ -291,7 +293,7 @@ impl<A, P: SharedPointerKind> Node<A, P> {
         self.children = Empty;
     }
 
-    pub(crate) fn from_chunk(level: usize, chunk: SharedPointer<Chunk<A>, P>) -> Self {
+    pub(crate) fn from_chunk(level: usize, chunk: SharedPointer<Chunk<A, NODE_SIZE>, P>) -> Self {
         let node = Node {
             children: Values(chunk),
         };
@@ -436,7 +438,7 @@ impl<A, P: SharedPointerKind> Node<A, P> {
                 0
             } else {
                 match size {
-                    Size::Table(ref size_table) => size_table[index - 1],
+                    Size::Table(size_table) => size_table[index - 1],
                     Size::Size(_) => index * NODE_SIZE.pow(level as u32),
                 }
             }
@@ -480,11 +482,11 @@ impl<A, P: SharedPointerKind> Node<A, P> {
         level: usize,
         base: usize,
         index: usize,
-    ) -> (Range<usize>, *const Chunk<A>) {
+    ) -> (Range<usize>, *const Chunk<A, NODE_SIZE>) {
         if level == 0 {
             (
                 base..(base + self.children.len()),
-                self.children.unwrap_values() as *const Chunk<A>,
+                self.children.unwrap_values() as *const Chunk<A, NODE_SIZE>,
             )
         } else {
             let target_idx = self.index_in(level, index).unwrap();
@@ -528,7 +530,7 @@ impl<A, P: SharedPointerKind> Node<A, P> {
                         let total: usize = lengths.iter().sum();
                         assert_eq!(*size, total);
                     }
-                    Size::Table(ref table) => {
+                    Size::Table(table) => {
                         assert_eq!(table.iter().len(), children.len());
                         for (index, current) in table.iter().enumerate() {
                             let expected: usize = lengths.iter().take(index + 1).sum();
@@ -561,7 +563,7 @@ impl<A, P: SharedPointerKind> Node<A, P> {
             Entry::Nodes(ref size, ref children) => {
                 let label = match size {
                     Size::Size(size) => size.to_string(),
-                    Size::Table(ref table) => {
+                    Size::Table(table) => {
                         format!("\"{:?}\"", table.as_slice())
                     }
                 };
@@ -602,9 +604,21 @@ impl<A, P: SharedPointerKind> Node<A, P> {
     //         }
     //     }
     // }
+
+    pub(crate) fn process(&self, f: &mut impl FnMut(&Chunk<A, NODE_SIZE>)) {
+        match &self.children {
+            Entry::Values(xs) => f(xs),
+            Entry::Nodes(_, children) => {
+                for child in children.iter() {
+                    child.process(f);
+                }
+            }
+            Entry::Empty => (),
+        }
+    }
 }
 
-impl<A: Clone, P: SharedPointerKind> Node<A, P> {
+impl<A: Clone, P: SharedPointerKind, const NODE_SIZE: usize> Node<A, P, NODE_SIZE> {
     pub(crate) fn index_mut(&mut self, level: usize, index: usize) -> &mut A {
         if level == 0 {
             &mut self.children.unwrap_values_mut()[index]
@@ -621,11 +635,11 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
         level: usize,
         base: usize,
         index: usize,
-    ) -> (Range<usize>, *mut Chunk<A>) {
+    ) -> (Range<usize>, *mut Chunk<A, NODE_SIZE>) {
         if level == 0 {
             (
                 base..(base + self.children.len()),
-                self.children.unwrap_values_mut() as *mut Chunk<A>,
+                self.children.unwrap_values_mut() as *mut Chunk<A, NODE_SIZE>,
             )
         } else {
             let target_idx = self.index_in(level, index).unwrap();
@@ -637,7 +651,7 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
         }
     }
 
-    fn push_child_node(&mut self, side: Side, child: Node<A, P>) {
+    fn push_child_node(&mut self, side: Side, child: Node<A, P, NODE_SIZE>) {
         let children = self.children.unwrap_nodes_mut();
         match side {
             Left => children.push_front(child),
@@ -645,7 +659,7 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
         }
     }
 
-    fn pop_child_node(&mut self, side: Side) -> Node<A, P> {
+    fn pop_child_node(&mut self, side: Side) -> Node<A, P, NODE_SIZE> {
         let children = self.children.unwrap_nodes_mut();
         match side {
             Left => children.pop_front(),
@@ -657,8 +671,8 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
         &mut self,
         level: usize,
         side: Side,
-        mut chunk: SharedPointer<Chunk<A>, P>,
-    ) -> PushResult<SharedPointer<Chunk<A>, P>> {
+        mut chunk: SharedPointer<Chunk<A, NODE_SIZE>, P>,
+    ) -> PushResult<SharedPointer<Chunk<A, NODE_SIZE>, P>> {
         if chunk.is_empty() {
             return PushResult::Done;
         }
@@ -724,12 +738,12 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
             } else if is_full {
                 PushResult::Full(chunk, num_drained)
             } else {
-                if side == Left && chunk.len() < NODE_SIZE {
-                    if let Entry::Nodes(ref mut size, _) = self.children {
-                        if let Size::Size(value) = *size {
-                            *size = Size::table_from_size(level, value);
-                        }
-                    }
+                if side == Left
+                    && chunk.len() < NODE_SIZE
+                    && let Entry::Nodes(ref mut size, _) = self.children
+                    && let Size::Size(value) = *size
+                {
+                    *size = Size::table_from_size(level, value);
                 }
                 self.push_size(side, level, chunk.len());
                 self.push_child_node(side, Node::from_chunk(0, chunk));
@@ -780,12 +794,12 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
                     PushResult::Done
                 }
                 Some(child) => {
-                    if side == Left && chunk_size < NODE_SIZE {
-                        if let Entry::Nodes(ref mut size, _) = self.children {
-                            if let Size::Size(value) = *size {
-                                *size = Size::table_from_size(level, value);
-                            }
-                        }
+                    if side == Left
+                        && chunk_size < NODE_SIZE
+                        && let Entry::Nodes(ref mut size, _) = self.children
+                        && let Size::Size(value) = *size
+                    {
+                        *size = Size::table_from_size(level, value);
                     }
                     self.push_size(side, level, child.len());
                     self.push_child_node(side, child);
@@ -799,7 +813,7 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
         &mut self,
         level: usize,
         side: Side,
-    ) -> PopResult<SharedPointer<Chunk<A>, P>> {
+    ) -> PopResult<SharedPointer<Chunk<A, NODE_SIZE>, P>> {
         if self.is_empty() {
             return PopResult::Empty;
         }
@@ -912,7 +926,7 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
                     if let Size::Size(value) = *size {
                         *size = Size::table_from_size(level, value);
                     }
-                    let size_table = if let Size::Table(ref mut size_ref) = size {
+                    let size_table = if let Size::Table(size_ref) = size {
                         SharedPointer::make_mut(size_ref)
                     } else {
                         unreachable!()
@@ -938,10 +952,10 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
                         children.drop_right(drop_from);
                     }
                     match size {
-                        Size::Size(ref mut size) if at_last => {
+                        Size::Size(size) if at_last => {
                             *size -= dropped;
                         }
-                        Size::Size(ref mut size) => {
+                        Size::Size(size) => {
                             let size_per_child = NODE_SIZE.pow(level as u32);
                             let remainder = (target_idx + 1) * size_per_child;
                             let new_size = remainder - dropped;
@@ -954,7 +968,7 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
                                 );
                             }
                         }
-                        Size::Table(ref mut size_ref) => {
+                        Size::Table(size_ref) => {
                             let size_table = SharedPointer::make_mut(size_ref);
                             let dropped_size =
                                 size_table[size_table.len() - 1] - size_table[target_idx];
@@ -1104,6 +1118,20 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
             Self::merge_rebalance(level, left, merged, right)
         }
     }
+
+    pub(crate) fn ptr_eq(&self, rhs: &Self) -> bool {
+        match (&self.children, &rhs.children) {
+            (Nodes(lsize, l), Nodes(rsize, r)) => {
+                SharedPointer::<imbl_sized_chunks::Chunk<Node<A, P, NODE_SIZE>, _>, P>::ptr_eq(l, r)
+                    && lsize.size() == rsize.size()
+            }
+            (Values(l), Values(r)) => {
+                SharedPointer::<imbl_sized_chunks::Chunk<A, _>, P>::ptr_eq(l, r)
+            }
+            (Empty, Empty) => true,
+            _ => false,
+        }
+    }
 }
 
 // fn print_indent<W>(f: &mut W, indent: usize) -> Result<(), fmt::Error>
@@ -1115,3 +1143,211 @@ impl<A: Clone, P: SharedPointerKind> Node<A, P> {
 //     }
 //     Ok(())
 // }
+
+pub(crate) fn map_subsequence<
+    In: Clone,
+    Out: Clone,
+    P: SharedPointerKind,
+    const NODE_SIZE: usize,
+>(
+    prev_in: &Node<In, P, NODE_SIZE>,
+    next_in: &Node<In, P, NODE_SIZE>,
+    level: usize,
+    prev_out: &Node<Out, P, NODE_SIZE>,
+    f: &mut impl FnMut(&Chunk<In, NODE_SIZE>, bool) -> Option<Chunk<Out, NODE_SIZE>>,
+) -> Node<Out, P, NODE_SIZE> {
+    if prev_in.ptr_eq(next_in) {
+        prev_out.clone()
+    } else {
+        match &next_in.children {
+            Entry::Values(xs) => {
+                let result = Node::from_chunk(level, SharedPointer::new(f(xs, false).unwrap()));
+                prev_in.process(&mut |chunk| {
+                    f(chunk, true);
+                });
+                result
+            }
+            Entry::Nodes(_, children) => {
+                let Entry::Nodes(_, prev_children) = &prev_in.children else {
+                    let result = Node::parent(
+                        level,
+                        Chunk::from_iter(&mut children.iter().map(|x| {
+                            map_subseq_unpaired(x, level - 1, &mut |chunk| f(chunk, false).unwrap())
+                        })),
+                    );
+                    prev_in.process(&mut |chunk| {
+                        f(chunk, true);
+                    });
+                    return result;
+                };
+                let Entry::Nodes(_, prev_out_children) = &prev_out.children else {
+                    panic!("previous out structure doesn't match previous in structure")
+                };
+                Node::parent(
+                    level,
+                    Chunk::from_iter(
+                        prev_children
+                            .iter()
+                            .zip(children.iter())
+                            .zip(prev_out_children.iter())
+                            .map(|((prev_child_in, next_child_in), prev_child_out)| {
+                                map_subsequence(
+                                    prev_child_in,
+                                    next_child_in,
+                                    level - 1,
+                                    prev_child_out,
+                                    f,
+                                )
+                            }),
+                    ),
+                )
+            }
+            Entry::Empty => Node::new(),
+        }
+    }
+}
+
+fn map_subseq_unpaired<In, Out, P: SharedPointerKind, const NODE_SIZE: usize>(
+    next_in: &Node<In, P, NODE_SIZE>,
+    level: usize,
+    f: &mut impl FnMut(&Chunk<In, NODE_SIZE>) -> Chunk<Out, NODE_SIZE>,
+) -> Node<Out, P, NODE_SIZE> {
+    match &next_in.children {
+        Entry::Values(xs) => Node::from_chunk(level, SharedPointer::new(f(xs))),
+        Entry::Nodes(_, children) => Node::parent(
+            level,
+            Chunk::from_iter(
+                children
+                    .iter()
+                    .map(|x| map_subseq_unpaired(x, level - 1, f)),
+            ),
+        ),
+        Entry::Empty => Node::new(),
+    }
+}
+
+// not bothering to cache subfolds within a chunk; could be done to speed it up, but adds complexity with not much performance benefit when the chunk size is reasonably small and the zip is reasonably cheap
+pub(crate) enum FoldSeqStore<T, P: SharedPointerKind, const NODE_SIZE: usize> {
+    Values(T, SharedPointer<Chunk<T, NODE_SIZE>, P>), // result of folding the chunk of leaves, the individual input leaves
+    Nodes(
+        T,
+        SharedPointer<Chunk<Node<T, P, NODE_SIZE>, NODE_SIZE>, P>,
+        SharedPointer<Chunk<FoldSeqStore<T, P, NODE_SIZE>, NODE_SIZE>, P>,
+    ), // result of folding the internal chunk, the original input chunk, and the stored folds of every subchunk of the input chunk
+    Empty,
+}
+
+impl<T: Clone, P: SharedPointerKind, const NODE_SIZE: usize> FoldSeqStore<T, P, NODE_SIZE> {
+    pub(crate) fn get(&self) -> Option<T> {
+        match self {
+            Self::Values(v, _) | Self::Nodes(v, _, _) => Some(v.clone()),
+            Self::Empty => None,
+        }
+    }
+}
+
+impl<T: Clone, P: SharedPointerKind, const NODE_SIZE: usize> Clone
+    for FoldSeqStore<T, P, NODE_SIZE>
+{
+    fn clone(&self) -> Self {
+        match self {
+            Self::Values(arg0, arg1) => Self::Values(arg0.clone(), arg1.clone()),
+            Self::Nodes(arg0, arg1, arg2) => Self::Nodes(arg0.clone(), arg1.clone(), arg2.clone()),
+            Self::Empty => Self::Empty,
+        }
+    }
+}
+
+// Fold over a slice that implements a binary tree fold
+pub(crate) fn binary_fold<T: Clone>(slice: &[T], f: &mut impl FnMut(T, T) -> T) -> T {
+    assert!(!slice.is_empty());
+    binary_fold_inner::<T>(slice, f)
+}
+
+fn binary_fold_inner<T: Clone>(slice: &[T], f: &mut impl FnMut(T, T) -> T) -> T {
+    // We just recursively split the slice in half until we have 1 or 2 elements
+    match slice.len() {
+        0 => unreachable!(),
+        1 => slice[0].clone(),
+        2 => f(slice[0].clone(), slice[1].clone()),
+        _ => {
+            let (l, r) = slice.split_at(slice.len() / 2);
+            let lv = binary_fold_inner::<T>(l, f);
+            let rv = binary_fold_inner::<T>(r, f);
+            f(lv, rv)
+        }
+    }
+}
+
+// TODO: We can probably remove z completely by allowing this to return Option<T> instead, but this must be carefully done.
+pub(crate) fn fold_subsequence<T: Clone, P: SharedPointerKind, const NODE_SIZE: usize>(
+    input: &Node<T, P, NODE_SIZE>,
+    prev_out: FoldSeqStore<T, P, NODE_SIZE>,
+    f: &mut impl FnMut(T, T) -> T,
+) -> FoldSeqStore<T, P, NODE_SIZE> {
+    match (&input.children, prev_out) {
+        (Entry::Values(xs), y) => {
+            if let FoldSeqStore::Values(total, ys) = y
+                && SharedPointer::ptr_eq(xs, &ys)
+            {
+                FoldSeqStore::Values(total, ys)
+            } else if xs.is_empty() {
+                FoldSeqStore::Empty
+            } else {
+                let result = binary_fold_inner::<T>(xs, f);
+                FoldSeqStore::Values(result, xs.clone())
+            }
+        }
+        (Entry::Nodes(_, children), FoldSeqStore::Nodes(total, old_children, total_children)) => {
+            if SharedPointer::ptr_eq(children, &old_children) {
+                FoldSeqStore::Nodes(total, old_children, total_children)
+            } else if children.is_empty() {
+                FoldSeqStore::Empty
+            } else {
+                let mut outputs: Chunk<T, NODE_SIZE> = Chunk::new();
+                let mut nodes = Chunk::new();
+                for (input, prev_out) in children.iter().zip(total_children.iter()) {
+                    let next_out = fold_subsequence(input, prev_out.clone(), f);
+                    // Never push an "empty" result, or it will break the fold because we do not have a zero element, only a unit element z.
+                    if let Some(output) = next_out.get() {
+                        outputs.push_back(output);
+                        nodes.push_back(next_out);
+                    }
+                }
+
+                if outputs.is_empty() {
+                    FoldSeqStore::Empty
+                } else {
+                    FoldSeqStore::Nodes(
+                        binary_fold(&outputs, f),
+                        children.clone(),
+                        SharedPointer::new(nodes),
+                    )
+                }
+            }
+        }
+        (Entry::Nodes(_, children), _) => {
+            let mut outputs: Chunk<T, NODE_SIZE> = Chunk::new();
+            let mut nodes = Chunk::new();
+            for input in children.iter() {
+                let next_out = fold_subsequence(input, FoldSeqStore::Empty, f);
+                // Never push an "empty" result, or it will break the fold because we do not have a zero element, only a unit element z.
+                if let Some(output) = next_out.get() {
+                    outputs.push_back(output);
+                    nodes.push_back(next_out);
+                }
+            }
+
+            if outputs.is_empty() {
+                FoldSeqStore::Empty
+            } else {
+                FoldSeqStore::Nodes(
+                    binary_fold(&outputs, f),
+                    children.clone(),
+                    SharedPointer::new(nodes),
+                )
+            }
+        }
+        (Entry::Empty, _) => FoldSeqStore::Empty,
+    }
+}

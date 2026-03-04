@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Bencher, Criterion};
+use criterion::{Bencher, Criterion, criterion_group, criterion_main};
 use equivalent::Comparable;
 use imbl::ordmap::OrdMap;
 use std::borrow::Borrow;

@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Bencher, Criterion};
+use criterion::{Bencher, Criterion, criterion_group, criterion_main};
 use imbl::hashmap::HashMap;
 use std::borrow::Borrow;
 use std::collections::HashMap as StdHashMap;

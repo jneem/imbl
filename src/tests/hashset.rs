@@ -30,11 +30,11 @@ where
         writeln!(out, "let mut set = HashSet::new();")?;
         for action in &self.0 {
             match action {
-                Action::Insert(ref value) => {
+                Action::Insert(value) => {
                     expected.insert(value.clone());
                     writeln!(out, "set.insert({:?});", value)?;
                 }
-                Action::Remove(ref value) => {
+                Action::Remove(value) => {
                     expected.remove(value);
                     writeln!(out, "set.remove({:?});", value)?;
                 }
@@ -79,7 +79,7 @@ proptest! {
                 }
             }
             assert_eq!(nat.len(), set.len());
-            assert_eq!(HashSet::from(nat.clone()), set);
+            assert_eq!(HashSet::<u8>::from(nat.clone()), set);
         }
     }
 }

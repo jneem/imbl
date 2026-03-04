@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use rand::seq::SliceRandom;
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -13,10 +13,10 @@ pub trait TestData: Clone + Debug + Ord + Eq + Hash {
 
 impl TestData for i64 {
     fn generate(size: usize) -> Vec<Self> {
-        let mut gen = SmallRng::seed_from_u64(1);
+        let mut rng = SmallRng::seed_from_u64(1);
         let mut set = BTreeSet::new();
         while set.len() < size {
-            let next = gen.random::<i64>();
+            let next = rng.random::<i64>();
             set.insert(next);
         }
         set.into_iter().collect()
@@ -25,12 +25,12 @@ impl TestData for i64 {
 
 impl TestData for String {
     fn generate(size: usize) -> Vec<Self> {
-        let mut gen = SmallRng::seed_from_u64(1);
+        let mut rng = SmallRng::seed_from_u64(1);
         let mut set = BTreeSet::new();
         while set.len() < size {
-            let len = gen.random_range(5..20);
+            let len = rng.random_range(5..20);
             let s: String = (0..len)
-                .map(|_| gen.random_range(b'a'..=b'z') as char)
+                .map(|_| rng.random_range(b'a'..=b'z') as char)
                 .collect();
             set.insert(s);
         }
@@ -48,8 +48,8 @@ where
 }
 
 pub fn reorder<A: Clone>(vec: &[A]) -> Vec<A> {
-    let mut gen = SmallRng::seed_from_u64(1);
+    let mut rng = SmallRng::seed_from_u64(1);
     let mut out = vec.to_vec();
-    out.shuffle(&mut gen);
+    out.shuffle(&mut rng);
     out
 }
