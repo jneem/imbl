@@ -738,12 +738,12 @@ impl<A: Clone, P: SharedPointerKind, const NODE_SIZE: usize> Node<A, P, NODE_SIZ
             } else if is_full {
                 PushResult::Full(chunk, num_drained)
             } else {
-                if side == Left && chunk.len() < NODE_SIZE {
-                    if let Entry::Nodes(ref mut size, _) = self.children {
-                        if let Size::Size(value) = *size {
-                            *size = Size::table_from_size(level, value);
-                        }
-                    }
+                if side == Left
+                    && chunk.len() < NODE_SIZE
+                    && let Entry::Nodes(ref mut size, _) = self.children
+                    && let Size::Size(value) = *size
+                {
+                    *size = Size::table_from_size(level, value);
                 }
                 self.push_size(side, level, chunk.len());
                 self.push_child_node(side, Node::from_chunk(0, chunk));
@@ -794,12 +794,12 @@ impl<A: Clone, P: SharedPointerKind, const NODE_SIZE: usize> Node<A, P, NODE_SIZ
                     PushResult::Done
                 }
                 Some(child) => {
-                    if side == Left && chunk_size < NODE_SIZE {
-                        if let Entry::Nodes(ref mut size, _) = self.children {
-                            if let Size::Size(value) = *size {
-                                *size = Size::table_from_size(level, value);
-                            }
-                        }
+                    if side == Left
+                        && chunk_size < NODE_SIZE
+                        && let Entry::Nodes(ref mut size, _) = self.children
+                        && let Size::Size(value) = *size
+                    {
+                        *size = Size::table_from_size(level, value);
                     }
                     self.push_size(side, level, child.len());
                     self.push_child_node(side, child);
@@ -1288,18 +1288,18 @@ pub(crate) fn fold_subsequence<T: Clone, P: SharedPointerKind, const NODE_SIZE: 
     match (&input.children, prev_out) {
         (Entry::Values(xs), y) => {
             if let FoldSeqStore::Values(total, ys) = y
-                && SharedPointer::ptr_eq(&xs, &ys)
+                && SharedPointer::ptr_eq(xs, &ys)
             {
                 FoldSeqStore::Values(total, ys)
             } else if xs.is_empty() {
                 FoldSeqStore::Empty
             } else {
-                let result = binary_fold_inner::<T>(&xs, f);
+                let result = binary_fold_inner::<T>(xs, f);
                 FoldSeqStore::Values(result, xs.clone())
             }
         }
         (Entry::Nodes(_, children), FoldSeqStore::Nodes(total, old_children, total_children)) => {
-            if SharedPointer::ptr_eq(&children, &old_children) {
+            if SharedPointer::ptr_eq(children, &old_children) {
                 FoldSeqStore::Nodes(total, old_children, total_children)
             } else if children.is_empty() {
                 FoldSeqStore::Empty

@@ -744,15 +744,14 @@ where
     {
         let root = self.root.as_mut()?;
         let mut removed = None;
-        if root.remove(k, &mut removed) {
-            if let Node::Branch(branch) = root {
-                if let Some(child) = SharedPointer::make_mut(branch).pop_single_child() {
-                    self.root = Some(child);
-                }
-            }
-            // Note that even if the root leaf is empty, we don't
-            // drop it, but retain the allocation for future use.
+        if root.remove(k, &mut removed)
+            && let Node::Branch(branch) = root
+            && let Some(child) = SharedPointer::make_mut(branch).pop_single_child()
+        {
+            self.root = Some(child);
         }
+        // Note that even if the root leaf is empty, we don't
+        // drop it, but retain the allocation for future use.
         self.size -= removed.is_some() as usize;
         removed
     }

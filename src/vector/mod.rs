@@ -3346,7 +3346,7 @@ impl<T: Clone, F: FnMut(T, T) -> T, P: SharedPointerKind, const CHUNK_SIZE: usiz
                 if chunk.is_empty() {
                     None
                 } else {
-                    Some(binary_fold(&chunk, &mut self.f))
+                    Some(binary_fold(chunk, &mut self.f))
                 }
             }
             Single(chunk) => {
@@ -3358,7 +3358,7 @@ impl<T: Clone, F: FnMut(T, T) -> T, P: SharedPointerKind, const CHUNK_SIZE: usiz
                     self.inner_f = FoldSeqStore::Empty;
                     None
                 } else {
-                    let result = binary_fold(&chunk, &mut self.f);
+                    let result = binary_fold(chunk, &mut self.f);
                     self.inner_f = FoldSeqStore::Values(result.clone(), chunk.clone());
                     Some(result)
                 }
@@ -3380,7 +3380,7 @@ impl<T: Clone, F: FnMut(T, T) -> T, P: SharedPointerKind, const CHUNK_SIZE: usiz
                     } else if chunk.is_empty() {
                         *old_node = FoldSeqStore::Empty;
                     } else {
-                        let result = binary_fold(&chunk, &mut self.f);
+                        let result = binary_fold(chunk, &mut self.f);
                         *old_node = FoldSeqStore::Values(result.clone(), chunk.clone());
                         outer.push_back(result);
                     }

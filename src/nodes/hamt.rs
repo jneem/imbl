@@ -739,6 +739,7 @@ impl<A, P: SharedPointerKind> Node<A, P> {
 /// An allocation-free stack for iterators.
 type InlineStack<T> = InlineArray<T, (usize, [T; ITER_STACK_CAPACITY])>;
 
+#[allow(clippy::enum_variant_names)]
 enum IterItem<'a, A, P: SharedPointerKind> {
     SmallSimdNode(ChunkIter<'a, (A, HashBits), SMALL_NODE_WIDTH>),
     LargeSimdNode(ChunkIter<'a, (A, HashBits), HASH_WIDTH>),
@@ -859,7 +860,7 @@ impl<'a, A, P: SharedPointerKind> ExactSizeIterator for Iter<'a, A, P> where A: 
 impl<'a, A, P: SharedPointerKind> FusedIterator for Iter<'a, A, P> where A: 'a {}
 
 // Mut ref iterator
-
+#[allow(clippy::enum_variant_names)]
 enum IterMutItem<'a, A, P: SharedPointerKind> {
     SmallSimdNode(ChunkIterMut<'a, (A, HashBits), SMALL_NODE_WIDTH>),
     LargeSimdNode(ChunkIterMut<'a, (A, HashBits), HASH_WIDTH>),

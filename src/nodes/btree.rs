@@ -973,11 +973,12 @@ impl<'a, K, V, P: SharedPointerKind> Iter<'a, K, V, P> {
         // Check if the cursors are exhausted by checking their leaves
         // This is valid even if the cursors are empty due to not being initialized yet.
         // If they were empty because exhaustion we would not be in this function.
-        if let (Some((fi, f)), Some((bi, b))) = (self.fwd.leaf, self.bwd.leaf) {
-            if std::ptr::eq(f, b) && fi >= bi {
-                self.exhausted = true;
-                return fi == bi && other_side_yielded;
-            }
+        if let (Some((fi, f)), Some((bi, b))) = (self.fwd.leaf, self.bwd.leaf)
+            && std::ptr::eq(f, b)
+            && fi >= bi
+        {
+            self.exhausted = true;
+            return fi == bi && other_side_yielded;
         }
         false
     }
@@ -1192,22 +1193,22 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
             let mut skipped_any = false;
             debug_assert!(self.leaf.is_some());
             debug_assert!(other.leaf.is_some());
-            if let (Some(this), Some(that)) = (self.leaf, other.leaf) {
-                if std::ptr::eq(this.1, that.1) {
-                    self.leaf = None;
-                    other.leaf = None;
-                    skipped_any = true;
-                    let shared_levels = self
-                        .stack
-                        .iter()
-                        .rev()
-                        .zip(other.stack.iter().rev())
-                        .take_while(|(this, that)| std::ptr::eq(this.1, that.1))
-                        .count();
-                    if shared_levels != 0 {
-                        self.stack.drain(self.stack.len() - shared_levels..);
-                        other.stack.drain(other.stack.len() - shared_levels..);
-                    }
+            if let (Some(this), Some(that)) = (self.leaf, other.leaf)
+                && std::ptr::eq(this.1, that.1)
+            {
+                self.leaf = None;
+                other.leaf = None;
+                skipped_any = true;
+                let shared_levels = self
+                    .stack
+                    .iter()
+                    .rev()
+                    .zip(other.stack.iter().rev())
+                    .take_while(|(this, that)| std::ptr::eq(this.1, that.1))
+                    .count();
+                if shared_levels != 0 {
+                    self.stack.drain(self.stack.len() - shared_levels..);
+                    other.stack.drain(other.stack.len() - shared_levels..);
                 }
             }
             self.next();

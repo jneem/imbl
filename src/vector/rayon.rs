@@ -3,7 +3,7 @@
 //! These are only available when using the `rayon` feature flag.
 
 use super::*;
-use ::rayon::iter::plumbing::{bridge, Consumer, Producer, ProducerCallback, UnindexedConsumer};
+use ::rayon::iter::plumbing::{Consumer, Producer, ProducerCallback, UnindexedConsumer, bridge};
 use ::rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
@@ -24,8 +24,7 @@ where
     }
 }
 
-impl<'a, A, P, const CHUNK_SIZE: usize> IntoParallelRefMutIterator<'a>
-    for Vector<A, P, CHUNK_SIZE>
+impl<'a, A, P, const CHUNK_SIZE: usize> IntoParallelRefMutIterator<'a> for Vector<A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + Sync + 'a,

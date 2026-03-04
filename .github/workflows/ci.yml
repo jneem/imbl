@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: [stable, beta, nightly, 1.85]
+        rust: [stable, beta, nightly, 1.89]
         os: [ubuntu-latest, windows-latest, macOS-latest]
 
     steps:
@@ -52,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: [stable, beta, nightly, 1.85]
+        rust: [stable, beta, nightly, 1.89]
         os: [ubuntu-latest]
 
     steps:

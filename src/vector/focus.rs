@@ -13,9 +13,8 @@ use crate::nodes::chunk::Chunk;
 use crate::sync::Lock;
 use crate::util::to_range;
 use crate::vector::{
-    Vector, Iter, IterMut,
+    Iter, IterMut, RRB, Vector,
     VectorInner::{Full, Inline, Single},
-    RRB,
 };
 
 fn check_indices<const N: usize>(len: usize, indices: &[usize; N]) -> Option<()> {
