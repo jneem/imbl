@@ -29,7 +29,7 @@ use std::ops::{Add, Bound, Index, IndexMut, RangeBounds};
 use archery::{SharedPointer, SharedPointerKind};
 use equivalent::Comparable;
 
-use crate::hashmap::GenericHashMap;
+use crate::hashmap::HashMap;
 use crate::nodes::btree::{
     ConsumingIter as NodeConsumingIter, Cursor, InsertAction, Iter as NodeIter, Node,
 };
@@ -66,12 +66,6 @@ macro_rules! ordmap {
     }};
 }
 
-/// Type alias for [`GenericOrdMap`] that uses [`DefaultSharedPtr`] as the pointer type.
-///
-/// [GenericOrdMap]: ./struct.GenericOrdMap.html
-/// [DefaultSharedPtr]: ../shared_ptr/type.DefaultSharedPtr.html
-pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
-
 /// An ordered map.
 ///
 /// An immutable ordered map implemented as a B+tree [1].
@@ -86,20 +80,26 @@ pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
 /// [1]: https://en.wikipedia.org/wiki/B%2B_tree
 /// [hashmap::HashMap]: ../hashmap/type.HashMap.html
 /// [std::cmp::Ord]: https://doc.rust-lang.org/std/cmp/trait.Ord.html
-pub struct GenericOrdMap<K, V, P: SharedPointerKind> {
+pub struct OrdMap<K, V, P: SharedPointerKind = DefaultSharedPtr> {
     size: usize,
     root: Option<Node<K, V, P>>,
 }
 
-impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
+impl<K, V> OrdMap<K, V, DefaultSharedPtr> {
     /// Construct an empty map.
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        GenericOrdMap {
-            size: 0,
-            root: None,
-        }
+        Default::default()
+    }
+}
+
+impl<K, V, P: SharedPointerKind> OrdMap<K, V, P> {
+    /// Construct an empty map with a custom shared kind
+    #[inline]
+    #[must_use]
+    pub fn with_kind() -> Self {
+        Default::default()
     }
 
     /// Construct a map with a single mapping.
@@ -206,7 +206,7 @@ impl<K, V, P: SharedPointerKind> GenericOrdMap<K, V, P> {
     }
 }
 
-impl<K, V, P> GenericOrdMap<K, V, P>
+impl<K, V, P> OrdMap<K, V, P>
 where
     K: Ord,
     P: SharedPointerKind,
@@ -447,7 +447,7 @@ where
     pub fn is_submap_by<B, RM, F, P2>(&self, other: RM, mut cmp: F) -> bool
     where
         F: FnMut(&V, &B) -> bool,
-        RM: Borrow<GenericOrdMap<K, B, P2>>,
+        RM: Borrow<OrdMap<K, B, P2>>,
         P2: SharedPointerKind,
     {
         self.iter()
@@ -466,7 +466,7 @@ where
     pub fn is_proper_submap_by<B, RM, F, P2>(&self, other: RM, cmp: F) -> bool
     where
         F: FnMut(&V, &B) -> bool,
-        RM: Borrow<GenericOrdMap<K, B, P2>>,
+        RM: Borrow<OrdMap<K, B, P2>>,
         P2: SharedPointerKind,
     {
         self.len() != other.borrow().len() && self.is_submap_by(other, cmp)
@@ -542,7 +542,7 @@ where
     }
 }
 
-impl<K, V, P> GenericOrdMap<K, V, P>
+impl<K, V, P> OrdMap<K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
@@ -1296,9 +1296,9 @@ where
     #[must_use]
     pub fn intersection_with<B, C, F, P2, P3>(
         self,
-        other: GenericOrdMap<K, B, P2>,
+        other: OrdMap<K, B, P2>,
         mut f: F,
-    ) -> GenericOrdMap<K, C, P3>
+    ) -> OrdMap<K, C, P3>
     where
         B: Clone,
         C: Clone,
@@ -1331,9 +1331,9 @@ where
     #[must_use]
     pub fn intersection_with_key<B, C, F, P2, P3>(
         mut self,
-        other: GenericOrdMap<K, B, P2>,
+        other: OrdMap<K, B, P2>,
         mut f: F,
-    ) -> GenericOrdMap<K, C, P3>
+    ) -> OrdMap<K, C, P3>
     where
         B: Clone,
         C: Clone,
@@ -1341,7 +1341,7 @@ where
         P2: SharedPointerKind,
         P3: SharedPointerKind,
     {
-        let mut out = GenericOrdMap::<K, C, P3>::default();
+        let mut out = OrdMap::<K, C, P3>::default();
         for (key, right_value) in other {
             match self.remove(&key) {
                 None => (),
@@ -1380,7 +1380,7 @@ where
     {
         // TODO this is atrociously slow, got to be a better way
         self.iter().fold(
-            (GenericOrdMap::new(), None, GenericOrdMap::new()),
+            (OrdMap::with_kind(), None, OrdMap::with_kind()),
             |(l, m, r), (k, v)| match split.compare(k).reverse() {
                 Ordering::Less => (l.update(k.clone(), v.clone()), m, r),
                 Ordering::Equal => (l, Some(v.clone()), r),
@@ -1547,7 +1547,7 @@ where
     V: Clone,
     P: SharedPointerKind,
 {
-    map: &'a mut GenericOrdMap<K, V, P>,
+    map: &'a mut OrdMap<K, V, P>,
     key: K,
 }
 
@@ -1606,7 +1606,7 @@ where
     V: Clone,
     P: SharedPointerKind,
 {
-    map: &'a mut GenericOrdMap<K, V, P>,
+    map: &'a mut OrdMap<K, V, P>,
     key: K,
 }
 
@@ -1638,13 +1638,13 @@ where
 
 // Core traits
 
-impl<K, V, P: SharedPointerKind> Clone for GenericOrdMap<K, V, P> {
+impl<K, V, P: SharedPointerKind> Clone for OrdMap<K, V, P> {
     /// Clone a map.
     ///
     /// Time: O(1)
     #[inline]
     fn clone(&self) -> Self {
-        GenericOrdMap {
+        OrdMap {
             size: self.size,
             root: self.root.clone(),
         }
@@ -1652,32 +1652,32 @@ impl<K, V, P: SharedPointerKind> Clone for GenericOrdMap<K, V, P> {
 }
 
 // TODO: Support PartialEq for OrdMap that have different P
-impl<K, V, P> PartialEq for GenericOrdMap<K, V, P>
+impl<K, V, P> PartialEq for OrdMap<K, V, P>
 where
     K: Ord + PartialEq,
     V: PartialEq,
     P: SharedPointerKind,
 {
-    fn eq(&self, other: &GenericOrdMap<K, V, P>) -> bool {
+    fn eq(&self, other: &OrdMap<K, V, P>) -> bool {
         self.len() == other.len() && self.diff(other).next().is_none()
     }
 }
 
-impl<K: Ord + Eq, V: Eq, P: SharedPointerKind> Eq for GenericOrdMap<K, V, P> {}
+impl<K: Ord + Eq, V: Eq, P: SharedPointerKind> Eq for OrdMap<K, V, P> {}
 
 // TODO: Support PartialOrd for OrdMap that have different P
-impl<K, V, P> PartialOrd for GenericOrdMap<K, V, P>
+impl<K, V, P> PartialOrd for OrdMap<K, V, P>
 where
     K: Ord,
     V: PartialOrd,
     P: SharedPointerKind,
 {
-    fn partial_cmp(&self, other: &GenericOrdMap<K, V, P>) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &OrdMap<K, V, P>) -> Option<Ordering> {
         self.iter().partial_cmp(other.iter())
     }
 }
 
-impl<K, V, P> Ord for GenericOrdMap<K, V, P>
+impl<K, V, P> Ord for OrdMap<K, V, P>
 where
     K: Ord,
     V: Ord,
@@ -1688,7 +1688,7 @@ where
     }
 }
 
-impl<K, V, P> Hash for GenericOrdMap<K, V, P>
+impl<K, V, P> Hash for OrdMap<K, V, P>
 where
     K: Ord + Hash,
     V: Hash,
@@ -1704,39 +1704,42 @@ where
     }
 }
 
-impl<K, V, P: SharedPointerKind> Default for GenericOrdMap<K, V, P> {
+impl<K, V, P: SharedPointerKind> Default for OrdMap<K, V, P> {
     fn default() -> Self {
-        Self::new()
+        Self {
+            size: 0,
+            root: None,
+        }
     }
 }
 
-impl<K, V, P> Add for &GenericOrdMap<K, V, P>
+impl<K, V, P> Add for &OrdMap<K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
     P: SharedPointerKind,
 {
-    type Output = GenericOrdMap<K, V, P>;
+    type Output = OrdMap<K, V, P>;
 
     fn add(self, other: Self) -> Self::Output {
         self.clone().union(other.clone())
     }
 }
 
-impl<K, V, P> Add for GenericOrdMap<K, V, P>
+impl<K, V, P> Add for OrdMap<K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
     P: SharedPointerKind,
 {
-    type Output = GenericOrdMap<K, V, P>;
+    type Output = OrdMap<K, V, P>;
 
     fn add(self, other: Self) -> Self::Output {
         self.union(other)
     }
 }
 
-impl<K, V, P> Sum for GenericOrdMap<K, V, P>
+impl<K, V, P> Sum for OrdMap<K, V, P>
 where
     K: Ord + Clone,
     V: Clone,
@@ -1750,7 +1753,7 @@ where
     }
 }
 
-impl<K, V, RK, RV, P> Extend<(RK, RV)> for GenericOrdMap<K, V, P>
+impl<K, V, RK, RV, P> Extend<(RK, RV)> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
@@ -1766,7 +1769,7 @@ where
     }
 }
 
-impl<Q, K, V, P: SharedPointerKind> Index<&Q> for GenericOrdMap<K, V, P>
+impl<Q, K, V, P: SharedPointerKind> Index<&Q> for OrdMap<K, V, P>
 where
     Q: Comparable<K> + ?Sized,
     K: Ord,
@@ -1781,7 +1784,7 @@ where
     }
 }
 
-impl<Q, K, V, P> IndexMut<&Q> for GenericOrdMap<K, V, P>
+impl<Q, K, V, P> IndexMut<&Q> for OrdMap<K, V, P>
 where
     Q: Comparable<K> + ?Sized,
     K: Ord + Clone,
@@ -1796,7 +1799,7 @@ where
     }
 }
 
-impl<K, V, P> Debug for GenericOrdMap<K, V, P>
+impl<K, V, P> Debug for OrdMap<K, V, P>
 where
     K: Ord + Debug,
     V: Debug,
@@ -2075,7 +2078,7 @@ where
 {
 }
 
-impl<K, V, RK, RV, P> FromIterator<(RK, RV)> for GenericOrdMap<K, V, P>
+impl<K, V, RK, RV, P> FromIterator<(RK, RV)> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
@@ -2085,7 +2088,7 @@ where
     where
         T: IntoIterator<Item = (RK, RV)>,
     {
-        let mut m = GenericOrdMap::default();
+        let mut m = OrdMap::default();
         for (k, v) in i {
             m.insert(From::from(k), From::from(v));
         }
@@ -2093,7 +2096,7 @@ where
     }
 }
 
-impl<'a, K, V, P> IntoIterator for &'a GenericOrdMap<K, V, P>
+impl<'a, K, V, P> IntoIterator for &'a OrdMap<K, V, P>
 where
     K: Ord,
     P: SharedPointerKind,
@@ -2106,7 +2109,7 @@ where
     }
 }
 
-impl<K, V, P> IntoIterator for GenericOrdMap<K, V, P>
+impl<K, V, P> IntoIterator for OrdMap<K, V, P>
 where
     K: Clone,
     V: Clone,
@@ -2165,13 +2168,13 @@ where
 
 // Conversions
 
-impl<K, V, P: SharedPointerKind> AsRef<GenericOrdMap<K, V, P>> for GenericOrdMap<K, V, P> {
+impl<K, V, P: SharedPointerKind> AsRef<OrdMap<K, V, P>> for OrdMap<K, V, P> {
     fn as_ref(&self) -> &Self {
         self
     }
 }
 
-impl<K, V, OK, OV, P1, P2> From<&GenericOrdMap<&K, &V, P2>> for GenericOrdMap<OK, OV, P1>
+impl<K, V, OK, OV, P1, P2> From<&OrdMap<&K, &V, P2>> for OrdMap<OK, OV, P1>
 where
     K: Ord + ToOwned<Owned = OK> + ?Sized,
     V: ToOwned<Owned = OV> + ?Sized,
@@ -2180,14 +2183,14 @@ where
     P1: SharedPointerKind,
     P2: SharedPointerKind,
 {
-    fn from(m: &GenericOrdMap<&K, &V, P2>) -> Self {
+    fn from(m: &OrdMap<&K, &V, P2>) -> Self {
         m.iter()
             .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
             .collect()
     }
 }
 
-impl<'a, K, V, RK, RV, OK, OV, P> From<&'a [(RK, RV)]> for GenericOrdMap<K, V, P>
+impl<'a, K, V, RK, RV, OK, OV, P> From<&'a [(RK, RV)]> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2196,25 +2199,25 @@ where
     RV: ToOwned<Owned = OV>,
     P: SharedPointerKind,
 {
-    fn from(m: &'a [(RK, RV)]) -> GenericOrdMap<K, V, P> {
+    fn from(m: &'a [(RK, RV)]) -> OrdMap<K, V, P> {
         m.iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
     }
 }
 
-impl<K, V, RK, RV, P> From<Vec<(RK, RV)>> for GenericOrdMap<K, V, P>
+impl<K, V, RK, RV, P> From<Vec<(RK, RV)>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
     P: SharedPointerKind,
 {
-    fn from(m: Vec<(RK, RV)>) -> GenericOrdMap<K, V, P> {
+    fn from(m: Vec<(RK, RV)>) -> OrdMap<K, V, P> {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K, V, RK, RV, OK, OV, P> From<&'a Vec<(RK, RV)>> for GenericOrdMap<K, V, P>
+impl<'a, K, V, RK, RV, OK, OV, P> From<&'a Vec<(RK, RV)>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2223,26 +2226,26 @@ where
     RV: ToOwned<Owned = OV>,
     P: SharedPointerKind,
 {
-    fn from(m: &'a Vec<(RK, RV)>) -> GenericOrdMap<K, V, P> {
+    fn from(m: &'a Vec<(RK, RV)>) -> OrdMap<K, V, P> {
         m.iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
     }
 }
 
-impl<K, V, RK, RV, P> From<collections::HashMap<RK, RV>> for GenericOrdMap<K, V, P>
+impl<K, V, RK, RV, P> From<collections::HashMap<RK, RV>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
     P: SharedPointerKind,
     RK: Eq + Hash,
 {
-    fn from(m: collections::HashMap<RK, RV>) -> GenericOrdMap<K, V, P> {
+    fn from(m: collections::HashMap<RK, RV>) -> OrdMap<K, V, P> {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K, V, OK, OV, RK, RV, P> From<&'a collections::HashMap<RK, RV>> for GenericOrdMap<K, V, P>
+impl<'a, K, V, OK, OV, RK, RV, P> From<&'a collections::HashMap<RK, RV>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2251,25 +2254,25 @@ where
     RV: ToOwned<Owned = OV>,
     P: SharedPointerKind,
 {
-    fn from(m: &'a collections::HashMap<RK, RV>) -> GenericOrdMap<K, V, P> {
+    fn from(m: &'a collections::HashMap<RK, RV>) -> OrdMap<K, V, P> {
         m.iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
     }
 }
 
-impl<K, V, RK, RV, P> From<collections::BTreeMap<RK, RV>> for GenericOrdMap<K, V, P>
+impl<K, V, RK, RV, P> From<collections::BTreeMap<RK, RV>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<RK>,
     V: Clone + From<RV>,
     P: SharedPointerKind,
 {
-    fn from(m: collections::BTreeMap<RK, RV>) -> GenericOrdMap<K, V, P> {
+    fn from(m: collections::BTreeMap<RK, RV>) -> OrdMap<K, V, P> {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K, V, RK, RV, OK, OV, P> From<&'a collections::BTreeMap<RK, RV>> for GenericOrdMap<K, V, P>
+impl<'a, K, V, RK, RV, OK, OV, P> From<&'a collections::BTreeMap<RK, RV>> for OrdMap<K, V, P>
 where
     K: Ord + Clone + From<OK>,
     V: Clone + From<OV>,
@@ -2278,14 +2281,14 @@ where
     RV: ToOwned<Owned = OV>,
     P: SharedPointerKind,
 {
-    fn from(m: &'a collections::BTreeMap<RK, RV>) -> GenericOrdMap<K, V, P> {
+    fn from(m: &'a collections::BTreeMap<RK, RV>) -> OrdMap<K, V, P> {
         m.iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect()
     }
 }
 
-impl<K, V, S, P1, P2> From<GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
+impl<K, V, S, P1, P2> From<HashMap<K, V, S, P2>> for OrdMap<K, V, P1>
 where
     K: Ord + Hash + Eq + Clone,
     V: Clone,
@@ -2293,12 +2296,12 @@ where
     P1: SharedPointerKind,
     P2: SharedPointerKind,
 {
-    fn from(m: GenericHashMap<K, V, S, P2>) -> Self {
+    fn from(m: HashMap<K, V, S, P2>) -> Self {
         m.into_iter().collect()
     }
 }
 
-impl<'a, K, V, S, P1, P2> From<&'a GenericHashMap<K, V, S, P2>> for GenericOrdMap<K, V, P1>
+impl<'a, K, V, S, P1, P2> From<&'a HashMap<K, V, S, P2>> for OrdMap<K, V, P1>
 where
     K: Ord + Hash + Eq + Clone,
     V: Clone,
@@ -2306,7 +2309,7 @@ where
     P1: SharedPointerKind,
     P2: SharedPointerKind,
 {
-    fn from(m: &'a GenericHashMap<K, V, S, P2>) -> Self {
+    fn from(m: &'a HashMap<K, V, S, P2>) -> Self {
         m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 }
@@ -2631,8 +2634,8 @@ mod test {
     }
 
     fn expected_diff<'a, K, V, P>(
-        a: &'a GenericOrdMap<K, V, P>,
-        b: &'a GenericOrdMap<K, V, P>,
+        a: &'a OrdMap<K, V, P>,
+        b: &'a OrdMap<K, V, P>,
     ) -> Vec<DiffItem<'a, 'a, K, V>>
     where
         K: Ord + Clone,
@@ -2843,7 +2846,7 @@ mod test {
             index_rand in usize::ANY
         ) {
             let index = *input.keys().nth(index_rand % input.len()).unwrap();
-            let map1 = OrdMap::from_iter(input.clone());
+            let map1 = OrdMap::<i16, i16>::from_iter(input.clone());
             let (val, map2): (i16, _) = map1.extract(&index).unwrap();
             let map3 = map2.update(index, val);
             for key in map2.keys() {

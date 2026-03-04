@@ -52,7 +52,7 @@ fn group_find_empty(control: &SimdGroup) -> Option<usize> {
 
 #[inline]
 fn group_find(control: &SimdGroup, value: u8) -> GroupBitmap {
-    let mask = control.cmp_eq(SimdGroup::splat(value)).move_mask();
+    let mask = control.simd_eq(SimdGroup::splat(value)).to_bitmask();
     GroupBitmap::from_value(mask as _)
 }
 

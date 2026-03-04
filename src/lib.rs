@@ -285,7 +285,7 @@
 //! [`Arc`](std::sync::Arc). However, `imbl` also supports `Rc` as the pointer
 //! type through the [`archery`] crate, just like `im-rc` in the original
 //! `im` crate. If you prioritise speed over thread safety, you can use
-//! [`GenericVector<T, shared_pointer::RcK>`](vector::GenericVector) that uses
+//! [`Vector<T, shared_pointer::RcK>`](vector::Vector) that uses
 //! non-threadsafe but faster `Rc`, instead of the type alias
 //! [`Vector`]. You can also create your own type alias for that.
 //!  It can be done on other types too.
@@ -369,12 +369,12 @@ pub mod quickcheck;
 
 pub mod shared_ptr;
 
-pub use crate::hashmap::{GenericHashMap, HashMap};
-pub use crate::hashset::{GenericHashSet, HashSet};
-pub use crate::ordmap::{GenericOrdMap, OrdMap};
-pub use crate::ordset::{GenericOrdSet, OrdSet};
+pub use crate::hashmap::HashMap;
+pub use crate::hashset::HashSet;
+pub use crate::ordmap::OrdMap;
+pub use crate::ordset::OrdSet;
 #[doc(inline)]
-pub use crate::vector::{GenericVector, Vector};
+pub use crate::vector::Vector;
 
 #[cfg(test)]
 mod test;

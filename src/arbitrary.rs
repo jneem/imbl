@@ -2,17 +2,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use arbitrary::{size_hint, Arbitrary, Result, Unstructured};
+use arbitrary::{Arbitrary, Result, Unstructured, size_hint};
 use std::hash::{BuildHasher, Hash};
 
-use crate::{
-    shared_ptr::SharedPointerKind, GenericHashMap, GenericHashSet, GenericOrdMap, GenericOrdSet,
-    GenericVector,
-};
+use crate::{HashMap, HashSet, OrdMap, OrdSet, Vector, shared_ptr::SharedPointerKind};
 
-impl<'a, A: Arbitrary<'a> + Clone, P: SharedPointerKind + 'static> Arbitrary<'a>
-    for GenericVector<A, P>
-{
+impl<'a, A: Arbitrary<'a> + Clone, P: SharedPointerKind + 'static> Arbitrary<'a> for Vector<A, P> {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
     }
@@ -28,12 +23,8 @@ impl<'a, A: Arbitrary<'a> + Clone, P: SharedPointerKind + 'static> Arbitrary<'a>
     }
 }
 
-impl<
-        'a,
-        K: Arbitrary<'a> + Ord + Clone,
-        V: Arbitrary<'a> + Clone,
-        P: SharedPointerKind + 'static,
-    > Arbitrary<'a> for GenericOrdMap<K, V, P>
+impl<'a, K: Arbitrary<'a> + Ord + Clone, V: Arbitrary<'a> + Clone, P: SharedPointerKind + 'static>
+    Arbitrary<'a> for OrdMap<K, V, P>
 {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
@@ -51,7 +42,7 @@ impl<
 }
 
 impl<'a, A: Arbitrary<'a> + Ord + Clone, P: SharedPointerKind + 'static> Arbitrary<'a>
-    for GenericOrdSet<A, P>
+    for OrdSet<A, P>
 {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         u.arbitrary_iter()?.collect()
@@ -68,7 +59,7 @@ impl<'a, A: Arbitrary<'a> + Ord + Clone, P: SharedPointerKind + 'static> Arbitra
     }
 }
 
-impl<'a, K, V, S, P> Arbitrary<'a> for GenericHashMap<K, V, S, P>
+impl<'a, K, V, S, P> Arbitrary<'a> for HashMap<K, V, S, P>
 where
     K: Arbitrary<'a> + Hash + Eq + Clone,
     V: Arbitrary<'a> + Clone,
@@ -90,7 +81,7 @@ where
     }
 }
 
-impl<'a, A, S, P> Arbitrary<'a> for GenericHashSet<A, S, P>
+impl<'a, A, S, P> Arbitrary<'a> for HashSet<A, S, P>
 where
     A: Arbitrary<'a> + Hash + Eq + Clone,
     S: BuildHasher + Clone + Default + 'static,

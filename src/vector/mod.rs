@@ -109,12 +109,6 @@ macro_rules! vector {
     }};
 }
 
-/// Type alias for [`GenericVector`] that uses [`DefaultSharedPtr`] as the pointer type.
-///
-/// [GenericVector]: ./struct.GenericVector.html
-/// [DefaultSharedPtr]: ../shared_ptr/type.DefaultSharedPtr.html
-pub type Vector<A> = GenericVector<A, DefaultSharedPtr, { crate::config::VECTOR_CHUNK_SIZE }>;
-
 /// A persistent vector.
 ///
 /// This is a sequence of elements in insertion order - if you need a list of
@@ -151,7 +145,11 @@ pub type Vector<A> = GenericVector<A, DefaultSharedPtr, { crate::config::VECTOR_
 /// [chunkedseq]: http://deepsea.inria.fr/pasl/chunkedseq.pdf
 /// [Vec]: https://doc.rust-lang.org/std/vec/struct.Vec.html
 /// [VecDeque]: https://doc.rust-lang.org/std/collections/struct.VecDeque.html
-pub struct GenericVector<A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
+pub struct Vector<
+    A,
+    P: SharedPointerKind = DefaultSharedPtr,
+    const CHUNK_SIZE: usize = { crate::config::VECTOR_CHUNK_SIZE },
+> {
     vector: VectorInner<A, P, CHUNK_SIZE>,
 }
 
@@ -200,7 +198,31 @@ impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Clone for RRB<A, P, CHUNK
     }
 }
 
-impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P, CHUNK_SIZE> {
+impl<A> Vector<A, DefaultSharedPtr, { crate::config::VECTOR_CHUNK_SIZE }> {
+    /// Construct an empty vector using [`DefaultSharedPtr`] and [`crate::config::VECTOR_CHUNK_SIZE`]
+    #[must_use]
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+impl<A, P: SharedPointerKind> Vector<A, P, { crate::config::VECTOR_CHUNK_SIZE }> {
+    /// Construct an empty vector using a custom shared kind
+    #[must_use]
+    pub fn with_kind() -> Self {
+        Default::default()
+    }
+}
+
+impl<A, const CHUNK_SIZE: usize> Vector<A, DefaultSharedPtr, CHUNK_SIZE> {
+    /// Construct an empty vector using a custom chunk size
+    #[must_use]
+    pub fn with_size() -> Self {
+        Default::default()
+    }
+}
+
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Vector<A, P, CHUNK_SIZE> {
     /// True if a vector is a full inline or single chunk, ie. must be promoted
     /// to grow further.
     fn needs_promotion(&self) -> bool {
@@ -256,9 +278,8 @@ impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P, CHUNK
         }
     }
 
-    /// Construct an empty vector.
-    #[must_use]
-    pub fn new() -> Self {
+    /// Construct an empty vector using a custom chunk size and shared kind
+    pub fn with_kind_and_size() -> Self {
         Self {
             vector: Inline(InlineArray::new()),
         }
@@ -308,7 +329,7 @@ impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P, CHUNK
     /// Test whether a vector is currently inlined.
     ///
     /// Vectors small enough that their contents could be stored entirely inside
-    /// the space of `std::mem::size_of::<GenericVector<A, P, CHUNK_SIZE>>()` bytes are stored inline on
+    /// the space of `std::mem::size_of::<Vector<A, P, CHUNK_SIZE>>()` bytes are stored inline on
     /// the stack instead of allocating any chunks. This method returns `true` if
     /// this vector is currently inlined, or `false` if it currently has chunks allocated
     /// on the heap.
@@ -657,7 +678,7 @@ impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P, CHUNK
     /// ```
     /// # #[macro_use] extern crate imbl;
     /// # use imbl::Vector;
-    /// let vec  = Vector::unit(1337);
+    /// let vec  = Vector::<_>::unit(1337);
     /// assert_eq!(1, vec.len());
     /// assert_eq!(
     ///   vec.get(0),
@@ -708,7 +729,7 @@ impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P, CHUNK
     }
 }
 
-impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P, CHUNK_SIZE> {
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Vector<A, P, CHUNK_SIZE> {
     /// Get a mutable reference to the value at index `index` in a
     /// vector.
     ///
@@ -1308,7 +1329,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P
     pub fn skip(&self, count: usize) -> Self {
         match count {
             0 => self.clone(),
-            count if count >= self.len() => Self::new(),
+            count if count >= self.len() => Self::with_kind_and_size(),
             count => {
                 // FIXME can be made more efficient by dropping the unwanted side without constructing it
                 self.clone().split_off(count)
@@ -1355,7 +1376,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> GenericVector<A, P
     {
         let r = to_range(&range, self.len());
         if r.start >= r.end || r.start >= self.len() {
-            return GenericVector::new();
+            return Vector::with_kind_and_size();
         }
         let mut middle = self.split_off(r.start);
         let right = middle.split_off(r.end - r.start);
@@ -1756,15 +1777,15 @@ fn replace_shared_pointer<A: Default, P: SharedPointerKind>(
 
 // Core traits
 
-impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Default for GenericVector<A, P, CHUNK_SIZE> {
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Default for Vector<A, P, CHUNK_SIZE> {
     fn default() -> Self {
-        Self::new()
+        Self {
+            vector: Inline(InlineArray::new()),
+        }
     }
 }
 
-impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Clone
-    for GenericVector<A, P, CHUNK_SIZE>
-{
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Clone for Vector<A, P, CHUNK_SIZE> {
     /// Clone a vector.
     ///
     /// Time: O(1), or O(n) with a very small, bounded *n* for an inline vector.
@@ -1779,9 +1800,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Clone
     }
 }
 
-impl<A: Debug, P: SharedPointerKind, const CHUNK_SIZE: usize> Debug
-    for GenericVector<A, P, CHUNK_SIZE>
-{
+impl<A: Debug, P: SharedPointerKind, const CHUNK_SIZE: usize> Debug for Vector<A, P, CHUNK_SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         f.debug_list().entries(self.iter()).finish()
         // match self {
@@ -1796,34 +1815,30 @@ impl<A: Debug, P: SharedPointerKind, const CHUNK_SIZE: usize> Debug
 }
 
 impl<A: PartialEq, P: SharedPointerKind, const CHUNK_SIZE: usize> PartialEq
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 {
     fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.iter().eq(other.iter())
     }
 }
 
-impl<A: Eq, P: SharedPointerKind, const CHUNK_SIZE: usize> Eq for GenericVector<A, P, CHUNK_SIZE> {}
+impl<A: Eq, P: SharedPointerKind, const CHUNK_SIZE: usize> Eq for Vector<A, P, CHUNK_SIZE> {}
 
 impl<A: PartialOrd, P: SharedPointerKind, const CHUNK_SIZE: usize> PartialOrd
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.iter().partial_cmp(other.iter())
     }
 }
 
-impl<A: Ord, P: SharedPointerKind, const CHUNK_SIZE: usize> Ord
-    for GenericVector<A, P, CHUNK_SIZE>
-{
+impl<A: Ord, P: SharedPointerKind, const CHUNK_SIZE: usize> Ord for Vector<A, P, CHUNK_SIZE> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.iter().cmp(other.iter())
     }
 }
 
-impl<A: Hash, P: SharedPointerKind, const CHUNK_SIZE: usize> Hash
-    for GenericVector<A, P, CHUNK_SIZE>
-{
+impl<A: Hash, P: SharedPointerKind, const CHUNK_SIZE: usize> Hash for Vector<A, P, CHUNK_SIZE> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for i in self {
             i.hash(state)
@@ -1831,21 +1846,17 @@ impl<A: Hash, P: SharedPointerKind, const CHUNK_SIZE: usize> Hash
     }
 }
 
-impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Sum
-    for GenericVector<A, P, CHUNK_SIZE>
-{
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Sum for Vector<A, P, CHUNK_SIZE> {
     fn sum<I>(it: I) -> Self
     where
         I: Iterator<Item = Self>,
     {
-        it.fold(Self::new(), |a, b| a + b)
+        it.fold(Self::with_kind_and_size(), |a, b| a + b)
     }
 }
 
-impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Add
-    for GenericVector<A, P, CHUNK_SIZE>
-{
-    type Output = GenericVector<A, P, CHUNK_SIZE>;
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Add for Vector<A, P, CHUNK_SIZE> {
+    type Output = Vector<A, P, CHUNK_SIZE>;
 
     /// Concatenate two vectors.
     ///
@@ -1856,10 +1867,8 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Add
     }
 }
 
-impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Add
-    for &GenericVector<A, P, CHUNK_SIZE>
-{
-    type Output = GenericVector<A, P, CHUNK_SIZE>;
+impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Add for &Vector<A, P, CHUNK_SIZE> {
+    type Output = Vector<A, P, CHUNK_SIZE>;
 
     /// Concatenate two vectors.
     ///
@@ -1872,7 +1881,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Add
 }
 
 impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Extend<A>
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 {
     /// Add values to the end of a vector by consuming an iterator.
     ///
@@ -1887,9 +1896,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> Extend<A>
     }
 }
 
-impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Index<usize>
-    for GenericVector<A, P, CHUNK_SIZE>
-{
+impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Index<usize> for Vector<A, P, CHUNK_SIZE> {
     type Output = A;
     /// Get a reference to the value at index `index` in the vector.
     ///
@@ -1907,7 +1914,7 @@ impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> Index<usize>
 }
 
 impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IndexMut<usize>
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 {
     /// Get a mutable reference to the value at index `index` in the
     /// vector.
@@ -1924,7 +1931,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IndexMut<usize>
 // Conversions
 
 impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoIterator
-    for &'a GenericVector<A, P, CHUNK_SIZE>
+    for &'a Vector<A, P, CHUNK_SIZE>
 {
     type Item = &'a A;
     type IntoIter = Iter<'a, A, P, CHUNK_SIZE>;
@@ -1934,7 +1941,7 @@ impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoIterator
 }
 
 impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoIterator
-    for &'a mut GenericVector<A, P, CHUNK_SIZE>
+    for &'a mut Vector<A, P, CHUNK_SIZE>
 {
     type Item = &'a mut A;
     type IntoIter = IterMut<'a, A, P, CHUNK_SIZE>;
@@ -1944,7 +1951,7 @@ impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoIterator
 }
 
 impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoIterator
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 {
     type Item = A;
     type IntoIter = ConsumingIter<A, P, CHUNK_SIZE>;
@@ -1954,7 +1961,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoIterator
 }
 
 impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> FromIterator<A>
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 {
     /// Create a vector from an iterator.
     ///
@@ -1963,7 +1970,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> FromIterator<A>
     where
         I: IntoIterator<Item = A>,
     {
-        let mut seq = Self::new();
+        let mut seq = Self::with_kind_and_size();
         for item in iter {
             seq.push_back(item)
         }
@@ -1971,21 +1978,21 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> FromIterator<A>
     }
 }
 
-impl<A, OA, P1, P2, const CHUNK_SIZE: usize> From<&GenericVector<&A, P2, CHUNK_SIZE>>
-    for GenericVector<OA, P1, CHUNK_SIZE>
+impl<A, OA, P1, P2, const CHUNK_SIZE: usize> From<&Vector<&A, P2, CHUNK_SIZE>>
+    for Vector<OA, P1, CHUNK_SIZE>
 where
     A: ToOwned<Owned = OA>,
     OA: Borrow<A> + Clone,
     P1: SharedPointerKind,
     P2: SharedPointerKind,
 {
-    fn from(vec: &GenericVector<&A, P2, CHUNK_SIZE>) -> Self {
+    fn from(vec: &Vector<&A, P2, CHUNK_SIZE>) -> Self {
         vec.iter().map(|a| (*a).to_owned()).collect()
     }
 }
 
 impl<A, const N: usize, P: SharedPointerKind, const CHUNK_SIZE: usize> From<[A; N]>
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 where
     A: Clone,
 {
@@ -1995,7 +2002,7 @@ where
 }
 
 impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> From<&[A]>
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 {
     fn from(slice: &[A]) -> Self {
         slice.iter().cloned().collect()
@@ -2003,7 +2010,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> From<&[A]>
 }
 
 impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> From<Vec<A>>
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 {
     /// Create a vector from a [`std::vec::Vec`][vec].
     ///
@@ -2016,7 +2023,7 @@ impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> From<Vec<A>>
 }
 
 impl<A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> From<&Vec<A>>
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 {
     /// Create a vector from a [`std::vec::Vec`][vec].
     ///
@@ -2044,7 +2051,7 @@ pub struct Iter<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
 }
 
 impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> Iter<'a, A, P, CHUNK_SIZE> {
-    fn new(seq: &'a GenericVector<A, P, CHUNK_SIZE>) -> Self {
+    fn new(seq: &'a Vector<A, P, CHUNK_SIZE>) -> Self {
         Iter {
             focus: seq.focus(),
             front_index: 0,
@@ -2153,7 +2160,7 @@ impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> IterMut<'a, A, P, CHU
 }
 
 impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> IterMut<'a, A, P, CHUNK_SIZE> {
-    fn new(seq: &'a mut GenericVector<A, P, CHUNK_SIZE>) -> Self {
+    fn new(seq: &'a mut Vector<A, P, CHUNK_SIZE>) -> Self {
         let focus = seq.focus_mut();
         let len = focus.len();
         IterMut {
@@ -2222,11 +2229,11 @@ impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> FusedIterator
 
 /// A consuming iterator over vectors with values of type `A`.
 pub struct ConsumingIter<A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
-    vector: GenericVector<A, P, CHUNK_SIZE>,
+    vector: Vector<A, P, CHUNK_SIZE>,
 }
 
 impl<A, P: SharedPointerKind, const CHUNK_SIZE: usize> ConsumingIter<A, P, CHUNK_SIZE> {
-    fn new(vector: GenericVector<A, P, CHUNK_SIZE>) -> Self {
+    fn new(vector: Vector<A, P, CHUNK_SIZE>) -> Self {
         Self { vector }
     }
 }
@@ -2282,7 +2289,7 @@ pub struct Chunks<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
 }
 
 impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> Chunks<'a, A, P, CHUNK_SIZE> {
-    fn new(seq: &'a GenericVector<A, P, CHUNK_SIZE>) -> Self {
+    fn new(seq: &'a Vector<A, P, CHUNK_SIZE>) -> Self {
         Chunks {
             focus: seq.focus(),
             front_index: 0,
@@ -2347,7 +2354,7 @@ pub struct ChunksMut<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> {
 }
 
 impl<'a, A: Clone, P: SharedPointerKind, const CHUNK_SIZE: usize> ChunksMut<'a, A, P, CHUNK_SIZE> {
-    fn new(seq: &'a mut GenericVector<A, P, CHUNK_SIZE>) -> Self {
+    fn new(seq: &'a mut Vector<A, P, CHUNK_SIZE>) -> Self {
         let len = seq.len();
         ChunksMut {
             focus: seq.focus_mut(),
@@ -2451,7 +2458,7 @@ mod test {
             #[cfg(not(miri))]
             (0..100_000, vec![0, 1, 50_000, 99_999, 100_000]),
         ] {
-            let imbl_vec = Vector::from_iter(data.clone());
+            let imbl_vec = Vector::<i32>::from_iter(data.clone());
             let vec = Vec::from_iter(data);
             let focus = imbl_vec.focus();
             for split_point in split_points {
@@ -2472,7 +2479,7 @@ mod test {
     #[test]
     #[should_panic(expected = "range out of bounds")]
     fn test_vector_focus_narrow_out_of_range() {
-        let vec = Vector::from_iter(0..100);
+        let vec = Vector::<i32>::from_iter(0..100);
         _ = vec.focus().narrow(..1000);
     }
 
@@ -2509,7 +2516,7 @@ mod test {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn large_vector_focus() {
-        let input = Vector::from_iter(0..100_000);
+        let input = Vector::<i64>::from_iter(0..100_000);
         let vec = input.clone();
         let mut sum: i64 = 0;
         let mut focus = vec.focus();
@@ -2523,7 +2530,7 @@ mod test {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn large_vector_focus_mut() {
-        let input = Vector::from_iter(0..100_000);
+        let input = Vector::<i32>::from_iter(0..100_000);
         let mut vec = input.clone();
         {
             let mut focus = vec.focus_mut();
@@ -2541,9 +2548,9 @@ mod test {
     fn issue_55_fwd() {
         let mut l = Vector::new();
         for i in 0..4098 {
-            l.append(GenericVector::unit(i));
+            l.append(Vector::unit(i));
         }
-        l.append(GenericVector::unit(4098));
+        l.append(Vector::unit(4098));
         assert_eq!(Some(&4097), l.get(4097));
         assert_eq!(Some(&4096), l.get(4096));
     }
@@ -2551,9 +2558,9 @@ mod test {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn issue_55_back() {
-        let mut l = Vector::unit(0);
+        let mut l = Vector::<i32>::unit(0);
         for i in 0..4099 {
-            let mut tmp = GenericVector::unit(i + 1);
+            let mut tmp = Vector::unit(i + 1);
             tmp.append(l);
             l = tmp;
         }
@@ -2565,15 +2572,15 @@ mod test {
 
     #[test]
     fn issue_55_append() {
-        let mut vec1 = Vector::from_iter(0..92);
-        let vec2 = GenericVector::from_iter(0..165);
+        let mut vec1 = Vector::<i32>::from_iter(0..92);
+        let vec2 = Vector::<i32>::from_iter(0..165);
         vec1.append(vec2);
     }
 
     #[test]
     fn issue_70() {
         // This tests assumes a chunk size of 64
-        let mut x = GenericVector::<i32, DefaultSharedPtr, 64>::new();
+        let mut x = Vector::<i32, DefaultSharedPtr, 64>::new();
         for _ in 0..262 {
             x.push_back(0);
         }
@@ -2613,9 +2620,9 @@ mod test {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn issue_67() {
-        let mut l = Vector::unit(4100);
+        let mut l = Vector::<i32>::unit(4100);
         for i in (0..4099).rev() {
-            let mut tmp = GenericVector::unit(i);
+            let mut tmp = Vector::unit(i);
             tmp.append(l);
             l = tmp;
         }
@@ -2631,7 +2638,7 @@ mod test {
     #[test]
     fn issue_74_simple_size() {
         const CHUNK_SIZE: usize = 64;
-        let mut x = GenericVector::<u32, DefaultSharedPtr, CHUNK_SIZE>::new();
+        let mut x = Vector::<u32, DefaultSharedPtr, CHUNK_SIZE>::new();
         for _ in 0..(CHUNK_SIZE
             * (
                 1 // inner_f
@@ -2706,7 +2713,7 @@ mod test {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn issue_107_split_off_causes_overflow() {
-        let mut vec = Vector::from_iter(0..4289);
+        let mut vec = Vector::<i32>::from_iter(0..4289);
         let mut control = Vec::from_iter(0..4289);
         let chunk = 64;
 
@@ -2727,7 +2734,7 @@ mod test {
 
     #[test]
     fn issue_116() {
-        let vec = Vector::from_iter(0..300);
+        let vec = Vector::<i32>::from_iter(0..300);
         let rev_vec: Vector<_> = vec.clone().into_iter().rev().collect();
         assert_eq!(vec.len(), rev_vec.len());
     }
@@ -2762,7 +2769,7 @@ mod test {
 
     #[test]
     fn full_retain() {
-        let mut a = Vector::from_iter(0..128);
+        let mut a = Vector::<i32>::from_iter(0..128);
         let b = Vector::from_iter(128..256);
         a.append(b);
         assert!(matches!(a.vector, Full(_)));
@@ -2777,7 +2784,7 @@ mod test {
         #[cfg_attr(miri, ignore)]
         #[test]
         fn iter(ref vec in vec(i32::ANY, 0..1000)) {
-            let seq = Vector::from_iter(vec.iter().cloned());
+            let seq = Vector::<i32>::from_iter(vec.iter().cloned());
             for (index, item) in seq.iter().enumerate() {
                 assert_eq!(&vec[index], item);
             }
@@ -2793,8 +2800,8 @@ mod test {
                 vector.push_front(value);
                 assert_eq!(count + 1, vector.len());
             }
-            let input2 = Vec::from_iter(input.iter().rev().cloned());
-            assert_eq!(input2, Vec::from_iter(vector.iter().cloned()));
+            let input2 = Vec::<i32>::from_iter(input.iter().rev().cloned());
+            assert_eq!(input2, Vec::<i32>::from_iter(vector.iter().cloned()));
         }
 
         #[cfg_attr(miri, ignore)]
@@ -2806,13 +2813,13 @@ mod test {
                 vector.push_back(value);
                 assert_eq!(count + 1, vector.len());
             }
-            assert_eq!(input, &Vec::from_iter(vector.iter().cloned()));
+            assert_eq!(input, &Vec::<i32>::from_iter(vector.iter().cloned()));
         }
 
         #[cfg_attr(miri, ignore)]
         #[test]
         fn pop_back_mut(ref input in vec(i32::ANY, 0..1000)) {
-            let mut vector = Vector::from_iter(input.iter().cloned());
+            let mut vector = Vector::<i32>::from_iter(input.iter().cloned());
             assert_eq!(input.len(), vector.len());
             for (index, value) in input.iter().cloned().enumerate().rev() {
                 match vector.pop_back() {
@@ -2829,7 +2836,7 @@ mod test {
         #[cfg_attr(miri, ignore)]
         #[test]
         fn pop_front_mut(ref input in vec(i32::ANY, 0..1000)) {
-            let mut vector = Vector::from_iter(input.iter().cloned());
+            let mut vector = Vector::<i32>::from_iter(input.iter().cloned());
             assert_eq!(input.len(), vector.len());
             for (index, value) in input.iter().cloned().rev().enumerate().rev() {
                 match vector.pop_front() {
@@ -2867,7 +2874,7 @@ mod test {
         #[test]
         fn skip(ref vec in vec(i32::ANY, 1..2000), count in usize::ANY) {
             let count = count % (vec.len() + 1);
-            let old = Vector::from_iter(vec.iter().cloned());
+            let old = Vector::<i32>::from_iter(vec.iter().cloned());
             let new = old.skip(count);
             assert_eq!(old.len(), vec.len());
             assert_eq!(new.len(), vec.len() - count);
@@ -2883,7 +2890,7 @@ mod test {
         #[test]
         fn split_off(ref vec in vec(i32::ANY, 1..2000), split_pos in usize::ANY) {
             let split_index = split_pos % (vec.len() + 1);
-            let mut left = Vector::from_iter(vec.iter().cloned());
+            let mut left = Vector::<i32>::from_iter(vec.iter().cloned());
             let right = left.split_off(split_index);
             assert_eq!(left.len(), split_index);
             assert_eq!(right.len(), vec.len() - split_index);
@@ -2898,8 +2905,8 @@ mod test {
         #[cfg_attr(miri, ignore)]
         #[test]
         fn append(ref vec1 in vec(i32::ANY, 0..1000), ref vec2 in vec(i32::ANY, 0..1000)) {
-            let mut seq1 = Vector::from_iter(vec1.iter().cloned());
-            let seq2 = Vector::from_iter(vec2.iter().cloned());
+            let mut seq1 = Vector::<i32>::from_iter(vec1.iter().cloned());
+            let seq2 = Vector::<i32>::from_iter(vec2.iter().cloned());
             assert_eq!(seq1.len(), vec1.len());
             assert_eq!(seq2.len(), vec2.len());
             seq1.append(seq2);
@@ -3112,13 +3119,10 @@ impl<
     }
 
     /// Produces an output vector from the input vector using a map function and a key extractor.
-    pub fn map(
-        &mut self,
-        from: &GenericVector<In, P, CHUNK_SIZE>,
-    ) -> GenericVector<Out, P, CHUNK_SIZE> {
+    pub fn map(&mut self, from: &Vector<In, P, CHUNK_SIZE>) -> Vector<Out, P, CHUNK_SIZE> {
         match &from.vector {
             Inline(next_in) => {
-                let mut next = GenericVector {
+                let mut next = Vector {
                     vector: VectorInner::Inline(InlineArray::new()),
                 };
 
@@ -3142,7 +3146,7 @@ impl<
                     Inline(chunk) => self.previous_out = Single(SharedPointer::new(chunk.into())),
                     Single(_) => (),
                     Full(_) => {
-                        let mut next = GenericVector {
+                        let mut next = Vector {
                             vector: VectorInner::Single(SharedPointer::new(Chunk::new())),
                         };
                         Self::map_next_in(
@@ -3177,12 +3181,12 @@ impl<
                             &mut self.f,
                         );
 
-                        GenericVector {
+                        Vector {
                             vector: VectorInner::Single(inner),
                         }
                     }
                     Inline(_) | Full(_) => {
-                        let mut next = GenericVector {
+                        let mut next = Vector {
                             vector: VectorInner::Single(SharedPointer::new(Chunk::new())),
                         };
                         Self::map_next_in(
@@ -3201,7 +3205,7 @@ impl<
                     }
                 }
             }
-            Full(rrb) => GenericVector {
+            Full(rrb) => Vector {
                 vector: VectorInner::Full(self.map_with_key_internal(rrb)),
             },
         }
@@ -3336,7 +3340,7 @@ impl<T: Clone, F: FnMut(T, T) -> T, P: SharedPointerKind, const CHUNK_SIZE: usiz
     }
 
     /// Produces an output value from the input vector using a fold operation
-    pub fn fold(&mut self, from: &GenericVector<T, P, CHUNK_SIZE>) -> Option<T> {
+    pub fn fold(&mut self, from: &Vector<T, P, CHUNK_SIZE>) -> Option<T> {
         match &from.vector {
             Inline(chunk) => {
                 if chunk.is_empty() {
@@ -3452,7 +3456,7 @@ fn test_vector_map_ref() {
 #[test]
 fn test_vector_map_big() {
     const COUNT: usize = 10000;
-    let mut a = Vector::from_iter((0..COUNT).map(|i| i as i64));
+    let mut a = Vector::<i64>::from_iter((0..COUNT).map(|i| i as i64));
     let mut mutation_count = 0;
 
     let len = {
@@ -3498,7 +3502,7 @@ fn test_vector_fold_big() {
     const COUNT: usize = 10000;
     const BASE: i64 = (COUNT * (COUNT + 1) / 2) as i64;
 
-    let mut a = Vector::from_iter((1..=COUNT).map(|i| i as i64));
+    let mut a = Vector::<i64>::from_iter((1..=COUNT).map(|i| i as i64));
     let mut mutation_count = 0;
 
     let mut fold = PersistentFold::<i64, _, _, _>::new(|l, r| {

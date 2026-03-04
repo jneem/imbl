@@ -9,7 +9,7 @@ use ::rayon::iter::{
 };
 
 impl<'a, A, P: SharedPointerKind, const CHUNK_SIZE: usize> IntoParallelRefIterator<'a>
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + 'a,
@@ -25,7 +25,7 @@ where
 }
 
 impl<'a, A, P, const CHUNK_SIZE: usize> IntoParallelRefMutIterator<'a>
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 where
     A: Clone + Send + Sync + 'a,
     P: SharedPointerKind + Send + Sync + 'a,

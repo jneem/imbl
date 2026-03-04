@@ -4,11 +4,11 @@
 
 use crate::vector::FocusMut;
 use archery::SharedPointerKind;
-use rand_core::{RngCore, SeedableRng};
+use rand_core::{Rng, SeedableRng};
 use std::cmp::Ordering;
 use std::mem;
 
-fn gen_range<R: RngCore>(rng: &mut R, min: usize, max: usize) -> usize {
+fn gen_range<R: Rng>(rng: &mut R, min: usize, max: usize) -> usize {
     let range = max - min;
     min + (rng.next_u64() as usize % range)
 }
@@ -27,7 +27,7 @@ fn do_quicksort<A, F, R, P, const CHUNK_SIZE: usize>(
 ) where
     A: Clone,
     F: Fn(&A, &A) -> Ordering,
-    R: RngCore,
+    R: Rng,
     P: SharedPointerKind,
 {
     if vector.len() <= 1 {

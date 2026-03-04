@@ -13,7 +13,7 @@ use crate::nodes::chunk::Chunk;
 use crate::sync::Lock;
 use crate::util::to_range;
 use crate::vector::{
-    GenericVector, Iter, IterMut,
+    Vector, Iter, IterMut,
     VectorInner::{Full, Inline, Single},
     RRB,
 };
@@ -113,7 +113,7 @@ where
     /// Construct a `Focus` for a [`Vector`][Vector].
     ///
     /// [Vector]: type.Vector.html
-    pub fn new(vector: &'a GenericVector<A, P, CHUNK_SIZE>) -> Self {
+    pub fn new(vector: &'a Vector<A, P, CHUNK_SIZE>) -> Self {
         Self::new_inner(&vector.vector)
     }
 
@@ -637,7 +637,7 @@ where
     A: Clone + 'a,
 {
     /// Construct a `FocusMut` for a `Vector`.
-    pub fn new(vector: &'a mut GenericVector<A, P, CHUNK_SIZE>) -> Self {
+    pub fn new(vector: &'a mut Vector<A, P, CHUNK_SIZE>) -> Self {
         match &mut vector.vector {
             Inline(chunk) => FocusMut::Single(chunk),
             Single(chunk) => FocusMut::Single(SharedPointer::make_mut(chunk).as_mut_slice()),

@@ -1,5 +1,5 @@
 use criterion::{Bencher, Criterion, criterion_group, criterion_main};
-use imbl::GenericVector;
+use imbl::Vector;
 use imbl::shared_ptr::DefaultSharedPtr;
 use rand::seq::SliceRandom;
 use std::collections::VecDeque;
@@ -67,7 +67,7 @@ impl<'a, T: Clone, const CHUNK_SIZE: usize> VectorFocusMut<'a, T, CHUNK_SIZE> {
 
 // Implementation for imbl::Vector
 impl<T: Clone, const CHUNK_SIZE: usize> BenchVector<T, CHUNK_SIZE>
-    for GenericVector<T, DefaultSharedPtr, CHUNK_SIZE>
+    for Vector<T, DefaultSharedPtr, CHUNK_SIZE>
 {
     type Iter<'a>
         = imbl::vector::Iter<'a, T, imbl::shared_ptr::DefaultSharedPtr, CHUNK_SIZE>
@@ -75,7 +75,7 @@ impl<T: Clone, const CHUNK_SIZE: usize> BenchVector<T, CHUNK_SIZE>
         T: 'a;
 
     fn new() -> Self {
-        GenericVector::new()
+        Vector::new()
     }
 
     fn push_front(&mut self, value: T) {
@@ -405,8 +405,8 @@ fn bench_ops_group<V: BenchVector<usize, DEFAULT_CHUNK>>(c: &mut Criterion, grou
 
 // Benchmark functions for each vector type
 fn bench_vector(c: &mut Criterion) {
-    bench_sort_group::<GenericVector<usize, DefaultSharedPtr, DEFAULT_CHUNK>>(c, "vector");
-    bench_ops_group::<GenericVector<usize, DefaultSharedPtr, DEFAULT_CHUNK>>(c, "vector");
+    bench_sort_group::<Vector<usize, DefaultSharedPtr, DEFAULT_CHUNK>>(c, "vector");
+    bench_ops_group::<Vector<usize, DefaultSharedPtr, DEFAULT_CHUNK>>(c, "vector");
 }
 
 fn bench_vecdeque(c: &mut Criterion) {

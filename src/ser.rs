@@ -9,11 +9,11 @@ use std::fmt;
 use std::hash::{BuildHasher, Hash};
 use std::marker::PhantomData;
 
-use crate::hashmap::GenericHashMap;
-use crate::hashset::GenericHashSet;
-use crate::ordmap::GenericOrdMap;
-use crate::ordset::GenericOrdSet;
-use crate::vector::GenericVector;
+use crate::hashmap::HashMap;
+use crate::hashset::HashSet;
+use crate::ordmap::OrdMap;
+use crate::ordset::OrdSet;
+use crate::vector::Vector;
 
 struct SeqVisitor<'de, S, A> {
     phantom_s: PhantomData<S>,
@@ -105,7 +105,7 @@ where
 // Set
 
 impl<'de, A: Deserialize<'de> + Ord + Clone, P: SharedPointerKind> Deserialize<'de>
-    for GenericOrdSet<A, P>
+    for OrdSet<A, P>
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
@@ -115,7 +115,7 @@ impl<'de, A: Deserialize<'de> + Ord + Clone, P: SharedPointerKind> Deserialize<'
     }
 }
 
-impl<A: Ord + Serialize, P: SharedPointerKind> Serialize for GenericOrdSet<A, P> {
+impl<A: Ord + Serialize, P: SharedPointerKind> Serialize for OrdSet<A, P> {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -131,17 +131,17 @@ impl<A: Ord + Serialize, P: SharedPointerKind> Serialize for GenericOrdSet<A, P>
 // Map
 
 impl<'de, K: Deserialize<'de> + Ord + Clone, V: Deserialize<'de> + Clone, P: SharedPointerKind>
-    Deserialize<'de> for GenericOrdMap<K, V, P>
+    Deserialize<'de> for OrdMap<K, V, P>
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        des.deserialize_map(MapVisitor::<'de, GenericOrdMap<K, V, P>, K, V>::new())
+        des.deserialize_map(MapVisitor::<'de, OrdMap<K, V, P>, K, V>::new())
     }
 }
 
-impl<K: Serialize + Ord, V: Serialize, P: SharedPointerKind> Serialize for GenericOrdMap<K, V, P> {
+impl<K: Serialize + Ord, V: Serialize, P: SharedPointerKind> Serialize for OrdMap<K, V, P> {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -156,7 +156,7 @@ impl<K: Serialize + Ord, V: Serialize, P: SharedPointerKind> Serialize for Gener
 
 // HashMap
 
-impl<'de, K, V, S, P: SharedPointerKind> Deserialize<'de> for GenericHashMap<K, V, S, P>
+impl<'de, K, V, S, P: SharedPointerKind> Deserialize<'de> for HashMap<K, V, S, P>
 where
     K: Deserialize<'de> + Hash + Eq + Clone,
     V: Deserialize<'de> + Clone,
@@ -167,11 +167,11 @@ where
     where
         D: Deserializer<'de>,
     {
-        des.deserialize_map(MapVisitor::<'de, GenericHashMap<K, V, S, P>, K, V>::new())
+        des.deserialize_map(MapVisitor::<'de, HashMap<K, V, S, P>, K, V>::new())
     }
 }
 
-impl<K, V, S, P> Serialize for GenericHashMap<K, V, S, P>
+impl<K, V, S, P> Serialize for HashMap<K, V, S, P>
 where
     K: Serialize + Hash + Eq,
     V: Serialize,
@@ -193,11 +193,11 @@ where
 // HashSet
 
 impl<
-        'de,
-        A: Deserialize<'de> + Hash + Eq + Clone,
-        S: BuildHasher + Default + Clone,
-        P: SharedPointerKind,
-    > Deserialize<'de> for GenericHashSet<A, S, P>
+    'de,
+    A: Deserialize<'de> + Hash + Eq + Clone,
+    S: BuildHasher + Default + Clone,
+    P: SharedPointerKind,
+> Deserialize<'de> for HashSet<A, S, P>
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
@@ -208,7 +208,7 @@ impl<
 }
 
 impl<A: Serialize + Hash + Eq, S: BuildHasher + Default, P: SharedPointerKind> Serialize
-    for GenericHashSet<A, S, P>
+    for HashSet<A, S, P>
 {
     fn serialize<Ser>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error>
     where
@@ -225,18 +225,18 @@ impl<A: Serialize + Hash + Eq, S: BuildHasher + Default, P: SharedPointerKind> S
 // Vector
 
 impl<'de, A: Clone + Deserialize<'de>, P: SharedPointerKind, const CHUNK_SIZE: usize>
-    Deserialize<'de> for GenericVector<A, P, CHUNK_SIZE>
+    Deserialize<'de> for Vector<A, P, CHUNK_SIZE>
 {
     fn deserialize<D>(des: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        des.deserialize_seq(SeqVisitor::<'de, GenericVector<A, P, CHUNK_SIZE>, A>::new())
+        des.deserialize_seq(SeqVisitor::<'de, Vector<A, P, CHUNK_SIZE>, A>::new())
     }
 }
 
 impl<A: Serialize, P: SharedPointerKind, const CHUNK_SIZE: usize> Serialize
-    for GenericVector<A, P, CHUNK_SIZE>
+    for Vector<A, P, CHUNK_SIZE>
 {
     fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
     where
@@ -255,8 +255,8 @@ impl<A: Serialize, P: SharedPointerKind, const CHUNK_SIZE: usize> Serialize
 #[cfg(test)]
 mod test {
     use crate::{
-        proptest::{hash_map, hash_set, ord_map, ord_set, vector},
         HashMap, HashSet, OrdMap, OrdSet, Vector,
+        proptest::{hash_map, hash_set, ord_map, ord_set, vector},
     };
     use proptest::num::i32;
     use proptest::proptest;
