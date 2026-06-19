@@ -1188,8 +1188,8 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
         // The current implementation is not optimal as it will still visit many nodes unnecessarily
         // before skipping them. But it requires very little additional code.
         // Nevertheless it will still improve performance when there are shared nodes.
+        let mut skipped_any = false;
         loop {
-            let mut skipped_any = false;
             debug_assert!(self.leaf.is_some());
             debug_assert!(other.leaf.is_some());
             if let (Some(this), Some(that)) = (self.leaf, other.leaf) {
@@ -1208,13 +1208,22 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
                         self.stack.drain(self.stack.len() - shared_levels..);
                         other.stack.drain(other.stack.len() - shared_levels..);
                     }
+                    self.next();
+                    other.next();
+                    if self.leaf.is_none() {
+                        break;
+                    }
+                    continue;
                 }
             }
-            self.next();
-            other.next();
-            if !skipped_any || self.leaf.is_none() {
-                break;
+            // The current leaves are not shared. If we already skipped a shared
+            // node we have re-descended onto a fresh leaf and must not advance
+            // past its first element; otherwise perform the single-step advance.
+            if !skipped_any {
+                self.next();
+                other.next();
             }
+            break;
         }
     }
 
