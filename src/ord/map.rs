@@ -2630,6 +2630,24 @@ mod test {
         }
     }
 
+    #[test]
+    fn diff_shared_single_update() {
+        // 17 sequential keys is the minimum that splits into two leaves. Nodes
+        // contain 16 entries, and after inserting the 17th, we split at `MEDIAN`.
+        // Thus, leaf 0 contains keys [0, 7] and leaf 1 [8, 16].
+        //
+        // Updating the map with `(8, 999)`, changes the index-0 value of
+        // leaf 1.
+        //
+        // `Cursor::advance_skipping_shared` used to over advance and skip this
+        // element in its comparison. The following test case guards against a
+        // regression in this behavior.
+        let a: OrdMap<i64, i64> = (0..17).map(|i| (i, 0)).collect();
+        let b = a.update(8, 999);
+        assert_eq!(a.diff(&b).count(), 1);
+        assert_ne!(a, b);
+    }
+
     fn expected_diff<'a, K, V, P>(
         a: &'a GenericOrdMap<K, V, P>,
         b: &'a GenericOrdMap<K, V, P>,
