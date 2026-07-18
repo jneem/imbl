@@ -21,7 +21,7 @@ use crate::vector::{
 fn check_indices<const N: usize>(len: usize, indices: &[usize; N]) -> Option<()> {
     let mut seen = [None; N];
     for idx in indices {
-        if *idx > len || seen.contains(&Some(*idx)) {
+        if *idx >= len || seen.contains(&Some(*idx)) {
             return None;
         }
         let empty = seen.iter_mut().find(|a| a.is_none()).unwrap();
