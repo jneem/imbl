@@ -551,12 +551,17 @@ impl<A: HashValue, P: SharedPointerKind> HamtNode<A, P> {
         let Entry::Value(old_value, old_hash) = (unsafe { ptr::read(entry) }) else {
             unreachable!()
         };
+        // Since we've read out of `entry`, make sure we don't double-drop it. I
+        // don't think we're calling anything that might panic between here and
+        // the ptr::write, but just in case...
+        let entry = ManuallyDrop::new(entry);
         let new_entry = if shift + HASH_SHIFT >= HASH_WIDTH {
             // We're at the lowest level, need to set up a collision node.
             Entry::from(CollisionNode::new(hash, old_value, value))
         } else {
             Self::merge_values(old_value, old_hash, value, hash)
         };
+        let entry = ManuallyDrop::into_inner(entry);
         unsafe { ptr::write(entry, new_entry) };
         None
     }
