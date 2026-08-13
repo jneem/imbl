@@ -2033,10 +2033,33 @@ impl<'a, A, P: SharedPointerKind + 'a> Iterator for Iter<'a, A, P> {
         if self.front_index >= self.back_index {
             return None;
         }
-        let focus: &'a mut Focus<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
-        let value = focus.get(self.front_index);
+        let value = self.focus.get(self.front_index);
         self.front_index += 1;
-        value
+        // Safety:
+        // We ensure that everything reachable from a `Focus<'a, ..>` is valid
+        // for `'a`. The trickier part is the `TreeFocus` branch, and here
+        // are two ways we can construct a `TreeFocus`:
+        // - through a reference `&'a RRB`. In this case, the actual tree that
+        //   we store is a reference-counted copy of the `&'a RBB`, and so the
+        //   data underlying our tree is valid for `'a`. If this were the only
+        //   way to construct a `TreeFocus`, we'd just have `TreeFocus::tree` be a
+        //   `&'a RRB`. Alas.
+        // - from a `TreeFocusMut<'a, ..>`, which owns what is essentially a
+        //   `Mutex<&'a mut Rc<Node>>`. Importantly, `TreeFocusMut` doesn't
+        //   expose any methods to modify the tree *structure*, so we know
+        //   that all the tree nodes are valid for `'a`. And because of our
+        //   disjointness checks when splitting a `TreeFocusMut`, we won't take
+        //   a reference to any of the elements that might be modified by the
+        //   `TreeFocusMut`.
+        //
+        // This is all a bit complicated and it would be nice to push these
+        // assertions down to the focus module. For example, I think we can
+        // change `Focus<'a, A>::get` to return `&'a A`. Unfortunately, this
+        // doesn't completely solve our problems in this module, because we
+        // can't do the same for mutable references (for which we'd need to
+        // guarantee that you can't as the focus for the same mutable reference
+        // twice; true for iterators, but not in general).
+        unsafe { extend_lifetime(value) }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -2054,8 +2077,8 @@ impl<'a, A, P: SharedPointerKind + 'a> DoubleEndedIterator for Iter<'a, A, P> {
             return None;
         }
         self.back_index -= 1;
-        let focus: &'a mut Focus<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
-        focus.get(self.back_index)
+        let value = self.focus.get(self.back_index);
+        unsafe { extend_lifetime(value) }
     }
 }
 
@@ -2109,10 +2132,9 @@ where
         if self.front_index >= self.back_index {
             return None;
         }
-        let focus: &'a mut FocusMut<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
-        let value = focus.get_mut(self.front_index);
+        let value = self.focus.get_mut(self.front_index);
         self.front_index += 1;
-        value
+        unsafe { extend_lifetime_mut(value) }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -2133,8 +2155,8 @@ where
             return None;
         }
         self.back_index -= 1;
-        let focus: &'a mut FocusMut<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
-        focus.get_mut(self.back_index)
+        let value = self.focus.get_mut(self.back_index);
+        unsafe { extend_lifetime_mut(value) }
     }
 }
 
@@ -2213,10 +2235,9 @@ impl<'a, A, P: SharedPointerKind + 'a> Iterator for Chunks<'a, A, P> {
         if self.front_index >= self.back_index {
             return None;
         }
-        let focus: &'a mut Focus<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
-        let (range, value) = focus.chunk_at(self.front_index);
+        let (range, value) = self.focus.chunk_at(self.front_index);
         self.front_index = range.end;
-        Some(value)
+        unsafe { extend_lifetime(Some(value)) }
     }
 }
 
@@ -2229,10 +2250,9 @@ impl<'a, A, P: SharedPointerKind + 'a> DoubleEndedIterator for Chunks<'a, A, P> 
             return None;
         }
         self.back_index -= 1;
-        let focus: &'a mut Focus<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
-        let (range, value) = focus.chunk_at(self.back_index);
+        let (range, value) = self.focus.chunk_at(self.back_index);
         self.back_index = range.start;
-        Some(value)
+        unsafe { extend_lifetime(Some(value)) }
     }
 }
 
@@ -2270,10 +2290,9 @@ impl<'a, A: Clone, P: SharedPointerKind> Iterator for ChunksMut<'a, A, P> {
         if self.front_index >= self.back_index {
             return None;
         }
-        let focus: &'a mut FocusMut<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
-        let (range, value) = focus.chunk_at(self.front_index);
+        let (range, value) = self.focus.chunk_at(self.front_index);
         self.front_index = range.end;
-        Some(value)
+        unsafe { extend_lifetime_mut(Some(value)) }
     }
 }
 
@@ -2286,10 +2305,9 @@ impl<'a, A: Clone, P: SharedPointerKind> DoubleEndedIterator for ChunksMut<'a, A
             return None;
         }
         self.back_index -= 1;
-        let focus: &'a mut FocusMut<'a, A, P> = unsafe { &mut *(&mut self.focus as *mut _) };
-        let (range, value) = focus.chunk_at(self.back_index);
+        let (range, value) = self.focus.chunk_at(self.back_index);
         self.back_index = range.start;
-        Some(value)
+        unsafe { extend_lifetime_mut(Some(value)) }
     }
 }
 
@@ -2304,6 +2322,14 @@ pub mod proptest {
         note = "proptest strategies have moved to imbl::proptest"
     )]
     pub use crate::proptest::vector;
+}
+
+unsafe fn extend_lifetime<'a, T: ?Sized>(x: Option<&T>) -> Option<&'a T> {
+    std::mem::transmute(x)
+}
+
+unsafe fn extend_lifetime_mut<'a, T: ?Sized>(x: Option<&mut T>) -> Option<&'a mut T> {
+    std::mem::transmute(x)
 }
 
 // Tests
