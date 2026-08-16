@@ -548,20 +548,21 @@ impl<A: HashValue, P: SharedPointerKind> HamtNode<A, P> {
         // If we get here, we're inserting a value over an existing value (collision).
         // We're going to be unsafe and pry it out of the reference, trusting
         // that we overwrite it with the merged node.
+        //
+        // We're pretty careful not to call anything that might panic in
+        // between here and writing it back (for example, I'm pretty sure
+        // we aren't running any user-provided code from traits on `A`),
+        // but this is still a little scary. We could consider adding a new
+        // `Entry::TemporarilyInvalid` entry.
         let Entry::Value(old_value, old_hash) = (unsafe { ptr::read(entry) }) else {
             unreachable!()
         };
-        // Since we've read out of `entry`, make sure we don't double-drop it. I
-        // don't think we're calling anything that might panic between here and
-        // the ptr::write, but just in case...
-        let entry = ManuallyDrop::new(entry);
         let new_entry = if shift + HASH_SHIFT >= HASH_WIDTH {
             // We're at the lowest level, need to set up a collision node.
             Entry::from(CollisionNode::new(hash, old_value, value))
         } else {
             Self::merge_values(old_value, old_hash, value, hash)
         };
-        let entry = ManuallyDrop::into_inner(entry);
         unsafe { ptr::write(entry, new_entry) };
         None
     }
