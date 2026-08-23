@@ -4,7 +4,7 @@
 
 //! An ordered map.
 //!
-//! An immutable ordered map implemented as a [B+tree] [1].
+//! An immutable ordered map implemented as a [B+ tree][1].
 //!
 //! Most operations on this type of map are O(log n). A
 //! [`HashMap`][hashmap::HashMap] is usually a better choice for
@@ -74,7 +74,7 @@ pub type OrdMap<K, V> = GenericOrdMap<K, V, DefaultSharedPtr>;
 
 /// An ordered map.
 ///
-/// An immutable ordered map implemented as a B+tree [1].
+/// An immutable ordered map implemented as a [B+ tree][1].
 ///
 /// Most operations on this type of map are O(log n). A
 /// [`HashMap`][hashmap::HashMap] is usually a better choice for

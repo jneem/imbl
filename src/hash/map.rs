@@ -87,7 +87,7 @@ pub type HashMap<K, V> = GenericHashMap<K, V, RandomState, DefaultSharedPtr>;
 
 /// An unordered map.
 ///
-/// An immutable hash map using [hash array mapped tries] [1].
+/// An immutable hash map using [hash array mapped tries][1].
 ///
 /// Most operations on this map are O(log<sub>x</sub> n) for a
 /// suitably high *x* that it should be nearly O(1) for most maps.

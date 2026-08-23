@@ -4,7 +4,7 @@
 
 //! An unordered set.
 //!
-//! An immutable hash set using [hash array mapped tries] [1].
+//! An immutable hash set using [hash array mapped tries][1].
 //!
 //! Most operations on this set are O(log<sub>x</sub> n) for a
 //! suitably high *x* that it should be nearly O(1) for most sets.
@@ -81,7 +81,7 @@ pub type HashSet<A> = GenericHashSet<A, RandomState, DefaultSharedPtr>;
 
 /// An unordered set.
 ///
-/// An immutable hash set using [hash array mapped tries] [1].
+/// An immutable hash set using [hash array mapped tries][1].
 ///
 /// Most operations on this set are O(log<sub>x</sub> n) for a
 /// suitably high *x* that it should be nearly O(1) for most sets.

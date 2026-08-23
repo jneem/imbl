@@ -4,7 +4,7 @@
 
 //! An ordered set.
 //!
-//! An immutable ordered set implemented as a [B+tree] [1].
+//! An immutable ordered set implemented as a [B+ tree][1].
 //!
 //! Most operations on this type of set are O(log n). A
 //! [`GenericHashSet`] is usually a better choice for
@@ -66,7 +66,7 @@ pub type OrdSet<A> = GenericOrdSet<A, DefaultSharedPtr>;
 
 /// An ordered set.
 ///
-/// An immutable ordered map implemented as a B+tree [1].
+/// An immutable ordered map implemented as a [B+ tree][1].
 ///
 /// Most operations on this type of set are O(log n). A
 /// [`GenericHashSet`] is usually a better choice for
