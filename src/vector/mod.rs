@@ -2669,6 +2669,18 @@ mod test {
         assert_eq!(a.len(), 128);
     }
 
+    #[test]
+    fn imbl_issue_168() {
+        let mut a = Vector::from_iter(0..512);
+        let (mut first_part, mut second_part) = a.focus_mut().split_at(255);
+        let last_of_first = first_part.get_mut(254).unwrap();
+        let first_of_second = second_part.get_mut(0).unwrap();
+        *last_of_first += 1;
+        *first_of_second += 1;
+        dbg!(*last_of_first);
+        dbg!(*first_of_second);
+    }
+
     proptest! {
         // Miri is slow, so we ignore long-ish tests to keep the test
         // time manageable. For some property tests, it may be worthwhile

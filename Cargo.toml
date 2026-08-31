@@ -41,7 +41,7 @@ triomphe = ["archery/triomphe"]
 
 [dependencies]
 bitmaps = "3"
-imbl-sized-chunks = "0.1.3"
+imbl-sized-chunks = { path = "../imbl-sized-chunks" }
 rand_core = "0.9"
 rand_xoshiro = "0.7"
 archery = "1.2.1"

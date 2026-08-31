@@ -893,11 +893,6 @@ where
         (range.start - self.view.start)..(range.end - self.view.start)
     }
 
-    /// Gets the chunk for an index and its corresponding range within the TreeFocusMut.
-    fn get_focus(&mut self) -> &mut Chunk<A> {
-        unsafe { &mut *self.target_ptr.load(Ordering::Relaxed) }
-    }
-
     fn get_focus_ptr(&mut self) -> *mut Chunk<A> {
         self.target_ptr.load(Ordering::Relaxed)
     }
@@ -964,7 +959,11 @@ where
             self.set_focus(phys_index);
         }
         let target_phys_index = phys_index - self.target_range.start;
-        Some(&mut self.get_focus()[target_phys_index])
+
+        unsafe {
+            let slice_ptr = Chunk::as_mut_slice_ptr(self.get_focus_ptr()) as *mut A;
+            Some(&mut *slice_ptr.add(target_phys_index))
+        }
     }
 
     fn get_many<const N: usize>(&mut self, indices: [usize; N]) -> Option<[&mut A; N]> {
@@ -1000,8 +999,13 @@ where
         }
         let phys_range = (self.target_range.start + left)..(self.target_range.end - right);
         let log_range = self.logical_range(&phys_range);
-        let slice_len = self.get_focus().len();
-        let slice = &mut self.get_focus().as_mut_slice()[left..(slice_len - right)];
-        (log_range, slice)
+
+        let subslice = unsafe {
+            let slice_ptr = Chunk::as_mut_slice_ptr(self.get_focus_ptr());
+            let subslice_len = slice_ptr.len() - left - right;
+            let subslice_ptr = (slice_ptr as *mut A).add(left);
+            std::slice::from_raw_parts_mut(subslice_ptr, subslice_len)
+        };
+        (log_range, subslice)
     }
 }
