@@ -979,9 +979,29 @@ enum DrainItem<A, P: SharedPointerKind> {
     Collision(SharedPointer<CollisionNode<A>, P>),
 }
 
+impl<A, P: SharedPointerKind> Clone for DrainItem<A, P> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::SmallSimdNode(arg0) => Self::SmallSimdNode(arg0.clone()),
+            Self::LargeSimdNode(arg0) => Self::LargeSimdNode(arg0.clone()),
+            Self::HamtNode(arg0) => Self::HamtNode(arg0.clone()),
+            Self::Collision(arg0) => Self::Collision(arg0.clone()),
+        }
+    }
+}
+
 pub(crate) struct Drain<A, P: SharedPointerKind> {
     count: usize,
     stack: InlineStack<DrainItem<A, P>>,
+}
+
+impl<A, P: SharedPointerKind> Clone for Drain<A, P> {
+    fn clone(&self) -> Self {
+        Self {
+            count: self.count,
+            stack: self.stack.clone(),
+        }
+    }
 }
 
 impl<A, P: SharedPointerKind> Drain<A, P> {

@@ -805,6 +805,15 @@ pub(crate) struct ConsumingIter<K, V, P: SharedPointerKind> {
     remaining: usize,
 }
 
+impl<K, V, P: SharedPointerKind> Clone for ConsumingIter<K, V, P> {
+    fn clone(&self) -> Self {
+        Self {
+            leaves: self.leaves.clone(),
+            remaining: self.remaining,
+        }
+    }
+}
+
 impl<K, V, P: SharedPointerKind> ConsumingIter<K, V, P> {
     pub(crate) fn new(node: Option<Node<K, V, P>>, size: usize) -> Self {
         fn push<K, V, P: SharedPointerKind>(

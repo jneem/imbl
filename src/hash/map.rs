@@ -1969,6 +1969,14 @@ pub struct ConsumingIter<A: HashValue, P: SharedPointerKind> {
     it: NodeDrain<A, P>,
 }
 
+impl<A: HashValue, P: SharedPointerKind> Clone for ConsumingIter<A, P> {
+    fn clone(&self) -> Self {
+        Self {
+            it: self.it.clone(),
+        }
+    }
+}
+
 impl<A, P: SharedPointerKind> Iterator for ConsumingIter<A, P>
 where
     A: HashValue + Clone,
