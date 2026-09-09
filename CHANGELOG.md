@@ -13,6 +13,11 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
   and carries an unpatched soundness issue (RUSTSEC-2025-0167), by using
   `imbl-sized-chunks` 0.2.0's in-tree bitmap module. No public API change. (#170)
 
+### Fixed
+
+- Fixed `OrdSet::ConsumingIter::len()` panicking due to a missing `size_hint`
+  override on its `ExactSizeIterator` implementation. (#176)
+
 ## [7.0.1] - 2026-07-18
 
 ### Fixed
