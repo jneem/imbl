@@ -803,6 +803,18 @@ where
     it: NodeDrain<Value<A>, P>,
 }
 
+impl<A, P> Clone for ConsumingIter<A, P>
+where
+    A: Hash + Eq + Clone,
+    P: SharedPointerKind,
+{
+    fn clone(&self) -> Self {
+        Self {
+            it: self.it.clone(),
+        }
+    }
+}
+
 impl<A, P> Iterator for ConsumingIter<A, P>
 where
     A: Hash + Eq + Clone,

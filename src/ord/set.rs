@@ -930,6 +930,14 @@ pub struct ConsumingIter<A, P: SharedPointerKind> {
     it: map::ConsumingIter<A, (), P>,
 }
 
+impl<A, P: SharedPointerKind> Clone for ConsumingIter<A, P> {
+    fn clone(&self) -> Self {
+        Self {
+            it: self.it.clone(),
+        }
+    }
+}
+
 impl<A, P> Iterator for ConsumingIter<A, P>
 where
     A: Clone,

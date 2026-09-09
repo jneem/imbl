@@ -2127,6 +2127,14 @@ pub struct ConsumingIter<K, V, P: SharedPointerKind> {
     it: NodeConsumingIter<K, V, P>,
 }
 
+impl<K, V, P: SharedPointerKind> Clone for ConsumingIter<K, V, P> {
+    fn clone(&self) -> Self {
+        Self {
+            it: self.it.clone(),
+        }
+    }
+}
+
 impl<K, V, P> Iterator for ConsumingIter<K, V, P>
 where
     K: Clone,

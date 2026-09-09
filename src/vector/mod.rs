@@ -2169,6 +2169,14 @@ pub struct ConsumingIter<A, P: SharedPointerKind> {
     vector: GenericVector<A, P>,
 }
 
+impl<A: Clone, P: SharedPointerKind> Clone for ConsumingIter<A, P> {
+    fn clone(&self) -> Self {
+        Self {
+            vector: self.vector.clone(),
+        }
+    }
+}
+
 impl<A, P: SharedPointerKind> ConsumingIter<A, P> {
     fn new(vector: GenericVector<A, P>) -> Self {
         Self { vector }
