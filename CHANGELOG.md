@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Removed the `bitmaps` dependency, which is unmaintained (RUSTSEC-2026-0247)
+  and carries an unpatched soundness issue (RUSTSEC-2025-0167), by using
+  `imbl-sized-chunks` 0.2.0's in-tree bitmap module. No public API change. (#170)
+
 ## [7.0.1] - 2026-07-18
 
 ### Fixed
