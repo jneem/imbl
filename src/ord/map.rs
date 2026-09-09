@@ -2638,6 +2638,53 @@ mod test {
         }
     }
 
+    /// Diffing a map against a clone-derived sibling must report every
+    /// difference (issue #161). An entry sitting right after a run of
+    /// structurally shared nodes must still be compared, whichever kind of
+    /// difference it holds:
+    ///
+    /// - an updated value there was silently dropped from the diff (and,
+    ///   since `PartialEq` is diff-backed, the unequal maps compared equal);
+    /// - a removed entry there was reported as a `Remove` of the *wrong*
+    ///   key (its successor);
+    /// - a removal of a leaf's first key followed by an insert between the
+    ///   now-stale parent separator and the new first key lost both the
+    ///   `Remove` and the `Add` outright.
+    #[test]
+    fn diff_clone_derived_shared_structure() {
+        for n in [17usize, 40, 100] {
+            let a: OrdMap<usize, usize> = (0..n).map(|i| (i * 10, 0usize)).collect();
+            // Update every key, one at a time.
+            for k in (0..n).map(|k| k * 10) {
+                let b = a.update(k, 1);
+                let diff: Vec<_> = a.diff(&b).collect();
+                assert_eq!(expected_diff(&a, &b), diff, "update {k} of {n}");
+                assert_ne!(a, b, "eq is diff-backed and must see update {k} of {n}");
+            }
+            // Remove every key, one at a time.
+            for k in (0..n).map(|k| k * 10) {
+                let b = a.without(&k);
+                let diff: Vec<_> = a.diff(&b).collect();
+                assert_eq!(expected_diff(&a, &b), diff, "remove {k} of {n}");
+            }
+            // Remove every key and insert a fresh key just above it: when
+            // k headed a leaf, the parent separator still reads k, so the
+            // inserted key becomes the new head of an unshared leaf.
+            for k in (0..n).map(|k| k * 10) {
+                let mut b = a.clone();
+                b.remove(&k);
+                b.insert(k + 5, 7);
+                let diff: Vec<_> = a.diff(&b).collect();
+                assert_eq!(
+                    expected_diff(&a, &b),
+                    diff,
+                    "remove {k} insert {} of {n}",
+                    k + 5
+                );
+            }
+        }
+    }
+
     fn expected_diff<'a, K, V, P>(
         a: &'a GenericOrdMap<K, V, P>,
         b: &'a GenericOrdMap<K, V, P>,
@@ -2891,6 +2938,34 @@ mod test {
             let mut b = a.clone();
             for (k, v) in ops {
                 b.insert(k, v);
+            }
+
+            let diff: Vec<_> = a.diff(&b).collect();
+            let expected = expected_diff(&a, &b);
+            assert_eq!(expected, diff);
+        }
+
+        /// Like `diff_all_values_shared`, but with a key domain narrow
+        /// enough that the ops routinely update, remove, and re-insert keys
+        /// at shared-structure boundaries (issue #161); with `usize::ANY`
+        /// keys, ops are pure inserts of fresh keys and never exercise
+        /// those shapes.
+        #[test]
+        fn diff_clone_derived_narrow_keys(
+            a in collection::vec((0usize..64, usize::ANY), 1..100),
+            ops in collection::vec((0usize..64, ::proptest::option::of(usize::ANY)), 1..100),
+        ) {
+            let a: OrdMap<usize, usize> = OrdMap::from(a);
+            let mut b = a.clone();
+            for (k, op) in ops {
+                match op {
+                    Some(v) => {
+                        b.insert(k, v);
+                    }
+                    None => {
+                        b.remove(&k);
+                    }
+                }
             }
 
             let diff: Vec<_> = a.diff(&b).collect();

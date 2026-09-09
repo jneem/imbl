@@ -23,6 +23,10 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 - Fixed `OrdSet::ConsumingIter::len()` panicking due to a missing `size_hint`
   override on its `ExactSizeIterator` implementation. (#176)
 
+- Fixed `OrdMap::diff` (and diff-backed `PartialEq`) silently dropping or
+  mis-reporting differences that sit immediately after a run of
+  structurally shared nodes. (#161)
+
 ## [7.0.1] - 2026-07-18
 
 ### Fixed

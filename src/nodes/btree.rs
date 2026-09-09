@@ -1191,39 +1191,54 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
         }
     }
 
-    /// Advances this and another cursor to their next position.
-    /// While doing so skip all shared nodes between them.
+    /// Advances this cursor and `other` past their current entries, whose
+    /// keys the caller has verified to be equal, skipping in bulk over any
+    /// run of nodes shared between the two trees.
+    ///
+    /// Skipping is sound only for whole shared subtrees: pointer equality
+    /// implies equal contents, so a shared subtree contributes nothing to a
+    /// diff. When both cursors sit at the same position of the same shared
+    /// leaf, the rest of that leaf (and any run of shared ancestors) can be
+    /// dropped wholesale. But as soon as a cursor lands on an entry of an
+    /// unshared leaf, that entry has not been compared yet, and the cursors
+    /// must stop there so the caller can compare it.
     pub(crate) fn advance_skipping_shared<'b>(&mut self, other: &mut Cursor<'b, K, V, P>) {
-        // The current implementation is not optimal as it will still visit many nodes unnecessarily
-        // before skipping them. But it requires very little additional code.
-        // Nevertheless it will still improve performance when there are shared nodes.
-        loop {
-            let mut skipped_any = false;
-            debug_assert!(self.leaf.is_some());
-            debug_assert!(other.leaf.is_some());
-            if let (Some(this), Some(that)) = (self.leaf, other.leaf) {
-                if std::ptr::eq(this.1, that.1) {
-                    self.leaf = None;
-                    other.leaf = None;
-                    skipped_any = true;
-                    let shared_levels = self
-                        .stack
-                        .iter()
-                        .rev()
-                        .zip(other.stack.iter().rev())
-                        .take_while(|(this, that)| std::ptr::eq(this.1, that.1))
-                        .count();
-                    if shared_levels != 0 {
-                        self.stack.drain(self.stack.len() - shared_levels..);
-                        other.stack.drain(other.stack.len() - shared_levels..);
-                    }
+        // The current implementation is not optimal as it will still visit
+        // the boundary nodes of shared subtrees before skipping them. But it
+        // requires very little additional code, and still improves
+        // performance when there are shared nodes.
+        debug_assert!(self.leaf.is_some());
+        debug_assert!(other.leaf.is_some());
+        // Whether the entries at the cursors' current positions have already
+        // been compared by the caller; only such entries may be stepped past
+        // without looking at them.
+        let mut current_pair_compared = true;
+        while let (Some(this), Some(that)) = (self.leaf, other.leaf) {
+            if std::ptr::eq(this.1, that.1) && this.0 == that.0 {
+                // Same leaf at the same position: the rest of this leaf is
+                // identical in both trees, as is any contiguous run of
+                // shared ancestors above it.
+                self.leaf = None;
+                other.leaf = None;
+                let shared_levels = self
+                    .stack
+                    .iter()
+                    .rev()
+                    .zip(other.stack.iter().rev())
+                    .take_while(|(this, that)| std::ptr::eq(this.1, that.1) && this.0 == that.0)
+                    .count();
+                if shared_levels != 0 {
+                    self.stack.drain(self.stack.len() - shared_levels..);
+                    other.stack.drain(other.stack.len() - shared_levels..);
                 }
+            } else if !current_pair_compared {
+                // Unshared leaves holding entries the caller has not seen:
+                // stop here so the caller can compare them.
+                return;
             }
             self.next();
             other.next();
-            if !skipped_any || self.leaf.is_none() {
-                break;
-            }
+            current_pair_compared = false;
         }
     }
 
