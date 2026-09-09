@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Implemented `Clone` for the consuming iterators of `HashMap`, `HashSet`,
+  `OrdMap`, `OrdSet` and `Vector`. (#174)
+
 ### Changed
 
 - Removed the `bitmaps` dependency, which is unmaintained (RUSTSEC-2026-0247)
