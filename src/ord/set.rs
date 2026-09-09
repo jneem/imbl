@@ -943,6 +943,10 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.it.next().map(|v| v.0)
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.it.size_hint()
+    }
 }
 
 impl<A, P> DoubleEndedIterator for ConsumingIter<A, P>
@@ -1154,6 +1158,15 @@ mod test {
         assert!(!set.contains("bar"));
         set.remove("foo");
         assert!(!set.contains("foo"));
+    }
+
+    #[test]
+    fn consuming_iter_len() {
+        let set = ordset![1, 2, 3, 4, 5];
+        let mut it = set.into_iter();
+        assert_eq!(it.len(), 5);
+        it.next();
+        assert_eq!(it.len(), 4);
     }
 
     #[test]
