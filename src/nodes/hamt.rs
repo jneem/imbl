@@ -10,8 +10,8 @@ use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 use std::{fmt, mem, ptr};
 
 use archery::{SharedPointer, SharedPointerKind};
-use bitmaps::{Bits, BitsImpl};
 use equivalent::Equivalent;
+use imbl_sized_chunks::bitmap::{Bits, BitsImpl};
 use imbl_sized_chunks::inline_array::InlineArray;
 use imbl_sized_chunks::sparse_chunk::{Iter as ChunkIter, IterMut as ChunkIterMut, SparseChunk};
 
@@ -24,7 +24,7 @@ const SMALL_NODE_WIDTH: usize = HASH_WIDTH / 2;
 const GROUP_WIDTH: usize = HASH_WIDTH / 2;
 
 type SimdGroup = wide::u8x16;
-type GroupBitmap = bitmaps::Bitmap<GROUP_WIDTH>;
+type GroupBitmap = imbl_sized_chunks::bitmap::Bitmap<GROUP_WIDTH>;
 
 const _: () = {
     // Limitations of the current implementation, can only handle up to 2 groups,
