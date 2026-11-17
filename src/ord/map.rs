@@ -2337,6 +2337,7 @@ mod test {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::nodes::btree::PUSHES;
     use crate::proptest::*;
     #[rustfmt::skip]
     use ::proptest::num::{i16, usize};
@@ -2681,6 +2682,149 @@ mod test {
                     "remove {k} insert {} of {n}",
                     k + 5
                 );
+            }
+        }
+    }
+
+    // Tests of the work of a diff: the nodes the
+    // cursors enter (`PUSHES`), against the shape of the two trees.
+
+    /// The level of `m`'s root: 0 for a leaf or an empty map.
+    fn height<K, V, P: SharedPointerKind>(m: &GenericOrdMap<K, V, P>) -> usize {
+        m.root.as_ref().map_or(0, |r| r.level())
+    }
+
+    /// The nodes of `a`'s tree that are not in `b`'s, and how many of them
+    /// are leaves.
+    fn unshared<K, V, P: SharedPointerKind>(
+        a: &GenericOrdMap<K, V, P>,
+        b: &GenericOrdMap<K, V, P>,
+    ) -> (usize, usize) {
+        let (mut x, mut y) = (Vec::new(), Vec::new());
+        if let Some(r) = &a.root {
+            r.addresses(&mut x);
+        }
+        if let Some(r) = &b.root {
+            r.addresses(&mut y);
+        }
+        let y: std::collections::HashSet<*const ()> = y.into_iter().map(|(p, _)| p).collect();
+        let only: Vec<(*const (), bool)> = x.into_iter().filter(|(p, _)| !y.contains(p)).collect();
+        (only.len(), only.iter().filter(|(_, leaf)| *leaf).count())
+    }
+
+    /// The diff of `a` and `b`, and how many nodes its cursors entered.
+    fn diff_and_pushes<'a, K: Ord, V: PartialEq, P: SharedPointerKind>(
+        a: &'a GenericOrdMap<K, V, P>,
+        b: &'a GenericOrdMap<K, V, P>,
+    ) -> (Vec<DiffItem<'a, 'a, K, V>>, usize) {
+        let before = PUSHES.with(|n| n.get());
+        let diff = a.diff(b).collect();
+        (diff, PUSHES.with(|n| n.get()) - before)
+    }
+
+    /// Checks the diff of `a` and `b` both ways, and that its cursors enter
+    /// no more nodes than the bound proved at `Cursor::advance_skipping_shared`:
+    /// with `u` the nodes of either tree not in the other, `l` the leaves
+    /// among them, `H` the sum of the two heights and `h` the larger,
+    /// `u + 2 (H + 3 h l) + 2`.
+    fn check_diff_work(a: &OrdMap<isize, usize>, b: &OrdMap<isize, usize>, what: &str) {
+        for (x, y) in [(a, b), (b, a)] {
+            let (diff, pushes) = diff_and_pushes(x, y);
+            assert_eq!(expected_diff(x, y), diff, "{what}");
+            let (ux, lx) = unshared(x, y);
+            let (uy, ly) = unshared(y, x);
+            let (hx, hy) = (height(x), height(y));
+            let big_h = hx + hy;
+            let bound = ux + uy + 2 * (big_h + 3 * hx.max(hy) * (lx + ly)) + 2;
+            assert!(
+                pushes <= bound,
+                "{}: {} nodes entered, bound {}",
+                what,
+                pushes,
+                bound
+            );
+        }
+    }
+
+    /// A map of `n` keys 0, 10, 20, ...: room between them for new keys.
+    fn spaced(n: usize) -> OrdMap<isize, usize> {
+        (0..n as isize).map(|i| (i * 10, 0usize)).collect()
+    }
+
+    /// Changing the last key copies the right-hand path; every other child
+    /// of the root is one node in both maps, and the diff steps over each at
+    /// the root's level. The cursors enter each tree's leftmost path once
+    /// (`seek_to_first`, `2 h`) and each copied path once (`2 h`). Comparing
+    /// pointers only at leaves walks down to the first leaf of every shared
+    /// sibling of the path.
+    #[test]
+    fn diff_skips_a_shared_subtree_at_the_root() {
+        let a = spaced(20_000);
+        let h = height(&a);
+        assert!(h >= 2, "the root is a branch of branches");
+        let b = a.update(199_990, 1);
+        for (x, y) in [(&a, &b), (&b, &a)] {
+            let (diff, pushes) = diff_and_pushes(x, y);
+            assert_eq!(expected_diff(x, y), diff);
+            assert_eq!(pushes, 4 * h);
+        }
+    }
+
+    /// The nodes a diff enters grow with the height of the tree, not its
+    /// size: `4 h` for a change of the last key and `2 h` (the copied
+    /// leftmost path, entered by `seek_to_first`) for a change of the first,
+    /// at sizes from 1 to 100,000.
+    #[test]
+    fn diff_work_grows_with_the_height() {
+        for n in [1usize, 10, 100, 1_000, 10_000, 100_000] {
+            let a = spaced(n);
+            let h = height(&a);
+            let last = a.update((n as isize - 1) * 10, 1);
+            let first = a.update(0, 1);
+            for (b, nodes) in [(&last, 4 * h), (&first, 2 * h)] {
+                for (x, y) in [(&a, b), (b, &a)] {
+                    let (diff, pushes) = diff_and_pushes(x, y);
+                    assert_eq!(expected_diff(x, y), diff, "{n} keys");
+                    assert_eq!(pushes, nodes, "{n} keys");
+                }
+            }
+        }
+    }
+
+    /// Each change of one map at each size from 0 to 600 keys (each root
+    /// level from 0 to at least 2 is reached), and at sizes up to
+    /// 20,000: a key added after the last (splits up to a new root), before
+    /// the first and in the middle, the first, middle and last removed (merges
+    /// down to a root of one child), the middle updated, and the middle
+    /// removed with a key added just after it, where the two cursors' next
+    /// keys differ. Each diff is checked both ways, and its work against
+    /// the bound.
+    #[test]
+    fn diff_of_each_change_at_each_size() {
+        assert!(height(&spaced(600)) >= 2);
+        let sizes = (0..=600usize).chain([1_000, 5_000, 20_000]);
+        for n in sizes {
+            let a = spaced(n);
+            let top = n as isize * 10;
+            let mid = (n as isize / 2) * 10;
+            let mut changes = vec![
+                ("add after the last", a.update(top, 1)),
+                ("add before the first", a.update(-5, 1)),
+                ("add in the middle", a.update(mid + 5, 1)),
+            ];
+            if n > 0 {
+                let mut moved = a.without(&mid);
+                moved.insert(mid + 5, 1);
+                changes.extend([
+                    ("remove the first", a.without(&0)),
+                    ("remove the middle", a.without(&mid)),
+                    ("remove the last", a.without(&(top - 10))),
+                    ("update the middle", a.update(mid, 1)),
+                    ("move the middle", moved),
+                ]);
+            }
+            for (what, b) in &changes {
+                check_diff_work(&a, b, &format!("{what} of {n}"));
             }
         }
     }

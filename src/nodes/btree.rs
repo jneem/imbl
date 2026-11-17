@@ -81,10 +81,38 @@ impl<K, V, P: SharedPointerKind> Node<K, V, P> {
         }))
     }
 
-    fn level(&self) -> usize {
+    pub(crate) fn level(&self) -> usize {
         match self {
             Node::Branch(branch) => branch.level(),
             Node::Leaf(_) => 0,
+        }
+    }
+
+    /// The address of each node of this tree, this one included, and
+    /// whether it is a leaf (for the tests of the work of a diff).
+    #[cfg(test)]
+    pub(crate) fn addresses(&self, out: &mut Vec<(*const (), bool)>) {
+        fn branch<K, V, P: SharedPointerKind>(
+            b: &Branch<K, V, P>,
+            out: &mut Vec<(*const (), bool)>,
+        ) {
+            out.push((std::ptr::from_ref(b).cast(), false));
+            match &b.children {
+                Children::Leaves { leaves } => out.extend(
+                    leaves
+                        .iter()
+                        .map(|l| (std::ptr::from_ref(&**l).cast(), true)),
+                ),
+                Children::Branches { branches, .. } => {
+                    for c in branches.iter() {
+                        branch(c, out);
+                    }
+                }
+            }
+        }
+        match self {
+            Node::Branch(b) => branch(b, out),
+            Node::Leaf(l) => out.push((std::ptr::from_ref(&**l).cast(), true)),
         }
     }
 
@@ -1078,6 +1106,13 @@ impl<'a, K, V, P: SharedPointerKind> Clone for Iter<'a, K, V, P> {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many nodes the cursors of this thread have entered
+    /// (`Cursor::push_child`), for the tests of the work of a diff.
+    pub(crate) static PUSHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 #[derive(Debug)]
 pub(crate) struct Cursor<'a, K, V, P: SharedPointerKind> {
     // a sequence of nodes starting at the root
@@ -1125,6 +1160,8 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
     // pushes the `ix`th child of `branch` onto the stack, whether it's a leaf
     // or a branch
     fn push_child(&mut self, branch: &'a Branch<K, V, P>, ix: usize) {
+        #[cfg(test)]
+        PUSHES.with(|n| n.set(n.get() + 1));
         debug_assert!(
             self.leaf.is_none(),
             "it doesn't make sense to push when we're already at a leaf"
@@ -1191,6 +1228,91 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
         }
     }
 
+    /// Leaves the current leaf, or the pending child (see `pending`), without
+    /// entering anything: the next child of the innermost branch that has
+    /// one becomes pending, and branches with no children left are popped.
+    /// If no branch has one, the cursor is at the end.
+    fn step_over(&mut self) {
+        self.leaf = None;
+        while let Some((i, branch)) = self.stack.last_mut() {
+            if *i + 1 < branch.children.len() {
+                *i += 1;
+                return;
+            }
+            self.stack.pop();
+        }
+    }
+
+    /// Steps past the current entry: to the next entry of the same leaf, or
+    /// out of the leaf as `step_over` does, entering nothing.
+    fn step_entry(&mut self) {
+        if let Some((i, leaf)) = &mut self.leaf {
+            if *i + 1 < leaf.keys.len() {
+                *i += 1;
+                return;
+            }
+        }
+        self.step_over();
+    }
+
+    /// The node the cursor stands before but has not entered, and its
+    /// level: child `i` of the innermost branch `(i, branch)` when the cursor
+    /// is in no leaf. `None` when the cursor is in a leaf or at the end.
+    /// Only `step_over` and `enter` leave a cursor in this state, and only
+    /// within `advance_skipping_shared`.
+    fn pending(&self) -> Option<(*const (), usize)> {
+        if self.leaf.is_some() {
+            return None;
+        }
+        let &(i, branch) = self.stack.last()?;
+        Some(match &branch.children {
+            Children::Leaves { leaves } => (std::ptr::from_ref(&*leaves[i]).cast(), 0),
+            Children::Branches { branches, level } => {
+                (std::ptr::from_ref(&*branches[i]).cast(), level.get() - 1)
+            }
+        })
+    }
+
+    /// Enters the pending node: a branch becomes the innermost branch with
+    /// its first child pending; a leaf becomes the current leaf at its first
+    /// entry.
+    fn enter(&mut self) {
+        let (i, branch) = *self.stack.last().expect("a cursor with a pending node");
+        self.push_child(branch, i);
+    }
+
+    /// Brings both cursors into a leaf (or to the end), stepping over each
+    /// node that is pending in both at once. Pointers are compared only
+    /// between nodes of one level, so equal pointers name one node.
+    fn align<'b>(&mut self, other: &mut Cursor<'b, K, V, P>) {
+        loop {
+            match (self.pending(), other.pending()) {
+                (Some((p, l)), Some((q, m))) => {
+                    if l == m && p == q {
+                        self.step_over();
+                        other.step_over();
+                    } else {
+                        if l >= m {
+                            self.enter();
+                        }
+                        if m >= l {
+                            other.enter();
+                        }
+                    }
+                }
+                (Some(_), None) => {
+                    self.enter();
+                    self.seek_to_first();
+                }
+                (None, Some(_)) => {
+                    other.enter();
+                    other.seek_to_first();
+                }
+                (None, None) => return,
+            }
+        }
+    }
+
     /// Advances this cursor and `other` past their current entries, whose
     /// keys the caller has verified to be equal, skipping in bulk over any
     /// run of nodes shared between the two trees.
@@ -1198,15 +1320,108 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
     /// Skipping is sound only for whole shared subtrees: pointer equality
     /// implies equal contents, so a shared subtree contributes nothing to a
     /// diff. When both cursors sit at the same position of the same shared
-    /// leaf, the rest of that leaf (and any run of shared ancestors) can be
-    /// dropped wholesale. But as soon as a cursor lands on an entry of an
-    /// unshared leaf, that entry has not been compared yet, and the cursors
-    /// must stop there so the caller can compare it.
+    /// leaf, the rest of that leaf can be dropped wholesale. When both stand
+    /// before the same node, at any level, that node is stepped over without
+    /// entering it. But as soon as a cursor lands on an entry of an unshared
+    /// leaf, that entry has not been compared yet, and the cursors must stop
+    /// there so the caller can compare it.
+    ///
+    /// Pointers are compared at every level, not only at leaves: a cursor
+    /// leaves a node without entering the next one (`step_over`), and `align`
+    /// compares the nodes the two cursors stand before. Moving each cursor
+    /// with `next` instead, which enters every node down to a leaf, would
+    /// enter the first leaf of each shared sibling of a copied path, `B`
+    /// nodes at each of `h` levels, `h` deep: O(B h²) nodes for a change of
+    /// one key (178 nodes for 20,000 keys in the test
+    /// `diff_skips_a_shared_subtree_at_the_root`, against 16 here).
+    ///
+    /// The proof below gives O(B (u + h (ℓ + 1))) steps for a whole diff,
+    /// where `u` is the number of nodes of either tree not in the other, `ℓ`
+    /// the leaves among them, `h` the larger height and `B` the node size:
+    /// O(B h) for maps that differ by one insert, remove or update
+    /// (u ≤ 2 h + 3, ℓ ≤ 3). The cost is two pointer comparisons per node
+    /// pair stepped over, and no extra memory.
+    ///
+    /// Proof. Let the cursors be A (`self`) and B (`other`); a key is
+    /// *consumed* by a cursor when the cursor has moved past it.
+    ///
+    /// Soundness. The caller (`DiffIter`) is a merge: a key consumed by one
+    /// cursor and present in the other tree has been consumed by the other
+    /// too. At entry both cursors are at one key `k`, so after it each has
+    /// consumed exactly the keys of its tree up to `k`. (1) Two cursors at
+    /// the same position of the same leaf: the rest of the leaf is the same
+    /// entries in both trees, so dropping it yields no diff item and leaves
+    /// both having consumed exactly their keys up to the leaf's last key.
+    /// (2) In `align`, both pending at one level with one pointer: the node
+    /// holds the keys of its subtree, which in each tree are the next keys
+    /// after those consumed, since a cursor that stands before a node has
+    /// consumed every key before the node and none in it. Stepping over it
+    /// in both yields no diff item and keeps both having consumed exactly
+    /// their keys up to the node's last key. Pointers are compared only at
+    /// one level, and a level-`l` node of one tree is a `Leaf` when `l = 0`
+    /// and a `Branch` otherwise, so equal pointers name one node of one
+    /// type. (3) Entering a node consumes nothing. So when `align` returns,
+    /// both cursors are at the least key not yet consumed in their trees, or
+    /// at the end, and the loop below returns only with two entries the
+    /// caller has not compared, both cursors in a leaf, or a cursor at the
+    /// end, as the caller expects.
+    ///
+    /// Cost. Count the nodes the cursors enter (`push_child`): a node is
+    /// entered at most once by each cursor, as cursors only move forward.
+    /// Every other step either moves a stack index forward (at most 17 per
+    /// entered node, plus the two roots), pops an entered node, or moves
+    /// within an entered leaf. Within an unshared leaf that is at most `B`
+    /// per leaf; within a shared leaf, a cursor moves only in (1), once, as
+    /// a shared leaf holds no key missing in the other tree and so is never
+    /// moved through by `DiffIter`'s Less or Greater arms. So the steps are
+    /// O(B) times the entered nodes plus `B ℓ`. Unshared nodes are entered
+    /// at most `u` times. Shared nodes are entered:
+    /// (a) at `DiffIter::new`'s `seek_to_first`: at most the two heights;
+    /// (b) by `next` in `DiffIter`'s other arms, which leave a leaf
+    ///     holding a key missing in the other tree, so an unshared leaf: at
+    ///     most `h` per unshared leaf;
+    /// (c) in an `align` in which the two cursors' next keys differ, say A's
+    ///     key `a` below B's key `b`. Then `a` is not in B's tree (both have
+    ///     consumed exactly their keys up to some key below `a`, and B's next
+    ///     key is `b`), so no node holding `a` is shared. If both are pending
+    ///     when the keys come to differ (after a step over), no node is
+    ///     stepped over from then on (a shared node's first key is the next
+    ///     key in both trees), A enters only unshared nodes and ends in an
+    ///     unshared leaf, and B enters at most `h` nodes: charge them to A's
+    ///     leaf, which A enters once. If instead one cursor is in a leaf when
+    ///     the other descends alone (`seek_to_first` in `align`), the one in a
+    ///     leaf got there by `step_entry` within the leaf at the start of this
+    ///     call (descents by one level reach leaves in both cursors at once,
+    ///     as the levels stay equal or the higher one moves, and a step out of
+    ///     a shared leaf leaves both cursors pending), so it stands at an
+    ///     index of at least 1. If the one descending has the smaller key, it
+    ///     enters only unshared nodes. If it has the larger key, the other's
+    ///     leaf L holds the smaller key, which is missing in the descending
+    ///     cursor's tree, so L is unshared; charge the at most `h` nodes
+    ///     entered to L. All later keys of L are below the descending cursor's
+    ///     new key (that key is the first key of a leaf of its tree, and L
+    ///     holds the smaller key at an index of at least 1, so the new key is
+    ///     not in L), so `DiffIter` then moves the other cursor out of L by
+    ///     its Greater or Less arm, with no call of this function between:
+    ///     L takes this charge once. A cursor that descends alone while the
+    ///     other is at the end has a key missing in the other tree, and
+    ///     enters only unshared nodes. So these entries number at most `2 h`
+    ///     per unshared leaf;
+    /// (d) in an `align` with equal next keys, by one-level descents. When
+    ///     the two levels are equal and A's node X is shared, X is the node of
+    ///     that level holding B's next key in B's tree too (all leaves of a
+    ///     B-tree are at level 0), so X is B's pending node and is stepped
+    ///     over: entered nodes at equal levels are unshared. When A's level is
+    ///     higher, X holds B's next key in B's tree and is above B's pending
+    ///     node, so X is on B's stack: B entered X before, by a step of kind
+    ///     (a) to (c) (it cannot be of kind (d), which would need X on A's
+    ///     stack, entered by A before), or X is B's root. A enters X once, so
+    ///     these entries number at most the entries of kinds (a) to (c), plus
+    ///     the two roots.
+    /// With `H` the sum of the heights, the entries number at most
+    /// `u + 2 (H + 3 h ℓ) + 2` (the bound `check_diff_work` tests in
+    /// `ord::map`'s tests), so the diff takes O(B (u + h (ℓ + 1))) steps. ∎
     pub(crate) fn advance_skipping_shared<'b>(&mut self, other: &mut Cursor<'b, K, V, P>) {
-        // The current implementation is not optimal as it will still visit
-        // the boundary nodes of shared subtrees before skipping them. But it
-        // requires very little additional code, and still improves
-        // performance when there are shared nodes.
         debug_assert!(self.leaf.is_some());
         debug_assert!(other.leaf.is_some());
         // Whether the entries at the cursors' current positions have already
@@ -1216,28 +1431,18 @@ impl<'a, K, V, P: SharedPointerKind> Cursor<'a, K, V, P> {
         while let (Some(this), Some(that)) = (self.leaf, other.leaf) {
             if std::ptr::eq(this.1, that.1) && this.0 == that.0 {
                 // Same leaf at the same position: the rest of this leaf is
-                // identical in both trees, as is any contiguous run of
-                // shared ancestors above it.
-                self.leaf = None;
-                other.leaf = None;
-                let shared_levels = self
-                    .stack
-                    .iter()
-                    .rev()
-                    .zip(other.stack.iter().rev())
-                    .take_while(|(this, that)| std::ptr::eq(this.1, that.1) && this.0 == that.0)
-                    .count();
-                if shared_levels != 0 {
-                    self.stack.drain(self.stack.len() - shared_levels..);
-                    other.stack.drain(other.stack.len() - shared_levels..);
-                }
+                // identical in both trees (case (1) of the proof).
+                self.step_over();
+                other.step_over();
             } else if !current_pair_compared {
                 // Unshared leaves holding entries the caller has not seen:
                 // stop here so the caller can compare them.
                 return;
+            } else {
+                self.step_entry();
+                other.step_entry();
             }
-            self.next();
-            other.next();
+            self.align(other);
             current_pair_compared = false;
         }
     }
