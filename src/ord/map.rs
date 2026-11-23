@@ -31,7 +31,8 @@ use equivalent::Comparable;
 
 use crate::hashmap::GenericHashMap;
 use crate::nodes::btree::{
-    ConsumingIter as NodeConsumingIter, Cursor, InsertAction, Iter as NodeIter, Node,
+    ConsumingIter as NodeConsumingIter, Cursor, InsertAction, Iter as NodeIter,
+    IterMut as NodeIterMut, Node,
 };
 use crate::shared_ptr::DefaultSharedPtr;
 
@@ -573,6 +574,35 @@ where
     {
         let root = self.root.as_mut()?;
         root.lookup_mut(key).map(|(_, v)| v)
+    }
+
+    /// Get an iterator over the key/value pairs of a map, with mutable
+    /// references to the values, in key order.
+    ///
+    /// This is a copy-on-write operation: each node shared with another map
+    /// is copied when the iterator first reaches it. All yielded references
+    /// remain valid and disjoint while the iterator's borrow lasts.
+    ///
+    /// Time: O(n)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[macro_use] extern crate imbl;
+    /// # use imbl::ordmap::OrdMap;
+    /// let mut map = ordmap!{1 => 10, 2 => 20};
+    /// let original = map.clone();
+    /// for (key, value) in map.iter_mut() {
+    ///     *value += key;
+    /// }
+    /// assert_eq!(map, ordmap!{1 => 11, 2 => 22});
+    /// assert_eq!(original, ordmap!{1 => 10, 2 => 20});
+    /// ```
+    #[must_use]
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V, P> {
+        IterMut {
+            it: NodeIterMut::new(self.root.as_mut(), self.size),
+        }
     }
 
     /// Get the key/value pair for a key from a map.
@@ -1856,6 +1886,43 @@ where
 impl<'a, K, V, P> ExactSizeIterator for Iter<'a, K, V, P> where P: SharedPointerKind {}
 impl<'a, K, V, P> FusedIterator for Iter<'a, K, V, P> where P: SharedPointerKind {}
 
+/// A mutable iterator over the key/value pairs of a map.
+pub struct IterMut<'a, K, V, P: SharedPointerKind> {
+    it: NodeIterMut<'a, K, V, P>,
+}
+
+impl<'a, K, V, P> Iterator for IterMut<'a, K, V, P>
+where
+    K: Clone,
+    V: Clone,
+    P: SharedPointerKind,
+{
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.it.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.it.size_hint()
+    }
+}
+
+impl<'a, K, V, P> ExactSizeIterator for IterMut<'a, K, V, P>
+where
+    K: Clone,
+    V: Clone,
+    P: SharedPointerKind,
+{
+}
+impl<'a, K, V, P> FusedIterator for IterMut<'a, K, V, P>
+where
+    K: Clone,
+    V: Clone,
+    P: SharedPointerKind,
+{
+}
+
 /// An iterator over a range of key/value pairs in a map.
 #[derive(Debug)]
 pub struct RangedIter<'a, K, V, P: SharedPointerKind> {
@@ -2103,6 +2170,20 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+impl<'a, K, V, P> IntoIterator for &'a mut GenericOrdMap<K, V, P>
+where
+    K: Ord + Clone,
+    V: Clone,
+    P: SharedPointerKind,
+{
+    type Item = (&'a K, &'a mut V);
+    type IntoIter = IterMut<'a, K, V, P>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 
@@ -2374,6 +2455,51 @@ mod test {
         assert_eq!(it.next(), Some((&8, &88)));
         assert_eq!(it.next(), Some((&9, &99)));
         assert_eq!(it.next(), None);
+    }
+
+    #[test]
+    fn iter_mut_lends_disjoint_entries_and_copies_shared_nodes() {
+        let mut map: OrdMap<i32, i32> = (0..10_000).map(|i| (i, i)).collect();
+        let snapshot = map.clone();
+        let mut entries: Vec<_> = map.iter_mut().collect();
+        assert_eq!(entries.len(), 10_000);
+        assert!(entries.windows(2).all(|w| w[0].0 < w[1].0));
+        for (key, value) in &mut entries {
+            **value += **key;
+        }
+        drop(entries);
+        assert!(map.iter().all(|(k, v)| *v == 2 * k));
+        assert!(snapshot.iter().all(|(k, v)| k == v));
+        map.check_sane();
+        snapshot.check_sane();
+    }
+
+    #[test]
+    fn iter_mut_is_exact_and_fused() {
+        let mut empty: OrdMap<i32, i32> = OrdMap::new();
+        assert_eq!(empty.iter_mut().next(), None);
+
+        let mut map = ordmap! {1 => 1};
+        let mut it = map.iter_mut();
+        assert_eq!(it.len(), 1);
+        assert_eq!(it.next(), Some((&1, &mut 1)));
+        assert_eq!(it.len(), 0);
+        assert_eq!(it.next(), None);
+        assert_eq!(it.next(), None);
+    }
+
+    proptest! {
+        #[test]
+        fn iter_mut_matches_btreemap(ref input in collection::btree_map(i16::ANY, i16::ANY, 0..1000)) {
+            let mut map: OrdMap<i16, i32> = input.iter().map(|(k, v)| (*k, *v as i32)).collect();
+            let snapshot = map.clone();
+            for (key, value) in &mut map {
+                *value += *key as i32;
+            }
+            let expected: BTreeMap<i16, i32> = input.iter().map(|(k, v)| (*k, *v as i32 + *k as i32)).collect();
+            assert_eq!(map.iter().map(|(k, v)| (*k, *v)).collect::<BTreeMap<_, _>>(), expected);
+            assert_eq!(snapshot.iter().map(|(k, v)| (*k, *v)).collect::<BTreeMap<_, _>>(), input.iter().map(|(k, v)| (*k, *v as i32)).collect::<BTreeMap<_, _>>());
+        }
     }
 
     #[test]
