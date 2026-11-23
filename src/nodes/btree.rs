@@ -1349,3 +1349,76 @@ mod slice_ext {
         Err(low)
     }
 }
+
+/// Mutable in-order traversal.
+///
+/// Each node is made unique (copied if shared) once, when the traversal first
+/// reaches it, and each leaf's entries are lent out through a single borrow of
+/// that leaf, so yielded references stay disjoint and valid for `'a`.
+pub(crate) struct IterMut<'a, K, V, P: SharedPointerKind> {
+    stack: Vec<IterMutFrame<'a, K, V, P>>,
+    entries: std::slice::IterMut<'a, (K, V)>,
+    remaining: usize,
+}
+
+enum IterMutFrame<'a, K, V, P: SharedPointerKind> {
+    Branches(std::slice::IterMut<'a, SharedPointer<Branch<K, V, P>, P>>),
+    Leaves(std::slice::IterMut<'a, SharedPointer<Leaf<K, V>, P>>),
+}
+
+impl<'a, K: Clone, V: Clone, P: SharedPointerKind> IterMut<'a, K, V, P> {
+    pub(crate) fn new(root: Option<&'a mut Node<K, V, P>>, len: usize) -> Self {
+        let mut iter = Self {
+            stack: Vec::new(),
+            entries: Default::default(),
+            remaining: len,
+        };
+        match root {
+            Some(Node::Branch(branch)) => iter.push_branch(SharedPointer::make_mut(branch)),
+            Some(Node::Leaf(leaf)) => iter.entries = SharedPointer::make_mut(leaf).keys.iter_mut(),
+            None => {}
+        }
+        iter
+    }
+
+    fn push_branch(&mut self, branch: &'a mut Branch<K, V, P>) {
+        self.stack.push(match &mut branch.children {
+            Children::Leaves { leaves } => IterMutFrame::Leaves(leaves.iter_mut()),
+            Children::Branches { branches, .. } => IterMutFrame::Branches(branches.iter_mut()),
+        });
+    }
+}
+
+impl<'a, K: Clone, V: Clone, P: SharedPointerKind> Iterator for IterMut<'a, K, V, P> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some((key, value)) = self.entries.next() {
+                self.remaining -= 1;
+                return Some((&*key, value));
+            }
+            match self.stack.last_mut()? {
+                IterMutFrame::Leaves(leaves) => match leaves.next() {
+                    Some(leaf) => self.entries = SharedPointer::make_mut(leaf).keys.iter_mut(),
+                    None => {
+                        self.stack.pop();
+                    }
+                },
+                IterMutFrame::Branches(branches) => match branches.next() {
+                    Some(branch) => {
+                        let branch = SharedPointer::make_mut(branch);
+                        self.push_branch(branch);
+                    }
+                    None => {
+                        self.stack.pop();
+                    }
+                },
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
